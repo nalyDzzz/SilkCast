@@ -436,7 +436,7 @@ fn resolve_main_window_id(app: &tauri::AppHandle) -> Result<u64, String> {
 
     match handle.as_raw() {
         RawWindowHandle::Win32(h) => Ok(h.hwnd.get() as u64),
-        RawWindowHandle::Xlib(h) => Ok(h.window),
+        RawWindowHandle::Xlib(h) => Ok(u64::from(h.window)),
         RawWindowHandle::Xcb(h) => Ok(u64::from(h.window.get())),
         RawWindowHandle::Wayland(_) => Err(
             "wayland window handles are not supported for mpv embedding; run with X11/XWayland (e.g. set `GDK_BACKEND=x11`)".to_string(),
