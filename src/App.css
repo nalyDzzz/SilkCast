@@ -123,6 +123,25 @@ button:hover:not(:disabled) {
   padding-inline: 0.7rem;
 }
 
+.player-mode-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.player-mode-actions button {
+  width: auto;
+  padding-inline: 0.6rem;
+}
+
+.player-surface {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  border: 1px solid #bfd0e4;
+  background: #0b121c;
+  margin-bottom: 0.6rem;
+}
+
 .list {
   display: flex;
   flex-direction: column;

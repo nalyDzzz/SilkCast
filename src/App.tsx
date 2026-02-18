@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
@@ -36,11 +36,13 @@ type RecentChannelRecord = {
 type PlaybackStatus = {
   state: string;
   attached_hwnd: number | null;
+  embedded_surface_hwnd: number | null;
   current_url: string | null;
   backend: string;
   last_error: string | null;
   volume: number;
   fullscreen: boolean;
+  render_mode: "external_window" | "embedded_surface";
 };
 
 type Phase1Settings = {
@@ -68,6 +70,8 @@ const DEFAULT_SETTINGS: Phase1Settings = {
 };
 
 function App() {
+  const embeddedSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const embeddedSurfaceStartedRef = useRef(false);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
@@ -225,6 +229,46 @@ function App() {
     loadChannels(selectedSourceId).catch((err) => setError(String(err)));
   }, [selectedSourceId, selectedGroup, searchQuery, favoritesOnly]);
 
+  useEffect(() => {
+    let mounted = true;
+    let rafId: number | null = null;
+
+    const scheduleSurfaceSync = () => {
+      if (rafId !== null) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(async () => {
+        rafId = null;
+        if (!mounted) {
+          return;
+        }
+        try {
+          await ensureEmbeddedSurfaceRunning();
+        } catch (err) {
+          setError(String(err));
+        }
+      });
+    };
+
+    const observer = new ResizeObserver(() => scheduleSurfaceSync());
+    if (embeddedSurfaceRef.current) {
+      observer.observe(embeddedSurfaceRef.current);
+    }
+
+    scheduleSurfaceSync();
+    window.addEventListener("resize", scheduleSurfaceSync);
+
+    return () => {
+      mounted = false;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleSurfaceSync);
+      invoke("playback_stop_embedded_surface_mode").catch(() => {});
+    };
+  }, []);
+
   async function onAddM3uSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -291,10 +335,48 @@ function App() {
     }
   }
 
-  async function onAttachCurrentWindow() {
+  async function ensureEmbeddedSurfaceRunning() {
+    const host = embeddedSurfaceRef.current;
+    if (!host) {
+      return;
+    }
+
+    const rect = host.getBoundingClientRect();
+    const bounds = {
+      x: Math.round(rect.left),
+      y: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+
+    if (!embeddedSurfaceStartedRef.current) {
+      await invoke<number>("playback_start_embedded_surface_mode", { bounds });
+      embeddedSurfaceStartedRef.current = true;
+      await loadPlaybackStatus();
+      return;
+    }
+
+    await invoke("playback_update_embedded_surface_bounds", { bounds });
+  }
+
+  async function onUseEmbeddedSurface() {
     setError(null);
     try {
-      await invoke("playback_attach_current_window");
+      await ensureEmbeddedSurfaceRunning();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function onUseExternalWindow() {
+    setError(null);
+    try {
+      await invoke("playback_use_external_window_mode");
+      embeddedSurfaceStartedRef.current = false;
       await loadPlaybackStatus();
     } catch (err) {
       setError(String(err));
@@ -529,10 +611,16 @@ function App() {
         <section className="card">
           <div className="section-head">
             <h2>Player</h2>
-            <button type="button" onClick={onAttachCurrentWindow}>
-              Attach Window
-            </button>
+            <div className="player-mode-actions">
+              <button type="button" onClick={onUseEmbeddedSurface}>
+                Embedded
+              </button>
+              <button type="button" onClick={onUseExternalWindow}>
+                External
+              </button>
+            </div>
           </div>
+          <div ref={embeddedSurfaceRef} className="player-surface" />
           <p>
             <strong>Backend:</strong> {playback?.backend ?? "..."}
           </p>
@@ -541,6 +629,12 @@ function App() {
           </p>
           <p>
             <strong>Attached:</strong> {playback?.attached_hwnd ?? "none"}
+          </p>
+          <p>
+            <strong>Surface:</strong> {playback?.embedded_surface_hwnd ?? "none"}
+          </p>
+          <p>
+            <strong>Mode:</strong> {playback?.render_mode ?? "external_window"}
           </p>
           <p>
             <strong>Current URL:</strong> {playback?.current_url ?? "none"}
