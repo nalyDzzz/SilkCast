@@ -47,7 +47,7 @@ type PlaybackStatus = {
 
 type Phase1Settings = {
   hardware_decode: boolean;
-  buffering_preset: "low" | "normal" | "high";
+  buffering_preset: "normal";
   startup_behavior: "home" | "resume_last";
 };
 
@@ -279,7 +279,6 @@ function App() {
       observer.disconnect();
       window.removeEventListener("resize", scheduleSurfaceSync);
       window.removeEventListener("scroll", scheduleSurfaceSync, true);
-      invoke("playback_stop_embedded_surface_mode").catch(() => {});
     };
   }, []);
 
@@ -374,7 +373,22 @@ function App() {
       return;
     }
 
-    await invoke("playback_update_embedded_surface_bounds", { bounds });
+    try {
+      await invoke("playback_update_embedded_surface_bounds", { bounds });
+    } catch (err) {
+      const message = String(err);
+      const likelyMissingSurface =
+        message.includes("embedded surface mode is not active") ||
+        message.includes("failed to move embedded playback surface");
+      if (!likelyMissingSurface) {
+        throw err;
+      }
+
+      embeddedSurfaceStartedRef.current = false;
+      await invoke<number>("playback_start_embedded_surface_mode", { bounds });
+      embeddedSurfaceStartedRef.current = true;
+      await loadPlaybackStatus();
+    }
   }
 
   async function onPausePlayback(paused: boolean) {
@@ -714,19 +728,7 @@ function App() {
 
             <label>
               Buffering
-              <select
-                value={settings.buffering_preset}
-                onChange={(e) =>
-                  setSettings((current) => ({
-                    ...current,
-                    buffering_preset: e.currentTarget.value as Phase1Settings["buffering_preset"],
-                  }))
-                }
-              >
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-              </select>
+              <input value="Normal (fixed for stability)" disabled />
             </label>
 
             <label>

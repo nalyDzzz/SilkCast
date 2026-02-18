@@ -218,17 +218,11 @@ fn set_phase1_settings(
 ) -> Result<(), String> {
     save_phase1_settings(&state.context.db_path, &settings)?;
 
-    if let Ok(mut playback) = state.playback.lock() {
-        if let Err(err) =
-            playback.apply_preferences(settings.hardware_decode, settings.cache_seconds())
-        {
-            let _ = append_log(
-                &state.context.log_path,
-                "WARN",
-                &format!("unable to apply playback preferences immediately: {err}"),
-            );
-        }
-    }
+    let _ = append_log(
+        &state.context.log_path,
+        "INFO",
+        "playback preferences updated (effective on next app launch)",
+    );
 
     emit_backend_event(&app, "settings_updated", json!({ "phase": 1 }))?;
     append_log(&state.context.log_path, "INFO", "phase1 settings saved")

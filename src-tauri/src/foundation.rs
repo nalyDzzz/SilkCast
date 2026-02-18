@@ -254,8 +254,7 @@ pub fn get_setting(db_path: &Path, key: &str) -> Result<Option<String>, String> 
 
 pub fn load_phase1_settings(db_path: &Path) -> Result<Phase1Settings, String> {
     let hwdec_raw = get_setting(db_path, "playback.hwdec")?;
-    let buffering_preset =
-        get_setting(db_path, "playback.buffering_preset")?.unwrap_or_else(|| "normal".to_string());
+    let _buffering_preset = get_setting(db_path, "playback.buffering_preset")?;
     let startup_behavior =
         get_setting(db_path, "startup.behavior")?.unwrap_or_else(|| "home".to_string());
 
@@ -266,7 +265,7 @@ pub fn load_phase1_settings(db_path: &Path) -> Result<Phase1Settings, String> {
 
     let settings = Phase1Settings {
         hardware_decode,
-        buffering_preset,
+        buffering_preset: "normal".to_string(),
         startup_behavior,
     };
     settings.validate()?;
@@ -274,22 +273,20 @@ pub fn load_phase1_settings(db_path: &Path) -> Result<Phase1Settings, String> {
 }
 
 pub fn save_phase1_settings(db_path: &Path, settings: &Phase1Settings) -> Result<(), String> {
-    settings.validate()?;
+    let mut normalized = settings.clone();
+    normalized.buffering_preset = "normal".to_string();
+    normalized.validate()?;
     set_setting(
         db_path,
         "playback.hwdec",
-        if settings.hardware_decode {
+        if normalized.hardware_decode {
             "true"
         } else {
             "false"
         },
     )?;
-    set_setting(
-        db_path,
-        "playback.buffering_preset",
-        &settings.buffering_preset,
-    )?;
-    set_setting(db_path, "startup.behavior", &settings.startup_behavior)?;
+    set_setting(db_path, "playback.buffering_preset", "normal")?;
+    set_setting(db_path, "startup.behavior", &normalized.startup_behavior)?;
     Ok(())
 }
 
