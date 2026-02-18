@@ -129,7 +129,26 @@ button:hover:not(:disabled) {
   border-radius: 10px;
   border: 1px solid #bfd0e4;
   background: #0b121c;
+}
+
+.player-surface-shell {
+  position: relative;
   margin-bottom: 0.6rem;
+}
+
+.player-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.8rem;
+  border-radius: 10px;
+  background: rgba(6, 12, 18, 0.55);
+  color: #e8f0fa;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .list {

@@ -92,6 +92,18 @@ function App() {
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
     [sources, selectedSourceId],
   );
+  const playerOverlayMessage = useMemo(() => {
+    if (playback?.state === "loading") {
+      return "Loading stream...";
+    }
+    if (playback?.state === "error") {
+      return playback.last_error ?? "Playback error";
+    }
+    if (!playback?.current_url || playback.state === "stopped") {
+      return "Select a channel to start playback";
+    }
+    return null;
+  }, [playback]);
 
   async function loadSources() {
     const sourceList = await invoke<SourceRecord[]>("list_registered_sources");
@@ -623,7 +635,12 @@ function App() {
           <div className="section-head">
             <h2>Player</h2>
           </div>
-          <div ref={embeddedSurfaceRef} className="player-surface" />
+          <div className="player-surface-shell">
+            <div ref={embeddedSurfaceRef} className="player-surface" />
+            {playerOverlayMessage ? (
+              <div className="player-overlay">{playerOverlayMessage}</div>
+            ) : null}
+          </div>
           <p>
             <strong>Backend:</strong> {playback?.backend ?? "..."}
           </p>

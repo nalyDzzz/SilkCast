@@ -5,6 +5,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SWP_SHOWWINDOW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOPARENTNOTIFY, WS_VISIBLE,
 };
 
+#[cfg(debug_assertions)]
+fn surface_debug_log(message: &str) {
+    eprintln!("[embedded-surface] {message}");
+}
+
+#[cfg(not(debug_assertions))]
+fn surface_debug_log(_message: &str) {}
+
 #[derive(Clone, Copy, Debug)]
 pub struct EmbeddedSurfaceBounds {
     pub x: i32,
@@ -19,6 +27,10 @@ pub struct EmbeddedSurfaceHost {
 
 impl EmbeddedSurfaceHost {
     pub fn create(parent_hwnd: u64, bounds: EmbeddedSurfaceBounds) -> Result<Self, String> {
+        surface_debug_log(&format!(
+            "create requested parent={parent_hwnd} x={} y={} w={} h={}",
+            bounds.x, bounds.y, bounds.width, bounds.height
+        ));
         if parent_hwnd == 0 {
             return Err("cannot create embedded surface with parent hwnd=0".to_string());
         }
@@ -45,10 +57,12 @@ impl EmbeddedSurfaceHost {
         };
 
         if hwnd.is_null() {
-            return Err(format!(
+            let error = format!(
                 "failed to create embedded playback surface (Win32 error {})",
                 unsafe { GetLastError() }
-            ));
+            );
+            surface_debug_log(&error);
+            return Err(error);
         }
 
         unsafe {
@@ -63,6 +77,7 @@ impl EmbeddedSurfaceHost {
             );
         }
 
+        surface_debug_log(&format!("create ok hwnd={}", hwnd as usize));
         Ok(Self { hwnd })
     }
 
@@ -71,6 +86,10 @@ impl EmbeddedSurfaceHost {
     }
 
     pub fn set_bounds(&self, bounds: EmbeddedSurfaceBounds) -> Result<(), String> {
+        surface_debug_log(&format!(
+            "move requested hwnd={} x={} y={} w={} h={}",
+            self.hwnd as usize, bounds.x, bounds.y, bounds.width, bounds.height
+        ));
         if bounds.width <= 0 || bounds.height <= 0 {
             return Err("embedded surface size must be positive".to_string());
         }
@@ -87,10 +106,12 @@ impl EmbeddedSurfaceHost {
         };
 
         if moved == 0 {
-            return Err(format!(
+            let error = format!(
                 "failed to move embedded playback surface (Win32 error {})",
                 unsafe { GetLastError() }
-            ));
+            );
+            surface_debug_log(&error);
+            return Err(error);
         }
 
         unsafe {
@@ -105,6 +126,7 @@ impl EmbeddedSurfaceHost {
             );
         }
 
+        surface_debug_log(&format!("move ok hwnd={}", self.hwnd as usize));
         Ok(())
     }
 }
@@ -112,6 +134,7 @@ impl EmbeddedSurfaceHost {
 impl Drop for EmbeddedSurfaceHost {
     fn drop(&mut self) {
         if !self.hwnd.is_null() {
+            surface_debug_log(&format!("destroy hwnd={}", self.hwnd as usize));
             unsafe {
                 DestroyWindow(self.hwnd);
             }
