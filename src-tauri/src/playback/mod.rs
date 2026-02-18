@@ -105,7 +105,11 @@ impl PlaybackEngine {
     }
 
     pub fn stop(&mut self) -> Result<(), String> {
-        self.backend.stop()?;
+        if let Err(err) = self.backend.stop() {
+            // Treat stop failures as non-fatal so UI state does not get stuck
+            // if the external mpv window/surface was closed unexpectedly.
+            self.status.last_error = Some(format!("playback stop warning: {err}"));
+        }
         self.status.current_url = None;
         self.status.state = PlaybackState::Stopped;
         Ok(())

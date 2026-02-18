@@ -110,7 +110,7 @@ OpenTV/
 Responsibilities:
 
 - Create and manage a single `mpv_handle`
-- Embed mpv output into a native child window (**HWND** on Windows)
+- Embed mpv output into a native child surface (**HWND** on Windows)
 - Playback commands:
     - play / stop / pause
     - seek (when available)
@@ -119,8 +119,12 @@ Responsibilities:
 - Emit playback events:
     - state changes: `loading`, `playing`, `paused`, `stopped`, `error`
     - optional stats: fps, dropped frames, codec (nice for debugging)
+- Embedded surface lifecycle (Windows):
+    - `playback_start_embedded_surface_mode(bounds)`
+    - `playback_update_embedded_surface_bounds(bounds)`
+    - `playback_stop_embedded_surface_mode()`
 
-**Rule:** mpv runs “native”; React never talks to mpv directly—only through backend commands/events.
+**Rule:** mpv runs native; React never talks to mpv directly, only through backend commands/events.
 
 ---
 
@@ -335,3 +339,4 @@ Not in MVP, but this architecture keeps doors open:
 ---
 
 _Last updated: YYYY-MM-DD_
+
