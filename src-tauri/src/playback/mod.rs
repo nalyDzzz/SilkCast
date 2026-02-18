@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 #[cfg(any(windows, target_os = "linux"))]
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{c_char, CString};
 #[cfg(windows)]
 mod windows_surface;
 #[cfg(windows)]
@@ -400,6 +400,11 @@ impl MpvPlaybackBackend {
 
         Ok(())
     }
+
+    fn set_wid(&self, hwnd: u64) -> Result<(), String> {
+        let wid = format!("{hwnd}");
+        self.command(&["set", "wid", &wid], "set wid")
+    }
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -409,19 +414,7 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn attach_window(&mut self, hwnd: u64) -> Result<(), String> {
-        let mut wid = hwnd as i64;
-        let rc = unsafe {
-            (self.api.mpv_set_option)(
-                self.handle,
-                lit_cstr(b"wid\0"),
-                MPV_FORMAT_INT64,
-                &mut wid as *mut i64 as *mut c_void,
-            )
-        };
-        if rc < 0 {
-            return Err("failed to set mpv `wid` option".to_string());
-        }
-        Ok(())
+        self.set_wid(hwnd)
     }
 
     fn load_url(&mut self, url: &str) -> Result<(), String> {
@@ -487,6 +480,7 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn use_external_window_mode(&mut self) -> Result<(), String> {
+        let _ = self.set_wid(0);
         #[cfg(windows)]
         {
             self.embedded_surface = None;
@@ -514,8 +508,8 @@ impl PlaybackBackend for MpvPlaybackBackend {
                 },
             )?;
             let surface_hwnd = host.hwnd_u64();
-            self.attach_window(surface_hwnd)?;
             self.command(&["set", "force-window", "no"], "set force-window")?;
+            self.set_wid(surface_hwnd)?;
             self.embedded_surface = Some(host);
             return Ok(surface_hwnd);
         }
@@ -555,6 +549,7 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
+        let _ = self.set_wid(0);
         #[cfg(windows)]
         {
             self.embedded_surface = None;
@@ -576,18 +571,10 @@ impl Drop for MpvPlaybackBackend {
 }
 
 #[cfg(any(windows, target_os = "linux"))]
-fn lit_cstr(bytes: &'static [u8]) -> *const std::ffi::c_char {
-    bytes.as_ptr() as *const c_char
-}
-
-#[cfg(any(windows, target_os = "linux"))]
 #[repr(C)]
 struct mpv_handle {
     _unused: [u8; 0],
 }
-
-#[cfg(any(windows, target_os = "linux"))]
-const MPV_FORMAT_INT64: i32 = 4;
 
 #[cfg(any(windows, target_os = "linux"))]
 struct MpvApi {
@@ -597,12 +584,6 @@ struct MpvApi {
     mpv_terminate_destroy: unsafe extern "C" fn(ctx: *mut mpv_handle),
     mpv_set_option_string:
         unsafe extern "C" fn(ctx: *mut mpv_handle, name: *const c_char, data: *const c_char) -> i32,
-    mpv_set_option: unsafe extern "C" fn(
-        ctx: *mut mpv_handle,
-        name: *const c_char,
-        format: i32,
-        data: *mut c_void,
-    ) -> i32,
     mpv_command: unsafe extern "C" fn(ctx: *mut mpv_handle, args: *mut *const c_char) -> i32,
 }
 
@@ -614,7 +595,6 @@ impl MpvApi {
         let mpv_initialize = load_symbol(&library, b"mpv_initialize\0")?;
         let mpv_terminate_destroy = load_symbol(&library, b"mpv_terminate_destroy\0")?;
         let mpv_set_option_string = load_symbol(&library, b"mpv_set_option_string\0")?;
-        let mpv_set_option = load_symbol(&library, b"mpv_set_option\0")?;
         let mpv_command = load_symbol(&library, b"mpv_command\0")?;
 
         Ok(Self {
@@ -623,7 +603,6 @@ impl MpvApi {
             mpv_initialize,
             mpv_terminate_destroy,
             mpv_set_option_string,
-            mpv_set_option,
             mpv_command,
         })
     }

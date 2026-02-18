@@ -1,8 +1,8 @@
 use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, MoveWindow, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOPARENTNOTIFY,
-    WS_VISIBLE,
+    CreateWindowExW, DestroyWindow, MoveWindow, SetWindowPos, HWND_TOP, SWP_NOACTIVATE,
+    SWP_SHOWWINDOW, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOPARENTNOTIFY, WS_VISIBLE,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +51,18 @@ impl EmbeddedSurfaceHost {
             ));
         }
 
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_TOP,
+                bounds.x,
+                bounds.y,
+                bounds.width,
+                bounds.height,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+
         Ok(Self { hwnd })
     }
 
@@ -79,6 +91,18 @@ impl EmbeddedSurfaceHost {
                 "failed to move embedded playback surface (Win32 error {})",
                 unsafe { GetLastError() }
             ));
+        }
+
+        unsafe {
+            SetWindowPos(
+                self.hwnd,
+                HWND_TOP,
+                bounds.x,
+                bounds.y,
+                bounds.width,
+                bounds.height,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
         }
 
         Ok(())
