@@ -67,6 +67,80 @@ pub struct SourceRecord {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChannelInsertRecord {
+    pub name: String,
+    pub group_name: Option<String>,
+    pub logo: Option<String>,
+    pub tvg_id: Option<String>,
+    pub tvg_name: Option<String>,
+    pub stream_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupRecord {
+    pub name: String,
+    pub channel_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChannelRecord {
+    pub id: i64,
+    pub source_id: i64,
+    pub name: String,
+    pub group_name: String,
+    pub logo: Option<String>,
+    pub tvg_id: Option<String>,
+    pub tvg_name: Option<String>,
+    pub stream_url: String,
+    pub is_favorite: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecentChannelRecord {
+    pub channel: ChannelRecord,
+    pub played_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Phase1Settings {
+    pub hardware_decode: bool,
+    pub buffering_preset: String,
+    pub startup_behavior: String,
+}
+
+impl Default for Phase1Settings {
+    fn default() -> Self {
+        Self {
+            hardware_decode: true,
+            buffering_preset: "normal".to_string(),
+            startup_behavior: "home".to_string(),
+        }
+    }
+}
+
+impl Phase1Settings {
+    pub fn validate(&self) -> Result<(), String> {
+        if !matches!(self.buffering_preset.as_str(), "low" | "normal" | "high") {
+            return Err("buffering_preset must be one of: low, normal, high".to_string());
+        }
+
+        if !matches!(self.startup_behavior.as_str(), "home" | "resume_last") {
+            return Err("startup_behavior must be one of: home, resume_last".to_string());
+        }
+
+        Ok(())
+    }
+
+    pub fn cache_seconds(&self) -> i64 {
+        match self.buffering_preset.as_str() {
+            "low" => 2,
+            "high" => 10,
+            _ => 5,
+        }
+    }
+}
+
 pub fn ensure_foundation_dirs(base_dir: &Path) -> Result<AppContext, String> {
     let db_dir = base_dir.join("storage");
     let logs_dir = base_dir.join("logs");
@@ -83,13 +157,10 @@ pub fn ensure_foundation_dirs(base_dir: &Path) -> Result<AppContext, String> {
 }
 
 pub fn init_storage(db_path: &Path) -> Result<(), String> {
-    let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    let connection = open_connection(db_path)?;
     connection
         .execute_batch(
             r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA foreign_keys = ON;
-
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL,
@@ -103,6 +174,41 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
               config_json TEXT NOT NULL,
               created_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS channels (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              source_id INTEGER NOT NULL,
+              name TEXT NOT NULL,
+              group_name TEXT NOT NULL DEFAULT 'Ungrouped',
+              logo TEXT,
+              tvg_id TEXT,
+              tvg_name TEXT,
+              stream_url TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              FOREIGN KEY(source_id) REFERENCES sources(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_channels_source_group
+              ON channels(source_id, group_name);
+            CREATE INDEX IF NOT EXISTS idx_channels_source_name
+              ON channels(source_id, name);
+
+            CREATE TABLE IF NOT EXISTS favorites (
+              channel_id INTEGER PRIMARY KEY,
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS recents (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              channel_id INTEGER NOT NULL,
+              played_at INTEGER NOT NULL,
+              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_recents_played_at
+              ON recents(played_at DESC);
             "#,
         )
         .map_err(|e| format!("db migration failed: {e}"))?;
@@ -112,7 +218,7 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
 
 pub fn set_setting(db_path: &Path, key: &str, value: &str) -> Result<(), String> {
     let ts = unix_ts();
-    let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    let connection = open_connection(db_path)?;
     connection
         .execute(
             r#"
@@ -129,7 +235,7 @@ pub fn set_setting(db_path: &Path, key: &str, value: &str) -> Result<(), String>
 }
 
 pub fn get_setting(db_path: &Path, key: &str) -> Result<Option<String>, String> {
-    let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    let connection = open_connection(db_path)?;
     let mut statement = connection
         .prepare("SELECT value FROM settings WHERE key = ?1")
         .map_err(|e| format!("prepare failed: {e}"))?;
@@ -146,13 +252,54 @@ pub fn get_setting(db_path: &Path, key: &str) -> Result<Option<String>, String> 
     }
 }
 
+pub fn load_phase1_settings(db_path: &Path) -> Result<Phase1Settings, String> {
+    let hwdec_raw = get_setting(db_path, "playback.hwdec")?;
+    let buffering_preset =
+        get_setting(db_path, "playback.buffering_preset")?.unwrap_or_else(|| "normal".to_string());
+    let startup_behavior =
+        get_setting(db_path, "startup.behavior")?.unwrap_or_else(|| "home".to_string());
+
+    let hardware_decode = hwdec_raw
+        .as_deref()
+        .map(|value| value == "true")
+        .unwrap_or(true);
+
+    let settings = Phase1Settings {
+        hardware_decode,
+        buffering_preset,
+        startup_behavior,
+    };
+    settings.validate()?;
+    Ok(settings)
+}
+
+pub fn save_phase1_settings(db_path: &Path, settings: &Phase1Settings) -> Result<(), String> {
+    settings.validate()?;
+    set_setting(
+        db_path,
+        "playback.hwdec",
+        if settings.hardware_decode {
+            "true"
+        } else {
+            "false"
+        },
+    )?;
+    set_setting(
+        db_path,
+        "playback.buffering_preset",
+        &settings.buffering_preset,
+    )?;
+    set_setting(db_path, "startup.behavior", &settings.startup_behavior)?;
+    Ok(())
+}
+
 pub fn create_source(
     db_path: &Path,
     source_type: &str,
     name: &str,
     config: &Value,
 ) -> Result<i64, String> {
-    let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    let connection = open_connection(db_path)?;
     let config_json =
         serde_json::to_string(config).map_err(|e| format!("encode config failed: {e}"))?;
     connection
@@ -164,8 +311,16 @@ pub fn create_source(
     Ok(connection.last_insert_rowid())
 }
 
+pub fn delete_source(db_path: &Path, source_id: i64) -> Result<(), String> {
+    let connection = open_connection(db_path)?;
+    connection
+        .execute("DELETE FROM sources WHERE id = ?1", params![source_id])
+        .map_err(|e| format!("delete source failed: {e}"))?;
+    Ok(())
+}
+
 pub fn list_sources(db_path: &Path) -> Result<Vec<SourceRecord>, String> {
-    let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    let connection = open_connection(db_path)?;
     let mut statement = connection
         .prepare(
             "SELECT id, source_type, name, config_json, created_at FROM sources ORDER BY created_at DESC, id DESC",
@@ -177,25 +332,322 @@ pub fn list_sources(db_path: &Path) -> Result<Vec<SourceRecord>, String> {
         .map_err(|e| format!("query failed: {e}"))?;
     let mut records = Vec::new();
     while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
-        let config_json: String = row
-            .get(3)
-            .map_err(|e| format!("decode config failed: {e}"))?;
-        let config: Value = serde_json::from_str(&config_json)
-            .map_err(|e| format!("parse stored config failed: {e}"))?;
-        records.push(SourceRecord {
-            id: row.get(0).map_err(|e| format!("decode id failed: {e}"))?,
-            source_type: row
-                .get(1)
-                .map_err(|e| format!("decode source_type failed: {e}"))?,
-            name: row.get(2).map_err(|e| format!("decode name failed: {e}"))?,
-            config,
-            created_at: row
-                .get(4)
-                .map_err(|e| format!("decode created_at failed: {e}"))?,
-        });
+        records.push(decode_source_record(&row)?);
     }
 
     Ok(records)
+}
+
+pub fn get_source_by_id(db_path: &Path, source_id: i64) -> Result<Option<SourceRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, source_type, name, config_json, created_at FROM sources WHERE id = ?1 LIMIT 1",
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![source_id])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    match rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        Some(row) => decode_source_record(&row).map(Some),
+        None => Ok(None),
+    }
+}
+
+pub fn replace_channels_for_source(
+    db_path: &Path,
+    source_id: i64,
+    channels: &[ChannelInsertRecord],
+) -> Result<usize, String> {
+    let mut connection = open_connection(db_path)?;
+    let tx = connection
+        .transaction()
+        .map_err(|e| format!("transaction start failed: {e}"))?;
+
+    tx.execute(
+        "DELETE FROM channels WHERE source_id = ?1",
+        params![source_id],
+    )
+    .map_err(|e| format!("delete existing channels failed: {e}"))?;
+
+    let mut inserted = 0usize;
+    let mut statement = tx
+        .prepare(
+            r#"
+            INSERT INTO channels(
+              source_id,
+              name,
+              group_name,
+              logo,
+              tvg_id,
+              tvg_name,
+              stream_url,
+              created_at,
+              updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+        )
+        .map_err(|e| format!("prepare insert failed: {e}"))?;
+
+    let ts = unix_ts();
+    for channel in channels {
+        let group_name = channel
+            .group_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Ungrouped");
+
+        statement
+            .execute(params![
+                source_id,
+                channel.name,
+                group_name,
+                channel.logo,
+                channel.tvg_id,
+                channel.tvg_name,
+                channel.stream_url,
+                ts,
+                ts,
+            ])
+            .map_err(|e| format!("insert channel failed: {e}"))?;
+        inserted += 1;
+    }
+
+    drop(statement);
+
+    tx.execute(
+        "DELETE FROM recents WHERE channel_id NOT IN (SELECT id FROM channels)",
+        [],
+    )
+    .map_err(|e| format!("cleanup recents failed: {e}"))?;
+    tx.execute(
+        "DELETE FROM favorites WHERE channel_id NOT IN (SELECT id FROM channels)",
+        [],
+    )
+    .map_err(|e| format!("cleanup favorites failed: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+
+    Ok(inserted)
+}
+
+pub fn list_groups_for_source(db_path: &Path, source_id: i64) -> Result<Vec<GroupRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT group_name, COUNT(*)
+            FROM channels
+            WHERE source_id = ?1
+            GROUP BY group_name
+            ORDER BY group_name COLLATE NOCASE ASC
+            "#,
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![source_id])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    let mut groups = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        groups.push(GroupRecord {
+            name: row
+                .get(0)
+                .map_err(|e| format!("decode group name failed: {e}"))?,
+            channel_count: row
+                .get(1)
+                .map_err(|e| format!("decode channel_count failed: {e}"))?,
+        });
+    }
+
+    Ok(groups)
+}
+
+pub fn list_channels_for_source(
+    db_path: &Path,
+    source_id: i64,
+    group_name: Option<&str>,
+    query: Option<&str>,
+    favorites_only: bool,
+) -> Result<Vec<ChannelRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              c.id,
+              c.source_id,
+              c.name,
+              c.group_name,
+              c.logo,
+              c.tvg_id,
+              c.tvg_name,
+              c.stream_url,
+              CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+            FROM channels c
+            LEFT JOIN favorites f ON f.channel_id = c.id
+            WHERE c.source_id = ?1
+              AND (?2 = '' OR c.group_name = ?2)
+              AND (?3 = '' OR lower(c.name) LIKE ?3 OR lower(COALESCE(c.tvg_name, '')) LIKE ?3)
+              AND (?4 = 0 OR f.channel_id IS NOT NULL)
+            ORDER BY c.name COLLATE NOCASE ASC
+            "#,
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let normalized_group = group_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let normalized_query = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{}%", value.to_lowercase()))
+        .unwrap_or_default();
+    let favorites_flag = if favorites_only { 1 } else { 0 };
+
+    let mut rows = statement
+        .query(params![
+            source_id,
+            normalized_group,
+            normalized_query,
+            favorites_flag,
+        ])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    let mut channels = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        channels.push(decode_channel_record(&row)?);
+    }
+
+    Ok(channels)
+}
+
+pub fn get_channel_by_id(db_path: &Path, channel_id: i64) -> Result<Option<ChannelRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              c.id,
+              c.source_id,
+              c.name,
+              c.group_name,
+              c.logo,
+              c.tvg_id,
+              c.tvg_name,
+              c.stream_url,
+              CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+            FROM channels c
+            LEFT JOIN favorites f ON f.channel_id = c.id
+            WHERE c.id = ?1
+            LIMIT 1
+            "#,
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![channel_id])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    match rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        Some(row) => decode_channel_record(&row).map(Some),
+        None => Ok(None),
+    }
+}
+
+pub fn set_channel_favorite(db_path: &Path, channel_id: i64, favorite: bool) -> Result<(), String> {
+    let connection = open_connection(db_path)?;
+    if favorite {
+        connection
+            .execute(
+                "INSERT INTO favorites(channel_id, created_at) VALUES (?1, ?2) ON CONFLICT(channel_id) DO NOTHING",
+                params![channel_id, unix_ts()],
+            )
+            .map_err(|e| format!("insert favorite failed: {e}"))?;
+    } else {
+        connection
+            .execute(
+                "DELETE FROM favorites WHERE channel_id = ?1",
+                params![channel_id],
+            )
+            .map_err(|e| format!("delete favorite failed: {e}"))?;
+    }
+    Ok(())
+}
+
+pub fn record_recent_play(db_path: &Path, channel_id: i64) -> Result<(), String> {
+    let connection = open_connection(db_path)?;
+    connection
+        .execute(
+            "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
+            params![channel_id, unix_ts()],
+        )
+        .map_err(|e| format!("insert recent failed: {e}"))?;
+
+    connection
+        .execute(
+            "DELETE FROM recents WHERE id NOT IN (SELECT id FROM recents ORDER BY played_at DESC LIMIT 1000)",
+            [],
+        )
+        .map_err(|e| format!("prune recents failed: {e}"))?;
+
+    Ok(())
+}
+
+pub fn list_recent_channels(
+    db_path: &Path,
+    limit: usize,
+) -> Result<Vec<RecentChannelRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              c.id,
+              c.source_id,
+              c.name,
+              c.group_name,
+              c.logo,
+              c.tvg_id,
+              c.tvg_name,
+              c.stream_url,
+              CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite,
+              recents.played_at
+            FROM channels c
+            JOIN (
+              SELECT channel_id, MAX(played_at) AS played_at
+              FROM recents
+              GROUP BY channel_id
+              ORDER BY played_at DESC
+              LIMIT ?1
+            ) recents ON recents.channel_id = c.id
+            LEFT JOIN favorites f ON f.channel_id = c.id
+            ORDER BY recents.played_at DESC
+            "#,
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![limit as i64])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    let mut recent_channels = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        let channel = decode_channel_record(&row)?;
+        let played_at = row
+            .get(9)
+            .map_err(|e| format!("decode played_at failed: {e}"))?;
+        recent_channels.push(RecentChannelRecord { channel, played_at });
+    }
+
+    Ok(recent_channels)
 }
 
 pub fn append_log(log_path: &Path, level: &str, message: &str) -> Result<(), String> {
@@ -266,6 +718,66 @@ fn unix_ts() -> i64 {
     now.as_secs() as i64
 }
 
+fn open_connection(db_path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    connection
+        .execute_batch(
+            r#"
+            PRAGMA journal_mode = WAL;
+            PRAGMA foreign_keys = ON;
+            "#,
+        )
+        .map_err(|e| format!("db pragma setup failed: {e}"))?;
+    Ok(connection)
+}
+
+fn decode_source_record(row: &rusqlite::Row<'_>) -> Result<SourceRecord, String> {
+    let config_json: String = row
+        .get(3)
+        .map_err(|e| format!("decode config failed: {e}"))?;
+    let config: Value =
+        serde_json::from_str(&config_json).map_err(|e| format!("parse config failed: {e}"))?;
+    Ok(SourceRecord {
+        id: row.get(0).map_err(|e| format!("decode id failed: {e}"))?,
+        source_type: row
+            .get(1)
+            .map_err(|e| format!("decode source_type failed: {e}"))?,
+        name: row.get(2).map_err(|e| format!("decode name failed: {e}"))?,
+        config,
+        created_at: row
+            .get(4)
+            .map_err(|e| format!("decode created_at failed: {e}"))?,
+    })
+}
+
+fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, String> {
+    let is_favorite: i64 = row
+        .get(8)
+        .map_err(|e| format!("decode is_favorite failed: {e}"))?;
+
+    Ok(ChannelRecord {
+        id: row.get(0).map_err(|e| format!("decode id failed: {e}"))?,
+        source_id: row
+            .get(1)
+            .map_err(|e| format!("decode source_id failed: {e}"))?,
+        name: row.get(2).map_err(|e| format!("decode name failed: {e}"))?,
+        group_name: row
+            .get(3)
+            .map_err(|e| format!("decode group_name failed: {e}"))?,
+        logo: row.get(4).map_err(|e| format!("decode logo failed: {e}"))?,
+        tvg_id: row
+            .get(5)
+            .map_err(|e| format!("decode tvg_id failed: {e}"))?,
+        tvg_name: row
+            .get(6)
+            .map_err(|e| format!("decode tvg_name failed: {e}"))?,
+        stream_url: row
+            .get(7)
+            .map_err(|e| format!("decode stream_url failed: {e}"))?,
+        is_favorite: is_favorite == 1,
+    })
+}
+
 trait SourceProvider: Send + Sync {
     fn validate_config(&self, config: &Value) -> Result<(), String>;
 }
@@ -287,7 +799,6 @@ impl SourceRegistry {
     fn with_defaults() -> Self {
         let mut providers: HashMap<String, Arc<dyn SourceProvider>> = HashMap::new();
         providers.insert("m3u".to_string(), Arc::new(M3uSourceProvider));
-        providers.insert("xtream".to_string(), Arc::new(XtreamSourceProvider));
         Self { providers }
     }
 }
@@ -302,28 +813,6 @@ impl SourceProvider for M3uSourceProvider {
             .unwrap_or_default();
         if location.trim().is_empty() {
             return Err("m3u config requires a non-empty `location`".to_string());
-        }
-        Ok(())
-    }
-}
-
-struct XtreamSourceProvider;
-
-impl SourceProvider for XtreamSourceProvider {
-    fn validate_config(&self, config: &Value) -> Result<(), String> {
-        let server_url = config
-            .get("server_url")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let username = config
-            .get("username")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if server_url.trim().is_empty() {
-            return Err("xtream config requires `server_url`".to_string());
-        }
-        if username.trim().is_empty() {
-            return Err("xtream config requires `username`".to_string());
         }
         Ok(())
     }
@@ -392,14 +881,59 @@ mod tests {
 
         let m3u_bad = registry.validate("m3u", &json!({ "location": "" }));
         assert!(m3u_bad.is_err());
+    }
 
-        let xtream_bad = registry.validate("xtream", &json!({ "server_url": "https://x.test" }));
-        assert!(xtream_bad.is_err());
+    #[test]
+    fn replace_channels_and_favorites_roundtrip() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
 
-        let xtream_ok = registry.validate(
-            "xtream",
-            &json!({ "server_url": "https://x.test", "username": "user" }),
-        );
-        assert!(xtream_ok.is_ok());
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "Playlist",
+            &json!({ "location": "https://example.com/list.m3u" }),
+        )
+        .expect("failed to create source");
+
+        let count = replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                ChannelInsertRecord {
+                    name: "News Channel".to_string(),
+                    group_name: Some("News".to_string()),
+                    logo: Some("https://img.example/news.png".to_string()),
+                    tvg_id: Some("news-1".to_string()),
+                    tvg_name: Some("News HD".to_string()),
+                    stream_url: "https://stream.example/news.m3u8".to_string(),
+                },
+                ChannelInsertRecord {
+                    name: "Sports Channel".to_string(),
+                    group_name: Some("Sports".to_string()),
+                    logo: None,
+                    tvg_id: None,
+                    tvg_name: None,
+                    stream_url: "https://stream.example/sports.m3u8".to_string(),
+                },
+            ],
+        )
+        .expect("failed to replace channels");
+
+        assert_eq!(count, 2);
+
+        let all_channels = list_channels_for_source(&context.db_path, source_id, None, None, false)
+            .expect("failed to list channels");
+        assert_eq!(all_channels.len(), 2);
+
+        set_channel_favorite(&context.db_path, all_channels[0].id, true)
+            .expect("failed to set favorite");
+
+        let favorites = list_channels_for_source(&context.db_path, source_id, None, None, true)
+            .expect("failed to list favorites");
+        assert_eq!(favorites.len(), 1);
+
+        let _ = fs::remove_dir_all(root);
     }
 }

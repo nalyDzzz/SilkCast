@@ -19,6 +19,8 @@ pub struct PlaybackStatus {
     pub current_url: Option<String>,
     pub backend: String,
     pub last_error: Option<String>,
+    pub volume: f64,
+    pub fullscreen: bool,
 }
 
 pub struct PlaybackEngine {
@@ -37,6 +39,8 @@ impl PlaybackEngine {
                 current_url: None,
                 backend: backend_name,
                 last_error: None,
+                volume: 100.0,
+                fullscreen: false,
             },
             backend,
         }
@@ -77,8 +81,31 @@ impl PlaybackEngine {
 
     pub fn stop(&mut self) -> Result<(), String> {
         self.backend.stop()?;
+        self.status.current_url = None;
         self.status.state = PlaybackState::Stopped;
         Ok(())
+    }
+
+    pub fn set_volume(&mut self, volume: f64) -> Result<(), String> {
+        let clamped = volume.clamp(0.0, 100.0);
+        self.backend.set_volume(clamped)?;
+        self.status.volume = clamped;
+        Ok(())
+    }
+
+    pub fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String> {
+        self.backend.set_fullscreen(fullscreen)?;
+        self.status.fullscreen = fullscreen;
+        Ok(())
+    }
+
+    pub fn apply_preferences(
+        &mut self,
+        hardware_decode: bool,
+        cache_seconds: i64,
+    ) -> Result<(), String> {
+        self.backend
+            .apply_preferences(hardware_decode, cache_seconds)
     }
 }
 
@@ -88,6 +115,13 @@ trait PlaybackBackend {
     fn load_url(&mut self, url: &str) -> Result<(), String>;
     fn pause(&mut self, paused: bool) -> Result<(), String>;
     fn stop(&mut self) -> Result<(), String>;
+    fn set_volume(&mut self, volume: f64) -> Result<(), String>;
+    fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String>;
+    fn apply_preferences(
+        &mut self,
+        hardware_decode: bool,
+        cache_seconds: i64,
+    ) -> Result<(), String>;
 }
 
 enum BackendKind {
@@ -147,6 +181,33 @@ impl BackendKind {
             BackendKind::Unavailable(reason) => Err(reason.clone()),
         }
     }
+
+    fn set_volume(&mut self, volume: f64) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.set_volume(volume),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.set_fullscreen(fullscreen),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    fn apply_preferences(
+        &mut self,
+        hardware_decode: bool,
+        cache_seconds: i64,
+    ) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => {
+                backend.apply_preferences(hardware_decode, cache_seconds)
+            }
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -178,7 +239,8 @@ impl MpvPlaybackBackend {
             Ok(value) => value,
             Err(e) => return cleanup_and_err(format!("cstring error: {e}")),
         };
-        if unsafe { (api.mpv_set_option_string)(handle, lit_cstr(b"hwdec\0"), hwdec.as_ptr()) } < 0 {
+        if unsafe { (api.mpv_set_option_string)(handle, lit_cstr(b"hwdec\0"), hwdec.as_ptr()) } < 0
+        {
             return cleanup_and_err("failed to set mpv option `hwdec`".to_string());
         }
 
@@ -187,6 +249,22 @@ impl MpvPlaybackBackend {
         }
 
         Ok(Self { handle, api })
+    }
+
+    fn command(&self, args: &[&str], label: &str) -> Result<(), String> {
+        let mut argv = Vec::with_capacity(args.len());
+        for arg in args {
+            argv.push(CString::new(*arg).map_err(|err| format!("invalid command arg: {err}"))?);
+        }
+        let mut ptrs: Vec<*const c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
+        ptrs.push(std::ptr::null());
+
+        let rc = unsafe { (self.api.mpv_command)(self.handle, ptrs.as_mut_ptr()) };
+        if rc < 0 {
+            return Err(format!("mpv command `{label}` failed"));
+        }
+
+        Ok(())
     }
 }
 
@@ -213,38 +291,48 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn load_url(&mut self, url: &str) -> Result<(), String> {
-        let url_c = CString::new(url).map_err(|e| format!("invalid URL string: {e}"))?;
-        let mut args = vec![lit_cstr(b"loadfile\0"), url_c.as_ptr(), std::ptr::null()];
-        let rc = unsafe { (self.api.mpv_command)(self.handle, args.as_mut_ptr()) };
-        if rc < 0 {
-            return Err("mpv loadfile command failed".to_string());
-        }
-        Ok(())
+        self.command(&["loadfile", url], "loadfile")
     }
 
     fn pause(&mut self, paused: bool) -> Result<(), String> {
-        let paused_flag = if paused { "yes" } else { "no" };
-        let paused_c = CString::new(paused_flag).map_err(|e| format!("cstring error: {e}"))?;
-        let mut args = vec![
-            lit_cstr(b"set\0"),
-            lit_cstr(b"pause\0"),
-            paused_c.as_ptr(),
-            std::ptr::null(),
-        ];
-        let rc = unsafe { (self.api.mpv_command)(self.handle, args.as_mut_ptr()) };
-        if rc < 0 {
-            return Err("mpv set pause command failed".to_string());
-        }
-        Ok(())
+        self.command(
+            &["set", "pause", if paused { "yes" } else { "no" }],
+            "set pause",
+        )
     }
 
     fn stop(&mut self) -> Result<(), String> {
-        let mut args = vec![lit_cstr(b"stop\0"), std::ptr::null()];
-        let rc = unsafe { (self.api.mpv_command)(self.handle, args.as_mut_ptr()) };
-        if rc < 0 {
-            return Err("mpv stop command failed".to_string());
-        }
-        Ok(())
+        self.command(&["stop"], "stop")
+    }
+
+    fn set_volume(&mut self, volume: f64) -> Result<(), String> {
+        let normalized = format!("{}", volume.round() as i64);
+        self.command(&["set", "volume", &normalized], "set volume")
+    }
+
+    fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String> {
+        self.command(
+            &["set", "fullscreen", if fullscreen { "yes" } else { "no" }],
+            "set fullscreen",
+        )
+    }
+
+    fn apply_preferences(
+        &mut self,
+        hardware_decode: bool,
+        cache_seconds: i64,
+    ) -> Result<(), String> {
+        self.command(
+            &[
+                "set",
+                "hwdec",
+                if hardware_decode { "auto-safe" } else { "no" },
+            ],
+            "set hwdec",
+        )?;
+
+        let cache = format!("{cache_seconds}");
+        self.command(&["set", "cache-secs", &cache], "set cache-secs")
     }
 }
 
@@ -280,11 +368,8 @@ struct MpvApi {
     mpv_create: unsafe extern "C" fn() -> *mut mpv_handle,
     mpv_initialize: unsafe extern "C" fn(ctx: *mut mpv_handle) -> i32,
     mpv_terminate_destroy: unsafe extern "C" fn(ctx: *mut mpv_handle),
-    mpv_set_option_string: unsafe extern "C" fn(
-        ctx: *mut mpv_handle,
-        name: *const c_char,
-        data: *const c_char,
-    ) -> i32,
+    mpv_set_option_string:
+        unsafe extern "C" fn(ctx: *mut mpv_handle, name: *const c_char, data: *const c_char) -> i32,
     mpv_set_option: unsafe extern "C" fn(
         ctx: *mut mpv_handle,
         name: *const c_char,
