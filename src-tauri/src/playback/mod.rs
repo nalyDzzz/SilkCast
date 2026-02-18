@@ -1,6 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(any(windows, target_os = "linux"))]
 use std::ffi::{c_char, c_void, CString};
+#[cfg(windows)]
+mod windows_surface;
+#[cfg(windows)]
+use windows_surface::EmbeddedSurfaceHost;
 
 #[derive(Clone, Debug, Serialize)]
 pub enum PlaybackState {
@@ -19,10 +23,19 @@ pub enum PlaybackRenderMode {
     EmbeddedSurface,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct EmbeddedSurfaceBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct PlaybackStatus {
     pub state: PlaybackState,
     pub attached_hwnd: Option<u64>,
+    pub embedded_surface_hwnd: Option<u64>,
     pub current_url: Option<String>,
     pub backend: String,
     pub last_error: Option<String>,
@@ -44,6 +57,7 @@ impl PlaybackEngine {
             status: PlaybackStatus {
                 state: PlaybackState::Idle,
                 attached_hwnd: None,
+                embedded_surface_hwnd: None,
                 current_url: None,
                 backend: backend_name,
                 last_error: None,
@@ -62,6 +76,8 @@ impl PlaybackEngine {
     pub fn attach_window(&mut self, hwnd: u64) -> Result<(), String> {
         self.backend.attach_window(hwnd)?;
         self.status.attached_hwnd = Some(hwnd);
+        self.status.embedded_surface_hwnd = None;
+        self.status.render_mode = PlaybackRenderMode::ExternalWindow;
         Ok(())
     }
 
@@ -123,15 +139,31 @@ impl PlaybackEngine {
         Ok(())
     }
 
-    pub fn start_embedded_surface_mode(&mut self) -> Result<(), String> {
-        self.backend.start_embedded_surface_mode()?;
+    pub fn start_embedded_surface_mode(
+        &mut self,
+        parent_hwnd: u64,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<u64, String> {
+        let surface_hwnd = self
+            .backend
+            .start_embedded_surface_mode(parent_hwnd, bounds)?;
         self.status.render_mode = PlaybackRenderMode::EmbeddedSurface;
-        Ok(())
+        self.status.attached_hwnd = Some(parent_hwnd);
+        self.status.embedded_surface_hwnd = Some(surface_hwnd);
+        Ok(surface_hwnd)
+    }
+
+    pub fn update_embedded_surface_bounds(
+        &mut self,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<(), String> {
+        self.backend.update_embedded_surface_bounds(bounds)
     }
 
     pub fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
         self.backend.stop_embedded_surface_mode()?;
         self.status.render_mode = PlaybackRenderMode::ExternalWindow;
+        self.status.embedded_surface_hwnd = None;
         Ok(())
     }
 }
@@ -150,7 +182,13 @@ trait PlaybackBackend {
         cache_seconds: i64,
     ) -> Result<(), String>;
     fn use_external_window_mode(&mut self) -> Result<(), String>;
-    fn start_embedded_surface_mode(&mut self) -> Result<(), String>;
+    fn start_embedded_surface_mode(
+        &mut self,
+        parent_hwnd: u64,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<u64, String>;
+    fn update_embedded_surface_bounds(&mut self, bounds: EmbeddedSurfaceBounds)
+        -> Result<(), String>;
     fn stop_embedded_surface_mode(&mut self) -> Result<(), String>;
 }
 
@@ -246,9 +284,23 @@ impl BackendKind {
         }
     }
 
-    fn start_embedded_surface_mode(&mut self) -> Result<(), String> {
+    fn start_embedded_surface_mode(
+        &mut self,
+        parent_hwnd: u64,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<u64, String> {
         match self {
-            BackendKind::Active(backend) => backend.start_embedded_surface_mode(),
+            BackendKind::Active(backend) => backend.start_embedded_surface_mode(parent_hwnd, bounds),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    fn update_embedded_surface_bounds(
+        &mut self,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.update_embedded_surface_bounds(bounds),
             BackendKind::Unavailable(reason) => Err(reason.clone()),
         }
     }
@@ -265,6 +317,8 @@ impl BackendKind {
 struct MpvPlaybackBackend {
     handle: *mut mpv_handle,
     api: MpvApi,
+    #[cfg(windows)]
+    embedded_surface: Option<EmbeddedSurfaceHost>,
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -319,7 +373,12 @@ impl MpvPlaybackBackend {
             return cleanup_and_err("mpv_initialize failed".to_string());
         }
 
-        Ok(Self { handle, api })
+        Ok(Self {
+            handle,
+            api,
+            #[cfg(windows)]
+            embedded_surface: None,
+        })
     }
 
     fn command(&self, args: &[&str], label: &str) -> Result<(), String> {
@@ -424,17 +483,78 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn use_external_window_mode(&mut self) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            self.embedded_surface = None;
+        }
         self.command(&["set", "force-window", "yes"], "set force-window")
     }
 
-    fn start_embedded_surface_mode(&mut self) -> Result<(), String> {
-        Err(
-            "embedded playback mode is not implemented yet; this arrives in the next phase"
-                .to_string(),
-        )
+    fn start_embedded_surface_mode(
+        &mut self,
+        parent_hwnd: u64,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<u64, String> {
+        #[cfg(windows)]
+        {
+            use windows_surface::EmbeddedSurfaceBounds as HostBounds;
+
+            self.embedded_surface = None;
+            let host = EmbeddedSurfaceHost::create(
+                parent_hwnd,
+                HostBounds {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                },
+            )?;
+            let surface_hwnd = host.hwnd_u64();
+            self.attach_window(surface_hwnd)?;
+            self.command(&["set", "force-window", "no"], "set force-window")?;
+            self.embedded_surface = Some(host);
+            return Ok(surface_hwnd);
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = parent_hwnd;
+            let _ = bounds;
+            Err("embedded surface mode is currently implemented only on Windows".to_string())
+        }
+    }
+
+    fn update_embedded_surface_bounds(
+        &mut self,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            use windows_surface::EmbeddedSurfaceBounds as HostBounds;
+
+            if let Some(surface) = self.embedded_surface.as_ref() {
+                return surface.set_bounds(HostBounds {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                });
+            }
+            return Err("embedded surface mode is not active".to_string());
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = bounds;
+            Err("embedded surface mode is currently implemented only on Windows".to_string())
+        }
     }
 
     fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            self.embedded_surface = None;
+        }
         self.command(&["set", "force-window", "yes"], "set force-window")
     }
 }

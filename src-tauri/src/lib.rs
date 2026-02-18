@@ -11,7 +11,7 @@ use foundation::{
     Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
 };
 use m3u::{load_m3u_location, parse_m3u_channels};
-use playback::PlaybackStatus;
+use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -431,14 +431,16 @@ fn playback_use_external_window_mode(
 
 #[tauri::command]
 fn playback_start_embedded_surface_mode(
+    bounds: EmbeddedSurfaceBounds,
     app: tauri::AppHandle,
     state: State<SharedState>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
+    let main_window_id = resolve_main_window_id(&app)?;
     let mut playback = state
         .playback
         .lock()
         .map_err(|_| "playback state lock poisoned".to_string())?;
-    playback.start_embedded_surface_mode()?;
+    let surface_hwnd = playback.start_embedded_surface_mode(main_window_id, bounds)?;
     emit_backend_event(
         &app,
         "playback_state_changed",
@@ -448,6 +450,25 @@ fn playback_start_embedded_surface_mode(
         &state.context.log_path,
         "INFO",
         "playback render mode switched to embedded surface",
+    )?;
+    Ok(surface_hwnd)
+}
+
+#[tauri::command]
+fn playback_update_embedded_surface_bounds(
+    bounds: EmbeddedSurfaceBounds,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    let mut playback = state
+        .playback
+        .lock()
+        .map_err(|_| "playback state lock poisoned".to_string())?;
+    playback.update_embedded_surface_bounds(bounds)?;
+    emit_backend_event(
+        &app,
+        "playback_state_changed",
+        json!({ "state": playback.status() }),
     )
 }
 
@@ -667,6 +688,7 @@ pub fn run() {
             playback_set_fullscreen,
             playback_use_external_window_mode,
             playback_start_embedded_surface_mode,
+            playback_update_embedded_surface_bounds,
             playback_stop_embedded_surface_mode
         ])
         .run(tauri::generate_context!())
