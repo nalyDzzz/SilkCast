@@ -464,7 +464,19 @@ impl PlaybackBackend for MpvPlaybackBackend {
         )?;
 
         let cache = format!("{cache_seconds}");
-        self.command(&["set", "cache-secs", &cache], "set cache-secs")
+        self.command(&["set", "cache-secs", &cache], "set cache-secs")?;
+
+        #[cfg(windows)]
+        {
+            // mpv may recreate video output after runtime option changes
+            // (e.g., buffering/hwdec), so immediately reassert embedded target.
+            if let Some(surface) = self.embedded_surface.as_ref() {
+                self.command(&["set", "force-window", "no"], "set force-window")?;
+                self.set_wid(surface.hwnd_u64())?;
+            }
+        }
+
+        Ok(())
     }
 
     fn start_embedded_surface_mode(
