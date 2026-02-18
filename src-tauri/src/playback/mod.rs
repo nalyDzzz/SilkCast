@@ -123,7 +123,9 @@ impl PlaybackEngine {
     }
 
     pub fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String> {
-        self.backend.set_fullscreen(fullscreen)?;
+        if self.status.render_mode != PlaybackRenderMode::EmbeddedSurface {
+            self.backend.set_fullscreen(fullscreen)?;
+        }
         self.status.fullscreen = fullscreen;
         Ok(())
     }

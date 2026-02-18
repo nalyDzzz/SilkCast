@@ -257,6 +257,7 @@ function App() {
 
     scheduleSurfaceSync();
     window.addEventListener("resize", scheduleSurfaceSync);
+    window.addEventListener("scroll", scheduleSurfaceSync, true);
 
     return () => {
       mounted = false;
@@ -265,6 +266,7 @@ function App() {
       }
       observer.disconnect();
       window.removeEventListener("resize", scheduleSurfaceSync);
+      window.removeEventListener("scroll", scheduleSurfaceSync, true);
       invoke("playback_stop_embedded_surface_mode").catch(() => {});
     };
   }, []);
@@ -363,15 +365,6 @@ function App() {
     await invoke("playback_update_embedded_surface_bounds", { bounds });
   }
 
-  async function onUseEmbeddedSurface() {
-    setError(null);
-    try {
-      await ensureEmbeddedSurfaceRunning();
-    } catch (err) {
-      setError(String(err));
-    }
-  }
-
   async function onPausePlayback(paused: boolean) {
     setError(null);
     try {
@@ -395,12 +388,41 @@ function App() {
   async function onSetFullscreen(fullscreen: boolean) {
     setError(null);
     try {
+      const host = embeddedSurfaceRef.current;
+      if (!host) {
+        throw new Error("embedded player surface not available");
+      }
+
+      if (fullscreen) {
+        if (document.fullscreenElement !== host) {
+          await host.requestFullscreen();
+        }
+      } else if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+
       await invoke("playback_set_fullscreen", { fullscreen });
+      await ensureEmbeddedSurfaceRunning();
       await loadPlaybackStatus();
     } catch (err) {
       setError(String(err));
     }
   }
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const isFullscreen = Boolean(document.fullscreenElement);
+      invoke("playback_set_fullscreen", { fullscreen: isFullscreen })
+        .then(() => ensureEmbeddedSurfaceRunning())
+        .then(() => loadPlaybackStatus())
+        .catch((err) => setError(String(err)));
+    };
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
+  }, []);
 
   async function onSetVolume(nextVolume: number) {
     setError(null);
@@ -600,9 +622,6 @@ function App() {
         <section className="card">
           <div className="section-head">
             <h2>Player</h2>
-            <button type="button" onClick={onUseEmbeddedSurface}>
-              Reattach Surface
-            </button>
           </div>
           <div ref={embeddedSurfaceRef} className="player-surface" />
           <p>
