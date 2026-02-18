@@ -407,6 +407,72 @@ fn playback_set_fullscreen(
     Ok(())
 }
 
+#[tauri::command]
+fn playback_use_external_window_mode(
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    let mut playback = state
+        .playback
+        .lock()
+        .map_err(|_| "playback state lock poisoned".to_string())?;
+    playback.use_external_window_mode()?;
+    emit_backend_event(
+        &app,
+        "playback_state_changed",
+        json!({ "state": playback.status() }),
+    )?;
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        "playback render mode switched to external window",
+    )
+}
+
+#[tauri::command]
+fn playback_start_embedded_surface_mode(
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    let mut playback = state
+        .playback
+        .lock()
+        .map_err(|_| "playback state lock poisoned".to_string())?;
+    playback.start_embedded_surface_mode()?;
+    emit_backend_event(
+        &app,
+        "playback_state_changed",
+        json!({ "state": playback.status() }),
+    )?;
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        "playback render mode switched to embedded surface",
+    )
+}
+
+#[tauri::command]
+fn playback_stop_embedded_surface_mode(
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    let mut playback = state
+        .playback
+        .lock()
+        .map_err(|_| "playback state lock poisoned".to_string())?;
+    playback.stop_embedded_surface_mode()?;
+    emit_backend_event(
+        &app,
+        "playback_state_changed",
+        json!({ "state": playback.status() }),
+    )?;
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        "playback embedded surface mode stopped",
+    )
+}
+
 fn import_m3u_source(state: &SharedState, source_id: i64, config: &Value) -> Result<usize, String> {
     let location = config
         .get("location")
@@ -598,8 +664,12 @@ pub fn run() {
             playback_pause,
             playback_stop,
             playback_set_volume,
-            playback_set_fullscreen
+            playback_set_fullscreen,
+            playback_use_external_window_mode,
+            playback_start_embedded_surface_mode,
+            playback_stop_embedded_surface_mode
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

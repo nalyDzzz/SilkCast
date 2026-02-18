@@ -12,6 +12,13 @@ pub enum PlaybackState {
     Error,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaybackRenderMode {
+    ExternalWindow,
+    EmbeddedSurface,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct PlaybackStatus {
     pub state: PlaybackState,
@@ -21,6 +28,7 @@ pub struct PlaybackStatus {
     pub last_error: Option<String>,
     pub volume: f64,
     pub fullscreen: bool,
+    pub render_mode: PlaybackRenderMode,
 }
 
 pub struct PlaybackEngine {
@@ -41,6 +49,7 @@ impl PlaybackEngine {
                 last_error: None,
                 volume: 100.0,
                 fullscreen: false,
+                render_mode: PlaybackRenderMode::ExternalWindow,
             },
             backend,
         }
@@ -107,6 +116,24 @@ impl PlaybackEngine {
         self.backend
             .apply_preferences(hardware_decode, cache_seconds)
     }
+
+    pub fn use_external_window_mode(&mut self) -> Result<(), String> {
+        self.backend.use_external_window_mode()?;
+        self.status.render_mode = PlaybackRenderMode::ExternalWindow;
+        Ok(())
+    }
+
+    pub fn start_embedded_surface_mode(&mut self) -> Result<(), String> {
+        self.backend.start_embedded_surface_mode()?;
+        self.status.render_mode = PlaybackRenderMode::EmbeddedSurface;
+        Ok(())
+    }
+
+    pub fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
+        self.backend.stop_embedded_surface_mode()?;
+        self.status.render_mode = PlaybackRenderMode::ExternalWindow;
+        Ok(())
+    }
 }
 
 trait PlaybackBackend {
@@ -122,6 +149,9 @@ trait PlaybackBackend {
         hardware_decode: bool,
         cache_seconds: i64,
     ) -> Result<(), String>;
+    fn use_external_window_mode(&mut self) -> Result<(), String>;
+    fn start_embedded_surface_mode(&mut self) -> Result<(), String>;
+    fn stop_embedded_surface_mode(&mut self) -> Result<(), String>;
 }
 
 enum BackendKind {
@@ -208,6 +238,27 @@ impl BackendKind {
             BackendKind::Unavailable(reason) => Err(reason.clone()),
         }
     }
+
+    fn use_external_window_mode(&mut self) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.use_external_window_mode(),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    fn start_embedded_surface_mode(&mut self) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.start_embedded_surface_mode(),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.stop_embedded_surface_mode(),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -235,13 +286,33 @@ impl MpvPlaybackBackend {
             Err(message)
         };
 
-        let hwdec = match CString::new("auto-safe") {
-            Ok(value) => value,
-            Err(e) => return cleanup_and_err(format!("cstring error: {e}")),
+        let set_option_string = |name: &str, value: &str| -> Result<(), String> {
+            let option_name =
+                CString::new(name).map_err(|err| format!("cstring error for option name: {err}"))?;
+            let option_value =
+                CString::new(value).map_err(|err| format!("cstring error for option value: {err}"))?;
+            let rc = unsafe {
+                (api.mpv_set_option_string)(handle, option_name.as_ptr(), option_value.as_ptr())
+            };
+            if rc < 0 {
+                return Err(format!("failed to set mpv option `{name}`"));
+            }
+            Ok(())
         };
-        if unsafe { (api.mpv_set_option_string)(handle, lit_cstr(b"hwdec\0"), hwdec.as_ptr()) } < 0
-        {
-            return cleanup_and_err("failed to set mpv option `hwdec`".to_string());
+
+        // Ignore user/system mpv.conf so app behavior is deterministic.
+        if let Err(err) = set_option_string("config", "no") {
+            return cleanup_and_err(err);
+        }
+        // Prevent standalone mpv windows when embedded playback is expected.
+        if let Err(err) = set_option_string("force-window", "yes") {
+            return cleanup_and_err(err);
+        }
+        if let Err(err) = set_option_string("keep-open", "no") {
+            return cleanup_and_err(err);
+        }
+        if let Err(err) = set_option_string("hwdec", "auto-safe") {
+            return cleanup_and_err(err);
         }
 
         if unsafe { (api.mpv_initialize)(handle) } < 0 {
@@ -291,6 +362,8 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn load_url(&mut self, url: &str) -> Result<(), String> {
+        // Re-enable video in case stop() disabled it to clear stale frames.
+        self.command(&["set", "vid", "auto"], "set vid auto")?;
         self.command(&["loadfile", url], "loadfile")
     }
 
@@ -302,7 +375,22 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn stop(&mut self) -> Result<(), String> {
-        self.command(&["stop"], "stop")
+        let _ = self.command(&["set", "pause", "yes"], "set pause");
+        let stop_result = self.command(&["stop"], "stop");
+        let clear_result = self.command(&["playlist-clear"], "playlist-clear");
+        let _ = self.command(&["set", "vid", "no"], "set vid no");
+
+        if stop_result.is_ok() || clear_result.is_ok() {
+            return Ok(());
+        }
+
+        Err(format!(
+            "failed to stop playback: {} | {}",
+            stop_result.err().unwrap_or_else(|| "unknown stop error".to_string()),
+            clear_result
+                .err()
+                .unwrap_or_else(|| "unknown playlist-clear error".to_string())
+        ))
     }
 
     fn set_volume(&mut self, volume: f64) -> Result<(), String> {
@@ -333,6 +421,21 @@ impl PlaybackBackend for MpvPlaybackBackend {
 
         let cache = format!("{cache_seconds}");
         self.command(&["set", "cache-secs", &cache], "set cache-secs")
+    }
+
+    fn use_external_window_mode(&mut self) -> Result<(), String> {
+        self.command(&["set", "force-window", "yes"], "set force-window")
+    }
+
+    fn start_embedded_surface_mode(&mut self) -> Result<(), String> {
+        Err(
+            "embedded playback mode is not implemented yet; this arrives in the next phase"
+                .to_string(),
+        )
+    }
+
+    fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
+        self.command(&["set", "force-window", "yes"], "set force-window")
     }
 }
 
@@ -440,3 +543,4 @@ fn load_mpv_library() -> Result<libloading::Library, String> {
         errors.join(" | ")
     ))
 }
+
