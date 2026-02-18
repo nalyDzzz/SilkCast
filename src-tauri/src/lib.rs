@@ -408,28 +408,6 @@ fn playback_set_fullscreen(
 }
 
 #[tauri::command]
-fn playback_use_external_window_mode(
-    app: tauri::AppHandle,
-    state: State<SharedState>,
-) -> Result<(), String> {
-    let mut playback = state
-        .playback
-        .lock()
-        .map_err(|_| "playback state lock poisoned".to_string())?;
-    playback.use_external_window_mode()?;
-    emit_backend_event(
-        &app,
-        "playback_state_changed",
-        json!({ "state": playback.status() }),
-    )?;
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        "playback render mode switched to external window",
-    )
-}
-
-#[tauri::command]
 fn playback_start_embedded_surface_mode(
     bounds: EmbeddedSurfaceBounds,
     app: tauri::AppHandle,
@@ -686,7 +664,6 @@ pub fn run() {
             playback_stop,
             playback_set_volume,
             playback_set_fullscreen,
-            playback_use_external_window_mode,
             playback_start_embedded_surface_mode,
             playback_update_embedded_surface_bounds,
             playback_stop_embedded_surface_mode

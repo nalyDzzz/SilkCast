@@ -137,12 +137,6 @@ impl PlaybackEngine {
             .apply_preferences(hardware_decode, cache_seconds)
     }
 
-    pub fn use_external_window_mode(&mut self) -> Result<(), String> {
-        self.backend.use_external_window_mode()?;
-        self.status.render_mode = PlaybackRenderMode::ExternalWindow;
-        Ok(())
-    }
-
     pub fn start_embedded_surface_mode(
         &mut self,
         parent_hwnd: u64,
@@ -185,7 +179,6 @@ trait PlaybackBackend {
         hardware_decode: bool,
         cache_seconds: i64,
     ) -> Result<(), String>;
-    fn use_external_window_mode(&mut self) -> Result<(), String>;
     fn start_embedded_surface_mode(
         &mut self,
         parent_hwnd: u64,
@@ -281,13 +274,6 @@ impl BackendKind {
         }
     }
 
-    fn use_external_window_mode(&mut self) -> Result<(), String> {
-        match self {
-            BackendKind::Active(backend) => backend.use_external_window_mode(),
-            BackendKind::Unavailable(reason) => Err(reason.clone()),
-        }
-    }
-
     fn start_embedded_surface_mode(
         &mut self,
         parent_hwnd: u64,
@@ -363,7 +349,7 @@ impl MpvPlaybackBackend {
             return cleanup_and_err(err);
         }
         // Prevent standalone mpv windows when embedded playback is expected.
-        if let Err(err) = set_option_string("force-window", "yes") {
+        if let Err(err) = set_option_string("force-window", "no") {
             return cleanup_and_err(err);
         }
         if let Err(err) = set_option_string("keep-open", "no") {
@@ -479,15 +465,6 @@ impl PlaybackBackend for MpvPlaybackBackend {
         self.command(&["set", "cache-secs", &cache], "set cache-secs")
     }
 
-    fn use_external_window_mode(&mut self) -> Result<(), String> {
-        let _ = self.set_wid(0);
-        #[cfg(windows)]
-        {
-            self.embedded_surface = None;
-        }
-        self.command(&["set", "force-window", "yes"], "set force-window")
-    }
-
     fn start_embedded_surface_mode(
         &mut self,
         parent_hwnd: u64,
@@ -554,7 +531,7 @@ impl PlaybackBackend for MpvPlaybackBackend {
         {
             self.embedded_surface = None;
         }
-        self.command(&["set", "force-window", "yes"], "set force-window")
+        self.command(&["set", "force-window", "no"], "set force-window")
     }
 }
 

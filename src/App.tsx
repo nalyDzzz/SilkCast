@@ -87,7 +87,6 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [preferEmbeddedMode, setPreferEmbeddedMode] = useState(true);
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
@@ -243,9 +242,6 @@ function App() {
         if (!mounted) {
           return;
         }
-        if (!preferEmbeddedMode) {
-          return;
-        }
         try {
           await ensureEmbeddedSurfaceRunning();
         } catch (err) {
@@ -259,9 +255,7 @@ function App() {
       observer.observe(embeddedSurfaceRef.current);
     }
 
-    if (preferEmbeddedMode) {
-      scheduleSurfaceSync();
-    }
+    scheduleSurfaceSync();
     window.addEventListener("resize", scheduleSurfaceSync);
 
     return () => {
@@ -271,11 +265,9 @@ function App() {
       }
       observer.disconnect();
       window.removeEventListener("resize", scheduleSurfaceSync);
-      if (preferEmbeddedMode) {
-        invoke("playback_stop_embedded_surface_mode").catch(() => {});
-      }
+      invoke("playback_stop_embedded_surface_mode").catch(() => {});
     };
-  }, [preferEmbeddedMode]);
+  }, []);
 
   async function onAddM3uSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -374,24 +366,7 @@ function App() {
   async function onUseEmbeddedSurface() {
     setError(null);
     try {
-      setPreferEmbeddedMode(true);
       await ensureEmbeddedSurfaceRunning();
-    } catch (err) {
-      setError(String(err));
-    }
-  }
-
-  async function onUseExternalWindow() {
-    setError(null);
-    try {
-      setPreferEmbeddedMode(false);
-      const currentUrl = playback?.current_url ?? null;
-      await invoke("playback_use_external_window_mode");
-      embeddedSurfaceStartedRef.current = false;
-      if (currentUrl) {
-        await invoke("playback_load_url", { url: currentUrl });
-      }
-      await loadPlaybackStatus();
     } catch (err) {
       setError(String(err));
     }
@@ -625,14 +600,9 @@ function App() {
         <section className="card">
           <div className="section-head">
             <h2>Player</h2>
-            <div className="player-mode-actions">
-              <button type="button" onClick={onUseEmbeddedSurface}>
-                Embedded
-              </button>
-              <button type="button" onClick={onUseExternalWindow}>
-                External
-              </button>
-            </div>
+            <button type="button" onClick={onUseEmbeddedSurface}>
+              Reattach Surface
+            </button>
           </div>
           <div ref={embeddedSurfaceRef} className="player-surface" />
           <p>
@@ -648,7 +618,7 @@ function App() {
             <strong>Surface:</strong> {playback?.embedded_surface_hwnd ?? "none"}
           </p>
           <p>
-            <strong>Mode:</strong> {playback?.render_mode ?? "external_window"}
+            <strong>Mode:</strong> {playback?.render_mode ?? "embedded_surface"}
           </p>
           <p>
             <strong>Current URL:</strong> {playback?.current_url ?? "none"}
