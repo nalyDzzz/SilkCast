@@ -130,6 +130,10 @@ impl PlaybackEngine {
         Ok(())
     }
 
+    pub fn seek(&mut self, seconds: i64) -> Result<(), String> {
+        self.backend.seek(seconds)
+    }
+
     pub fn apply_preferences(
         &mut self,
         hardware_decode: bool,
@@ -176,6 +180,7 @@ trait PlaybackBackend {
     fn stop(&mut self) -> Result<(), String>;
     fn set_volume(&mut self, volume: f64) -> Result<(), String>;
     fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String>;
+    fn seek(&mut self, seconds: i64) -> Result<(), String>;
     fn apply_preferences(
         &mut self,
         hardware_decode: bool,
@@ -259,6 +264,13 @@ impl BackendKind {
     fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String> {
         match self {
             BackendKind::Active(backend) => backend.set_fullscreen(fullscreen),
+            BackendKind::Unavailable(reason) => Err(reason.clone()),
+        }
+    }
+
+    fn seek(&mut self, seconds: i64) -> Result<(), String> {
+        match self {
+            BackendKind::Active(backend) => backend.seek(seconds),
             BackendKind::Unavailable(reason) => Err(reason.clone()),
         }
     }
@@ -447,6 +459,11 @@ impl PlaybackBackend for MpvPlaybackBackend {
             &["set", "fullscreen", if fullscreen { "yes" } else { "no" }],
             "set fullscreen",
         )
+    }
+
+    fn seek(&mut self, seconds: i64) -> Result<(), String> {
+        let amount = format!("{seconds}");
+        self.command(&["seek", &amount, "relative+exact"], "seek")
     }
 
     fn apply_preferences(

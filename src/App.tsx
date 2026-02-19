@@ -105,6 +105,7 @@ function App() {
     }
     return null;
   }, [playback]);
+  const isBuffering = playback?.state.toLowerCase() === "loading";
 
   useEffect(() => {
     if (playback && playback.volume > 0) {
@@ -474,6 +475,16 @@ function App() {
     }
   }
 
+  async function onSeekPlayback(seconds: number) {
+    setError(null);
+    try {
+      await invoke("playback_seek", { seconds });
+      await loadPlaybackStatus();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   useEffect(() => {
     const isInteractiveTarget = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) {
@@ -534,6 +545,24 @@ function App() {
             ? 0
             : Math.max(1, Math.min(100, lastVolumeBeforeMuteRef.current));
         onSetVolume(nextVolume).catch((err) => setError(String(err)));
+        return;
+      }
+
+      if (key === "arrowleft") {
+        if (!hasCurrentPlayback) {
+          return;
+        }
+        event.preventDefault();
+        onSeekPlayback(-10).catch((err) => setError(String(err)));
+        return;
+      }
+
+      if (key === "arrowright") {
+        if (!hasCurrentPlayback) {
+          return;
+        }
+        event.preventDefault();
+        onSeekPlayback(10).catch((err) => setError(String(err)));
       }
     };
 
@@ -738,6 +767,9 @@ function App() {
             <strong>Status:</strong> {playback?.state ?? "idle"}
           </p>
           <p>
+            <strong>Buffering:</strong> {isBuffering ? "yes" : "no"}
+          </p>
+          <p>
             <strong>Attached:</strong> {playback?.attached_hwnd ?? "none"}
           </p>
           <p>
@@ -762,6 +794,23 @@ function App() {
             </button>
             <button type="button" onClick={onStopPlayback}>
               Stop
+            </button>
+          </div>
+
+          <div className="actions-row">
+            <button
+              type="button"
+              onClick={() => onSeekPlayback(-10)}
+              disabled={!Boolean(playback?.current_url)}
+            >
+              -10s
+            </button>
+            <button
+              type="button"
+              onClick={() => onSeekPlayback(10)}
+              disabled={!Boolean(playback?.current_url)}
+            >
+              +10s
             </button>
           </div>
 
