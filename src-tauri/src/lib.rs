@@ -119,6 +119,28 @@ fn refresh_m3u_source(
 }
 
 #[tauri::command]
+fn delete_registered_source(
+    source_id: i64,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    let source = get_source_by_id(&state.context.db_path, source_id)?
+        .ok_or_else(|| format!("source {source_id} not found"))?;
+
+    delete_source(&state.context.db_path, source_id)?;
+
+    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
+
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!("deleted source {source_id}:{}", source.name),
+    )
+}
+
+#[tauri::command]
 fn list_source_groups(
     source_id: i64,
     state: State<SharedState>,
@@ -661,6 +683,7 @@ pub fn run() {
             list_registered_sources,
             add_m3u_source,
             refresh_m3u_source,
+            delete_registered_source,
             list_source_groups,
             list_source_channels,
             set_channel_favorite_state,

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { RefreshCw, Trash2 } from "lucide-react";
 import "./App.css";
 
 type SourceRecord = {
@@ -311,8 +312,8 @@ function App() {
     }
   }
 
-  async function onRefreshSource() {
-    if (selectedSourceId === null) {
+  async function onRefreshSource(sourceId: number | null = selectedSourceId) {
+    if (sourceId === null) {
       return;
     }
 
@@ -321,10 +322,12 @@ function App() {
 
     try {
       const result = await invoke<M3uImportResult>("refresh_m3u_source", {
-        sourceId: selectedSourceId,
+        sourceId,
       });
       setImportMessage(`Refreshed ${result.imported_channels} channels.`);
-      await Promise.all([loadGroups(selectedSourceId), loadChannels(selectedSourceId)]);
+      if (sourceId === selectedSourceId) {
+        await Promise.all([loadGroups(sourceId), loadChannels(sourceId)]);
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -396,6 +399,31 @@ function App() {
       await invoke<number>("playback_start_embedded_surface_mode", { bounds });
       embeddedSurfaceStartedRef.current = true;
       await loadPlaybackStatus();
+    }
+  }
+
+  async function onDeleteSource(source: SourceRecord | null = selectedSource) {
+    if (!source) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete playlist "${source.name}"? This removes all its channels.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setError(null);
+    setImportMessage(null);
+
+    try {
+      await invoke("delete_registered_source", { sourceId: source.id });
+      await loadSources();
+      setSelectedGroup(ALL_GROUPS);
+      setImportMessage(`Deleted "${source.name}".`);
+    } catch (err) {
+      setError(String(err));
     }
   }
 
@@ -623,32 +651,46 @@ function App() {
         <section className="card">
           <div className="section-head">
             <h2>Sources</h2>
-            <button
-              type="button"
-              onClick={onRefreshSource}
-              disabled={selectedSourceId === null}
-            >
-              Refresh Source
-            </button>
           </div>
           <div className="list">
             {sources.map((source) => (
-              <button
-                key={source.id}
-                type="button"
-                className={
-                  source.id === selectedSourceId
-                    ? "list-item active"
-                    : "list-item"
-                }
-                onClick={() => {
-                  setSelectedSourceId(source.id);
-                  setSelectedGroup(ALL_GROUPS);
-                }}
-              >
-                <span>{source.name}</span>
-                <small>{source.source_type}</small>
-              </button>
+              <div key={source.id} className="source-row">
+                <button
+                  type="button"
+                  className={
+                    source.id === selectedSourceId
+                      ? "list-item source-select active"
+                      : "list-item source-select"
+                  }
+                  onClick={() => {
+                    setSelectedSourceId(source.id);
+                    setSelectedGroup(ALL_GROUPS);
+                  }}
+                >
+                  <span>{source.name}</span>
+                  <small>{source.source_type}</small>
+                </button>
+                <div className="source-actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => onRefreshSource(source.id)}
+                    aria-label={`Refresh ${source.name}`}
+                    title={`Refresh ${source.name}`}
+                  >
+                    <RefreshCw size={16} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button danger"
+                    onClick={() => onDeleteSource(source)}
+                    aria-label={`Delete ${source.name}`}
+                    title={`Delete ${source.name}`}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
             ))}
             {sources.length === 0 ? <p className="muted">No sources yet.</p> : null}
           </div>
