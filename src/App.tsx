@@ -72,6 +72,7 @@ const DEFAULT_SETTINGS: Phase1Settings = {
 function App() {
   const embeddedSurfaceRef = useRef<HTMLDivElement | null>(null);
   const embeddedSurfaceStartedRef = useRef(false);
+  const lastVolumeBeforeMuteRef = useRef(100);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
@@ -103,6 +104,12 @@ function App() {
       return "Select a channel to start playback";
     }
     return null;
+  }, [playback]);
+
+  useEffect(() => {
+    if (playback && playback.volume > 0) {
+      lastVolumeBeforeMuteRef.current = playback.volume;
+    }
   }, [playback]);
 
   async function loadSources() {
@@ -466,6 +473,75 @@ function App() {
       setError(String(err));
     }
   }
+
+  useEffect(() => {
+    const isInteractiveTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      if (target.isContentEditable) {
+        return true;
+      }
+
+      const tagName = target.tagName.toLowerCase();
+      return (
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select" ||
+        tagName === "button"
+      );
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const hasCurrentPlayback = Boolean(playback?.current_url);
+
+      if (event.code === "Space" || key === "spacebar") {
+        if (!hasCurrentPlayback) {
+          return;
+        }
+        event.preventDefault();
+        const isPaused = playback?.state.toLowerCase() === "paused";
+        onPausePlayback(!isPaused).catch((err) => setError(String(err)));
+        return;
+      }
+
+      if (key === "f") {
+        event.preventDefault();
+        onSetFullscreen(!Boolean(playback?.fullscreen)).catch((err) =>
+          setError(String(err)),
+        );
+        return;
+      }
+
+      if (key === "m") {
+        if (!hasCurrentPlayback) {
+          return;
+        }
+        event.preventDefault();
+        const currentVolume = playback?.volume ?? 100;
+        const nextVolume =
+          currentVolume > 0
+            ? 0
+            : Math.max(1, Math.min(100, lastVolumeBeforeMuteRef.current));
+        onSetVolume(nextVolume).catch((err) => setError(String(err)));
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [playback]);
 
   async function onSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
