@@ -1,5 +1,5 @@
-﻿import { useMemo } from "react";
-import { useShallow } from "zustand/react/shallow";
+﻿import { useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/store/appStore.ts';
 
 export function ChannelsPane() {
@@ -57,18 +57,27 @@ export function ChannelsPane() {
         <p className="muted">
           {selectedSource
             ? `${selectedSource.name} - ${channels.length} channels`
-            : "Select or import a source"}
+            : 'Select or import a source'}
         </p>
       </section>
 
       <section className="card channel-list">
         {channels.map((channel) => (
           <article key={channel.id} className="channel-row">
-            <button type="button" className="channel-play" onClick={() => void playChannel(channel.id)}>
+            <button
+              type="button"
+              className="channel-play"
+              onClick={() => void playChannel(channel.id)}
+            >
               Play
             </button>
             {channel.logo ? (
-              <img src={channel.logo} alt="" className="channel-logo" loading="lazy" />
+              <img
+                src={channel.logo}
+                alt=""
+                className="channel-logo"
+                loading="lazy"
+              />
             ) : null}
             <div className="channel-meta">
               <h3>{channel.name}</h3>
@@ -76,9 +85,11 @@ export function ChannelsPane() {
             </div>
             <button
               type="button"
-              className={channel.is_favorite ? "favorite active" : "favorite"}
+              className={channel.is_favorite ? 'favorite active' : 'favorite'}
               onClick={() => void toggleFavorite(channel)}
-              aria-label={channel.is_favorite ? "Remove favorite" : "Add favorite"}
+              aria-label={
+                channel.is_favorite ? 'Remove favorite' : 'Add favorite'
+              }
             >
               *
             </button>

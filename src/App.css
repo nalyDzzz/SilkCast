@@ -1,16 +1,15 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 :root {
-  font-family: "Bahnschrift", "Aptos", "Segoe UI", sans-serif;
+  font-family: 'Bahnschrift', 'Aptos', 'Segoe UI', sans-serif;
   font-size: 16px;
   line-height: 1.45;
   font-weight: 400;
   color: #122033;
-  background:
-    radial-gradient(circle at 5% -10%, #ffd8ab 0%, transparent 40%),
+  background: radial-gradient(circle at 5% -10%, #ffd8ab 0%, transparent 40%),
     radial-gradient(circle at 100% 0%, #b8f2e6 0%, transparent 45%),
     linear-gradient(140deg, #f5f8fc 0%, #eef3f8 100%);
   font-synthesis: none;
@@ -392,7 +391,7 @@ button:hover:not(:disabled) {
   font-size: 0.9rem;
 }
 
-.volume input[type="range"] {
+.volume input[type='range'] {
   padding: 0;
   border: none;
   background: transparent;

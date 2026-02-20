@@ -1,13 +1,17 @@
-import { useEffect, useRef } from "react";
-import "../App.css";
-import { ChannelsPane } from "../components/app/ChannelsPane";
-import { PlayerPane } from "../components/app/PlayerPane";
-import { SidebarPane } from "../components/app/SidebarPane";
-import { ALL_GROUPS, BackendEvent, PlaybackStatus } from "../components/app/types";
-import { subscribeBackendEvents } from "../lib/api/eventsApi";
-import * as playbackApi from "../lib/api/playbackApi";
-import { useAppStore } from "../store/appStore";
-import { useShallow } from "zustand/react/shallow";
+import { useEffect, useRef } from 'react';
+import '../App.css';
+import { ChannelsPane } from '../components/app/ChannelsPane';
+import { PlayerPane } from '../components/app/PlayerPane';
+import { SidebarPane } from '../components/app/SidebarPane';
+import {
+  ALL_GROUPS,
+  BackendEvent,
+  PlaybackStatus,
+} from '../components/app/types';
+import { subscribeBackendEvents } from '../lib/api/eventsApi';
+import * as playbackApi from '../lib/api/playbackApi';
+import { useAppStore } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 
 export function DashboardPage() {
   const embeddedSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -35,28 +39,30 @@ export function DashboardPage() {
     pausePlayback,
     setVolume,
     seekPlayback,
-  } = useAppStore(useShallow((state) => ({
-    selectedSourceId: state.selectedSourceId,
-    selectedGroup: state.selectedGroup,
-    searchQuery: state.searchQuery,
-    favoritesOnly: state.favoritesOnly,
-    playback: state.playback,
-    setPlayback: state.setPlayback,
-    setError: state.setError,
-    clearSourceLists: state.clearSourceLists,
-    setSelectedGroup: state.setSelectedGroup,
-    loadSources: state.loadSources,
-    loadGroups: state.loadGroups,
-    loadChannels: state.loadChannels,
-    loadRecents: state.loadRecents,
-    loadPlaybackStatus: state.loadPlaybackStatus,
-    loadSettings: state.loadSettings,
-    refreshEverything: state.refreshEverything,
-    saveFullscreenState: state.saveFullscreenState,
-    pausePlayback: state.pausePlayback,
-    setVolume: state.setVolume,
-    seekPlayback: state.seekPlayback,
-  })));
+  } = useAppStore(
+    useShallow((state) => ({
+      selectedSourceId: state.selectedSourceId,
+      selectedGroup: state.selectedGroup,
+      searchQuery: state.searchQuery,
+      favoritesOnly: state.favoritesOnly,
+      playback: state.playback,
+      setPlayback: state.setPlayback,
+      setError: state.setError,
+      clearSourceLists: state.clearSourceLists,
+      setSelectedGroup: state.setSelectedGroup,
+      loadSources: state.loadSources,
+      loadGroups: state.loadGroups,
+      loadChannels: state.loadChannels,
+      loadRecents: state.loadRecents,
+      loadPlaybackStatus: state.loadPlaybackStatus,
+      loadSettings: state.loadSettings,
+      refreshEverything: state.refreshEverything,
+      saveFullscreenState: state.saveFullscreenState,
+      pausePlayback: state.pausePlayback,
+      setVolume: state.setVolume,
+      seekPlayback: state.seekPlayback,
+    }))
+  );
 
   useEffect(() => {
     if (playback && playback.volume > 0) {
@@ -70,25 +76,27 @@ export function DashboardPage() {
     void refreshEverything();
 
     subscribeBackendEvents((backendEvent: BackendEvent) => {
-      if (backendEvent.event === "playback_state_changed") {
-        const playbackState = backendEvent.payload["state"] as PlaybackStatus | undefined;
+      if (backendEvent.event === 'playback_state_changed') {
+        const playbackState = backendEvent.payload['state'] as
+          | PlaybackStatus
+          | undefined;
         if (playbackState) {
           setPlayback(playbackState);
         }
         return;
       }
 
-      if (backendEvent.event === "sources_updated") {
+      if (backendEvent.event === 'sources_updated') {
         void loadSources().catch((err) => setError(String(err)));
         return;
       }
 
-      if (backendEvent.event === "settings_updated") {
+      if (backendEvent.event === 'settings_updated') {
         void loadSettings().catch((err) => setError(String(err)));
         return;
       }
 
-      if (backendEvent.event === "recents_updated") {
+      if (backendEvent.event === 'recents_updated') {
         void loadRecents().catch((err) => setError(String(err)));
       }
     })
@@ -102,7 +110,14 @@ export function DashboardPage() {
         unlisten();
       }
     };
-  }, [loadRecents, loadSettings, loadSources, refreshEverything, setError, setPlayback]);
+  }, [
+    loadRecents,
+    loadSettings,
+    loadSources,
+    refreshEverything,
+    setError,
+    setPlayback,
+  ]);
 
   useEffect(() => {
     if (selectedSourceId === null) {
@@ -113,7 +128,13 @@ export function DashboardPage() {
     setSelectedGroup(ALL_GROUPS);
     setError(null);
     void loadGroups(selectedSourceId).catch((err) => setError(String(err)));
-  }, [clearSourceLists, loadGroups, selectedSourceId, setError, setSelectedGroup]);
+  }, [
+    clearSourceLists,
+    loadGroups,
+    selectedSourceId,
+    setError,
+    setSelectedGroup,
+  ]);
 
   useEffect(() => {
     if (selectedSourceId === null) {
@@ -123,7 +144,15 @@ export function DashboardPage() {
 
     setError(null);
     void loadChannels(selectedSourceId).catch((err) => setError(String(err)));
-  }, [clearSourceLists, favoritesOnly, loadChannels, searchQuery, selectedGroup, selectedSourceId, setError]);
+  }, [
+    clearSourceLists,
+    favoritesOnly,
+    loadChannels,
+    searchQuery,
+    selectedGroup,
+    selectedSourceId,
+    setError,
+  ]);
 
   async function ensureEmbeddedSurfaceRunning() {
     const host = embeddedSurfaceRef.current;
@@ -155,8 +184,8 @@ export function DashboardPage() {
     } catch (err) {
       const message = String(err);
       const likelyMissingSurface =
-        message.includes("embedded surface mode is not active") ||
-        message.includes("failed to move embedded playback surface");
+        message.includes('embedded surface mode is not active') ||
+        message.includes('failed to move embedded playback surface');
       if (!likelyMissingSurface) {
         throw err;
       }
@@ -195,8 +224,8 @@ export function DashboardPage() {
     }
 
     scheduleSurfaceSync();
-    window.addEventListener("resize", scheduleSurfaceSync);
-    window.addEventListener("scroll", scheduleSurfaceSync, true);
+    window.addEventListener('resize', scheduleSurfaceSync);
+    window.addEventListener('scroll', scheduleSurfaceSync, true);
 
     return () => {
       mounted = false;
@@ -204,8 +233,8 @@ export function DashboardPage() {
         window.cancelAnimationFrame(rafId);
       }
       observer.disconnect();
-      window.removeEventListener("resize", scheduleSurfaceSync);
-      window.removeEventListener("scroll", scheduleSurfaceSync, true);
+      window.removeEventListener('resize', scheduleSurfaceSync);
+      window.removeEventListener('scroll', scheduleSurfaceSync, true);
     };
   }, [setError]);
 
@@ -214,7 +243,7 @@ export function DashboardPage() {
     try {
       const host = embeddedSurfaceRef.current;
       if (!host) {
-        throw new Error("embedded player surface not available");
+        throw new Error('embedded player surface not available');
       }
 
       if (fullscreen) {
@@ -242,9 +271,9 @@ export function DashboardPage() {
         .catch((err) => setError(String(err)));
     };
 
-    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
   }, [loadPlaybackStatus, saveFullscreenState, setError]);
 
@@ -259,7 +288,12 @@ export function DashboardPage() {
       }
 
       const tagName = target.tagName.toLowerCase();
-      return tagName === "input" || tagName === "textarea" || tagName === "select" || tagName === "button";
+      return (
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        tagName === 'button'
+      );
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -274,34 +308,37 @@ export function DashboardPage() {
       const key = event.key.toLowerCase();
       const hasCurrentPlayback = Boolean(playback?.current_url);
 
-      if (event.code === "Space" || key === "spacebar") {
+      if (event.code === 'Space' || key === 'spacebar') {
         if (!hasCurrentPlayback) {
           return;
         }
         event.preventDefault();
-        const isPaused = playback?.state.toLowerCase() === "paused";
+        const isPaused = playback?.state.toLowerCase() === 'paused';
         void pausePlayback(!isPaused);
         return;
       }
 
-      if (key === "f") {
+      if (key === 'f') {
         event.preventDefault();
         void onSetFullscreen(!Boolean(playback?.fullscreen));
         return;
       }
 
-      if (key === "m") {
+      if (key === 'm') {
         if (!hasCurrentPlayback) {
           return;
         }
         event.preventDefault();
         const currentVolume = playback?.volume ?? 100;
-        const nextVolume = currentVolume > 0 ? 0 : Math.max(1, Math.min(100, lastVolumeBeforeMuteRef.current));
+        const nextVolume =
+          currentVolume > 0
+            ? 0
+            : Math.max(1, Math.min(100, lastVolumeBeforeMuteRef.current));
         void setVolume(nextVolume);
         return;
       }
 
-      if (key === "arrowleft") {
+      if (key === 'arrowleft') {
         if (!hasCurrentPlayback) {
           return;
         }
@@ -310,7 +347,7 @@ export function DashboardPage() {
         return;
       }
 
-      if (key === "arrowright") {
+      if (key === 'arrowright') {
         if (!hasCurrentPlayback) {
           return;
         }
@@ -319,9 +356,9 @@ export function DashboardPage() {
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener('keydown', onKeyDown);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener('keydown', onKeyDown);
     };
   }, [pausePlayback, playback, seekPlayback, setVolume]);
 
@@ -329,7 +366,10 @@ export function DashboardPage() {
     <main className="phase1-layout">
       <SidebarPane />
       <ChannelsPane />
-      <PlayerPane embeddedSurfaceRef={embeddedSurfaceRef} onSetFullscreen={onSetFullscreen} />
+      <PlayerPane
+        embeddedSurfaceRef={embeddedSurfaceRef}
+        onSetFullscreen={onSetFullscreen}
+      />
     </main>
   );
 }

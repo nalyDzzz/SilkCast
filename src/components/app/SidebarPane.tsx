@@ -1,8 +1,8 @@
-﻿import { FormEvent } from "react";
-import { RefreshCw, Trash2 } from "lucide-react";
-import { useAppStore } from "../../store/appStore";
-import { ALL_GROUPS } from "./types";
-import { useShallow } from "zustand/react/shallow";
+﻿import { FormEvent } from 'react';
+import { RefreshCw, Trash2 } from 'lucide-react';
+import { useAppStore } from '../../store/appStore';
+import { ALL_GROUPS } from './types';
+import { useShallow } from 'zustand/react/shallow';
 
 export function SidebarPane() {
   const {
@@ -23,27 +23,32 @@ export function SidebarPane() {
     addM3uSource,
     refreshSource,
     deleteSource,
-  } = useAppStore(useShallow((state) => ({
-    loading: state.loading,
-    m3uName: state.m3uName,
-    m3uLocation: state.m3uLocation,
-    importMessage: state.importMessage,
-    sources: state.sources,
-    selectedSourceId: state.selectedSourceId,
-    groups: state.groups,
-    selectedGroup: state.selectedGroup,
-    selectedSourceExists: state.selectedSourceId !== null,
-    setM3uName: state.setM3uName,
-    setM3uLocation: state.setM3uLocation,
-    setSelectedSourceId: state.setSelectedSourceId,
-    setSelectedGroup: state.setSelectedGroup,
-    refreshEverything: state.refreshEverything,
-    addM3uSource: state.addM3uSource,
-    refreshSource: state.refreshSource,
-    deleteSource: state.deleteSource,
-  })));
+  } = useAppStore(
+    useShallow((state) => ({
+      loading: state.loading,
+      m3uName: state.m3uName,
+      m3uLocation: state.m3uLocation,
+      importMessage: state.importMessage,
+      sources: state.sources,
+      selectedSourceId: state.selectedSourceId,
+      groups: state.groups,
+      selectedGroup: state.selectedGroup,
+      selectedSourceExists: state.selectedSourceId !== null,
+      setM3uName: state.setM3uName,
+      setM3uLocation: state.setM3uLocation,
+      setSelectedSourceId: state.setSelectedSourceId,
+      setSelectedGroup: state.setSelectedGroup,
+      refreshEverything: state.refreshEverything,
+      addM3uSource: state.addM3uSource,
+      refreshSource: state.refreshSource,
+      deleteSource: state.deleteSource,
+    }))
+  );
 
-  const totalGroupChannels = groups.reduce((sum, group) => sum + group.channel_count, 0);
+  const totalGroupChannels = groups.reduce(
+    (sum, group) => sum + group.channel_count,
+    0
+  );
 
   const handleImportSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -56,7 +61,7 @@ export function SidebarPane() {
         <h1>OpenTV v0.1</h1>
         <p className="muted">M3U MVP</p>
         <button onClick={() => void refreshEverything()} disabled={loading}>
-          {loading ? "Refreshing..." : "Refresh All"}
+          {loading ? 'Refreshing...' : 'Refresh All'}
         </button>
       </section>
 
@@ -91,8 +96,8 @@ export function SidebarPane() {
                 type="button"
                 className={
                   source.id === selectedSourceId
-                    ? "source-select active list-item"
-                    : "source-select list-item"
+                    ? 'source-select active list-item'
+                    : 'source-select list-item'
                 }
                 onClick={() => {
                   setSelectedSourceId(source.id);
@@ -132,7 +137,9 @@ export function SidebarPane() {
               </div>
             </div>
           ))}
-          {sources.length === 0 ? <p className="muted">No sources yet.</p> : null}
+          {sources.length === 0 ? (
+            <p className="muted">No sources yet.</p>
+          ) : null}
         </div>
       </section>
 
@@ -141,7 +148,9 @@ export function SidebarPane() {
         <div className="list">
           <button
             type="button"
-            className={selectedGroup === ALL_GROUPS ? "active list-item" : "list-item"}
+            className={
+              selectedGroup === ALL_GROUPS ? 'active list-item' : 'list-item'
+            }
             onClick={() => setSelectedGroup(ALL_GROUPS)}
             disabled={!selectedSourceExists}
           >
@@ -152,7 +161,9 @@ export function SidebarPane() {
             <button
               key={group.name}
               type="button"
-              className={selectedGroup === group.name ? "active list-item" : "list-item"}
+              className={
+                selectedGroup === group.name ? 'active list-item' : 'list-item'
+              }
               onClick={() => setSelectedGroup(group.name)}
             >
               <span>{group.name}</span>

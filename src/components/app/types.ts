@@ -37,13 +37,13 @@ export type PlaybackStatus = {
   last_error: string | null;
   volume: number;
   fullscreen: boolean;
-  render_mode: "external_window" | "embedded_surface";
+  render_mode: 'external_window' | 'embedded_surface';
 };
 
 export type Phase1Settings = {
   hardware_decode: boolean;
-  buffering_preset: "normal";
-  startup_behavior: "home" | "resume_last";
+  buffering_preset: 'normal';
+  startup_behavior: 'home' | 'resume_last';
 };
 
 export type BackendEvent = {
@@ -57,10 +57,10 @@ export type M3uImportResult = {
   imported_channels: number;
 };
 
-export const ALL_GROUPS = "__all__";
+export const ALL_GROUPS = '__all__';
 
 export const DEFAULT_SETTINGS: Phase1Settings = {
   hardware_decode: true,
-  buffering_preset: "normal",
-  startup_behavior: "home",
+  buffering_preset: 'normal',
+  startup_behavior: 'home',
 };

@@ -4,7 +4,9 @@ export function LibraryPage() {
       <section className="pane channels-pane">
         <section className="card">
           <h2>Library</h2>
-          <p className="muted">Library route scaffold is in place. Build this view next.</p>
+          <p className="muted">
+            Library route scaffold is in place. Build this view next.
+          </p>
         </section>
       </section>
     </main>

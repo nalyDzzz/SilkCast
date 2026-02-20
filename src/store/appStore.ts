@@ -1,10 +1,17 @@
-import { create } from "zustand";
-import { ALL_GROUPS, ChannelRecord, DEFAULT_SETTINGS, Phase1Settings, PlaybackStatus, SourceRecord } from "../components/app/types";
-import * as channelsApi from "../lib/api/channelsApi";
-import * as playbackApi from "../lib/api/playbackApi";
-import * as recentsApi from "../lib/api/recentsApi";
-import * as settingsApi from "../lib/api/settingsApi";
-import * as sourcesApi from "../lib/api/sourcesApi";
+import { create } from 'zustand';
+import {
+  ALL_GROUPS,
+  ChannelRecord,
+  DEFAULT_SETTINGS,
+  Phase1Settings,
+  PlaybackStatus,
+  SourceRecord,
+} from '../components/app/types';
+import * as channelsApi from '../lib/api/channelsApi';
+import * as playbackApi from '../lib/api/playbackApi';
+import * as recentsApi from '../lib/api/recentsApi';
+import * as settingsApi from '../lib/api/settingsApi';
+import * as sourcesApi from '../lib/api/sourcesApi';
 
 type AppState = {
   sources: SourceRecord[];
@@ -66,9 +73,9 @@ const initialState: AppState = {
   recentChannels: [],
   playback: null,
   settings: DEFAULT_SETTINGS,
-  m3uName: "",
-  m3uLocation: "",
-  searchQuery: "",
+  m3uName: '',
+  m3uLocation: '',
+  searchQuery: '',
   favoritesOnly: false,
   error: null,
   loading: false,
@@ -84,7 +91,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setFavoritesOnly: (value) => set({ favoritesOnly: value }),
   setSelectedSourceId: (sourceId) => set({ selectedSourceId: sourceId }),
   setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
-  setSettings: (updater) => set((state) => ({ settings: updater(state.settings) })),
+  setSettings: (updater) =>
+    set((state) => ({ settings: updater(state.settings) })),
   setPlayback: (playback) => set({ playback }),
   setError: (error) => set({ error }),
   clearSourceLists: () => set({ groups: [], channels: [] }),
@@ -101,7 +109,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
 
       const selectedSourceId =
-        state.selectedSourceId !== null && sourceList.some((source) => source.id === state.selectedSourceId)
+        state.selectedSourceId !== null &&
+        sourceList.some((source) => source.id === state.selectedSourceId)
           ? state.selectedSourceId
           : sourceList[0].id;
 
@@ -120,7 +129,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   loadChannels: async (sourceId) => {
     const { selectedGroup, searchQuery, favoritesOnly } = get();
     const groupName = selectedGroup === ALL_GROUPS ? null : selectedGroup;
-    const query = searchQuery.trim() === "" ? null : searchQuery;
+    const query = searchQuery.trim() === '' ? null : searchQuery;
 
     const channels = await channelsApi.listSourceChannels({
       sourceId,
@@ -150,7 +159,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   refreshEverything: async () => {
     set({ loading: true, error: null });
     try {
-      await Promise.all([get().loadSources(), get().loadPlaybackStatus(), get().loadRecents(), get().loadSettings()]);
+      await Promise.all([
+        get().loadSources(),
+        get().loadPlaybackStatus(),
+        get().loadRecents(),
+        get().loadSettings(),
+      ]);
     } catch (err) {
       set({ error: String(err) });
     } finally {
@@ -164,14 +178,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const result = await sourcesApi.addM3uSource(name, location);
       set({
-        m3uName: "",
-        m3uLocation: "",
+        m3uName: '',
+        m3uLocation: '',
         selectedSourceId: result.source_id,
         selectedGroup: ALL_GROUPS,
         importMessage: `Imported ${result.imported_channels} channels.`,
       });
 
-      await Promise.all([get().loadSources(), get().loadGroups(result.source_id), get().loadChannels(result.source_id)]);
+      await Promise.all([
+        get().loadSources(),
+        get().loadGroups(result.source_id),
+        get().loadChannels(result.source_id),
+      ]);
     } catch (err) {
       set({ error: String(err) });
     }
@@ -185,7 +203,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ importMessage: `Refreshed ${result.imported_channels} channels.` });
 
       if (sourceId === get().selectedSourceId) {
-        await Promise.all([get().loadGroups(sourceId), get().loadChannels(sourceId)]);
+        await Promise.all([
+          get().loadGroups(sourceId),
+          get().loadChannels(sourceId),
+        ]);
       }
     } catch (err) {
       set({ error: String(err) });
@@ -207,7 +228,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ error: null });
 
     try {
-      await channelsApi.setChannelFavoriteState(channel.id, !channel.is_favorite);
+      await channelsApi.setChannelFavoriteState(
+        channel.id,
+        !channel.is_favorite
+      );
 
       const selectedSourceId = get().selectedSourceId;
       if (selectedSourceId !== null) {
