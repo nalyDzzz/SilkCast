@@ -1,8 +1,8 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { RefreshCw, Trash2 } from "lucide-react";
-import "./App.css";
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { RefreshCw, Trash2 } from 'lucide-react';
+import './App.css';
 
 type SourceRecord = {
   id: number;
@@ -43,13 +43,13 @@ type PlaybackStatus = {
   last_error: string | null;
   volume: number;
   fullscreen: boolean;
-  render_mode: "external_window" | "embedded_surface";
+  render_mode: 'external_window' | 'embedded_surface';
 };
 
 type Phase1Settings = {
   hardware_decode: boolean;
-  buffering_preset: "normal";
-  startup_behavior: "home" | "resume_last";
+  buffering_preset: 'normal';
+  startup_behavior: 'home' | 'resume_last';
 };
 
 type BackendEvent = {
@@ -63,11 +63,11 @@ type M3uImportResult = {
   imported_channels: number;
 };
 
-const ALL_GROUPS = "__all__";
+const ALL_GROUPS = '__all__';
 const DEFAULT_SETTINGS: Phase1Settings = {
   hardware_decode: true,
-  buffering_preset: "normal",
-  startup_behavior: "home",
+  buffering_preset: 'normal',
+  startup_behavior: 'home',
 };
 
 function App() {
@@ -79,12 +79,14 @@ function App() {
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [selectedGroup, setSelectedGroup] = useState(ALL_GROUPS);
   const [channels, setChannels] = useState<ChannelRecord[]>([]);
-  const [recentChannels, setRecentChannels] = useState<RecentChannelRecord[]>([]);
+  const [recentChannels, setRecentChannels] = useState<RecentChannelRecord[]>(
+    []
+  );
   const [playback, setPlayback] = useState<PlaybackStatus | null>(null);
   const [settings, setSettings] = useState<Phase1Settings>(DEFAULT_SETTINGS);
-  const [m3uName, setM3uName] = useState("");
-  const [m3uLocation, setM3uLocation] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [m3uName, setM3uName] = useState('');
+  const [m3uLocation, setM3uLocation] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -92,21 +94,21 @@ function App() {
 
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
-    [sources, selectedSourceId],
+    [sources, selectedSourceId]
   );
   const playerOverlayMessage = useMemo(() => {
-    if (playback?.state === "loading") {
-      return "Loading stream...";
+    if (playback?.state === 'loading') {
+      return 'Loading stream...';
     }
-    if (playback?.state === "error") {
-      return playback.last_error ?? "Playback error";
+    if (playback?.state === 'error') {
+      return playback.last_error ?? 'Playback error';
     }
-    if (!playback?.current_url || playback.state === "stopped") {
-      return "Select a channel to start playback";
+    if (!playback?.current_url || playback.state === 'stopped') {
+      return 'Select a channel to start playback';
     }
     return null;
   }, [playback]);
-  const isBuffering = playback?.state.toLowerCase() === "loading";
+  const isBuffering = playback?.state.toLowerCase() === 'loading';
 
   useEffect(() => {
     if (playback && playback.volume > 0) {
@@ -115,7 +117,7 @@ function App() {
   }, [playback]);
 
   async function loadSources() {
-    const sourceList = await invoke<SourceRecord[]>("list_registered_sources");
+    const sourceList = await invoke<SourceRecord[]>('list_registered_sources');
     setSources(sourceList);
 
     if (sourceList.length === 0) {
@@ -132,7 +134,7 @@ function App() {
   }
 
   async function loadGroups(sourceId: number) {
-    const result = await invoke<GroupRecord[]>("list_source_groups", {
+    const result = await invoke<GroupRecord[]>('list_source_groups', {
       sourceId,
     });
     setGroups(result);
@@ -140,8 +142,8 @@ function App() {
 
   async function loadChannels(sourceId: number) {
     const groupName = selectedGroup === ALL_GROUPS ? null : selectedGroup;
-    const query = searchQuery.trim() === "" ? null : searchQuery;
-    const result = await invoke<ChannelRecord[]>("list_source_channels", {
+    const query = searchQuery.trim() === '' ? null : searchQuery;
+    const result = await invoke<ChannelRecord[]>('list_source_channels', {
       sourceId,
       groupName,
       query,
@@ -151,19 +153,19 @@ function App() {
   }
 
   async function loadRecents() {
-    const result = await invoke<RecentChannelRecord[]>("list_recently_played", {
+    const result = await invoke<RecentChannelRecord[]>('list_recently_played', {
       limit: 20,
     });
     setRecentChannels(result);
   }
 
   async function loadPlaybackStatus() {
-    const status = await invoke<PlaybackStatus>("playback_state");
+    const status = await invoke<PlaybackStatus>('playback_state');
     setPlayback(status);
   }
 
   async function loadSettings() {
-    const currentSettings = await invoke<Phase1Settings>("get_phase1_settings");
+    const currentSettings = await invoke<Phase1Settings>('get_phase1_settings');
     setSettings(currentSettings);
   }
 
@@ -189,11 +191,11 @@ function App() {
 
     refreshEverything();
 
-    listen<BackendEvent>("backend:event", (event) => {
+    listen<BackendEvent>('backend:event', (event) => {
       const backendEvent = event.payload;
 
-      if (backendEvent.event === "playback_state_changed") {
-        const playbackState = backendEvent.payload["state"] as
+      if (backendEvent.event === 'playback_state_changed') {
+        const playbackState = backendEvent.payload['state'] as
           | PlaybackStatus
           | undefined;
         if (playbackState) {
@@ -202,17 +204,17 @@ function App() {
         return;
       }
 
-      if (backendEvent.event === "sources_updated") {
+      if (backendEvent.event === 'sources_updated') {
         loadSources().catch((err) => setError(String(err)));
         return;
       }
 
-      if (backendEvent.event === "settings_updated") {
+      if (backendEvent.event === 'settings_updated') {
         loadSettings().catch((err) => setError(String(err)));
         return;
       }
 
-      if (backendEvent.event === "recents_updated") {
+      if (backendEvent.event === 'recents_updated') {
         loadRecents().catch((err) => setError(String(err)));
       }
     })
@@ -277,8 +279,8 @@ function App() {
     }
 
     scheduleSurfaceSync();
-    window.addEventListener("resize", scheduleSurfaceSync);
-    window.addEventListener("scroll", scheduleSurfaceSync, true);
+    window.addEventListener('resize', scheduleSurfaceSync);
+    window.addEventListener('scroll', scheduleSurfaceSync, true);
 
     return () => {
       mounted = false;
@@ -286,8 +288,8 @@ function App() {
         window.cancelAnimationFrame(rafId);
       }
       observer.disconnect();
-      window.removeEventListener("resize", scheduleSurfaceSync);
-      window.removeEventListener("scroll", scheduleSurfaceSync, true);
+      window.removeEventListener('resize', scheduleSurfaceSync);
+      window.removeEventListener('scroll', scheduleSurfaceSync, true);
     };
   }, []);
 
@@ -297,16 +299,20 @@ function App() {
     setImportMessage(null);
 
     try {
-      const result = await invoke<M3uImportResult>("add_m3u_source", {
+      const result = await invoke<M3uImportResult>('add_m3u_source', {
         name: m3uName,
         location: m3uLocation,
       });
-      setM3uName("");
-      setM3uLocation("");
+      setM3uName('');
+      setM3uLocation('');
       setSelectedSourceId(result.source_id);
       setSelectedGroup(ALL_GROUPS);
       setImportMessage(`Imported ${result.imported_channels} channels.`);
-      await Promise.all([loadSources(), loadGroups(result.source_id), loadChannels(result.source_id)]);
+      await Promise.all([
+        loadSources(),
+        loadGroups(result.source_id),
+        loadChannels(result.source_id),
+      ]);
     } catch (err) {
       setError(String(err));
     }
@@ -321,7 +327,7 @@ function App() {
     setImportMessage(null);
 
     try {
-      const result = await invoke<M3uImportResult>("refresh_m3u_source", {
+      const result = await invoke<M3uImportResult>('refresh_m3u_source', {
         sourceId,
       });
       setImportMessage(`Refreshed ${result.imported_channels} channels.`);
@@ -336,7 +342,7 @@ function App() {
   async function onPlayChannel(channelId: number) {
     setError(null);
     try {
-      await invoke("play_channel", { channelId });
+      await invoke('play_channel', { channelId });
       await Promise.all([loadPlaybackStatus(), loadRecents()]);
     } catch (err) {
       setError(String(err));
@@ -346,7 +352,7 @@ function App() {
   async function onToggleFavorite(channel: ChannelRecord) {
     setError(null);
     try {
-      await invoke("set_channel_favorite_state", {
+      await invoke('set_channel_favorite_state', {
         channelId: channel.id,
         favorite: !channel.is_favorite,
       });
@@ -378,25 +384,25 @@ function App() {
     }
 
     if (!embeddedSurfaceStartedRef.current) {
-      await invoke<number>("playback_start_embedded_surface_mode", { bounds });
+      await invoke<number>('playback_start_embedded_surface_mode', { bounds });
       embeddedSurfaceStartedRef.current = true;
       await loadPlaybackStatus();
       return;
     }
 
     try {
-      await invoke("playback_update_embedded_surface_bounds", { bounds });
+      await invoke('playback_update_embedded_surface_bounds', { bounds });
     } catch (err) {
       const message = String(err);
       const likelyMissingSurface =
-        message.includes("embedded surface mode is not active") ||
-        message.includes("failed to move embedded playback surface");
+        message.includes('embedded surface mode is not active') ||
+        message.includes('failed to move embedded playback surface');
       if (!likelyMissingSurface) {
         throw err;
       }
 
       embeddedSurfaceStartedRef.current = false;
-      await invoke<number>("playback_start_embedded_surface_mode", { bounds });
+      await invoke<number>('playback_start_embedded_surface_mode', { bounds });
       embeddedSurfaceStartedRef.current = true;
       await loadPlaybackStatus();
     }
@@ -408,7 +414,7 @@ function App() {
     }
 
     const confirmed = window.confirm(
-      `Delete playlist "${source.name}"? This removes all its channels.`,
+      `Delete playlist "${source.name}"? This removes all its channels.`
     );
     if (!confirmed) {
       return;
@@ -418,7 +424,7 @@ function App() {
     setImportMessage(null);
 
     try {
-      await invoke("delete_registered_source", { sourceId: source.id });
+      await invoke('delete_registered_source', { sourceId: source.id });
       await loadSources();
       setSelectedGroup(ALL_GROUPS);
       setImportMessage(`Deleted "${source.name}".`);
@@ -430,7 +436,7 @@ function App() {
   async function onPausePlayback(paused: boolean) {
     setError(null);
     try {
-      await invoke("playback_pause", { paused });
+      await invoke('playback_pause', { paused });
       await loadPlaybackStatus();
     } catch (err) {
       setError(String(err));
@@ -440,7 +446,7 @@ function App() {
   async function onStopPlayback() {
     setError(null);
     try {
-      await invoke("playback_stop");
+      await invoke('playback_stop');
       await loadPlaybackStatus();
     } catch (err) {
       setError(String(err));
@@ -452,7 +458,7 @@ function App() {
     try {
       const host = embeddedSurfaceRef.current;
       if (!host) {
-        throw new Error("embedded player surface not available");
+        throw new Error('embedded player surface not available');
       }
 
       if (fullscreen) {
@@ -463,7 +469,7 @@ function App() {
         await document.exitFullscreen();
       }
 
-      await invoke("playback_set_fullscreen", { fullscreen });
+      await invoke('playback_set_fullscreen', { fullscreen });
       await ensureEmbeddedSurfaceRunning();
       await loadPlaybackStatus();
     } catch (err) {
@@ -474,29 +480,29 @@ function App() {
   useEffect(() => {
     const onFullscreenChange = () => {
       const isFullscreen = Boolean(document.fullscreenElement);
-      invoke("playback_set_fullscreen", { fullscreen: isFullscreen })
+      invoke('playback_set_fullscreen', { fullscreen: isFullscreen })
         .then(() => ensureEmbeddedSurfaceRunning())
         .then(() => loadPlaybackStatus())
         .catch((err) => setError(String(err)));
     };
 
-    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
   }, []);
 
   async function onSetVolume(nextVolume: number) {
     setError(null);
     try {
-      await invoke("playback_set_volume", { volume: nextVolume });
+      await invoke('playback_set_volume', { volume: nextVolume });
       setPlayback((current) =>
         current
           ? {
               ...current,
               volume: nextVolume,
             }
-          : current,
+          : current
       );
     } catch (err) {
       setError(String(err));
@@ -506,7 +512,7 @@ function App() {
   async function onSeekPlayback(seconds: number) {
     setError(null);
     try {
-      await invoke("playback_seek", { seconds });
+      await invoke('playback_seek', { seconds });
       await loadPlaybackStatus();
     } catch (err) {
       setError(String(err));
@@ -525,10 +531,10 @@ function App() {
 
       const tagName = target.tagName.toLowerCase();
       return (
-        tagName === "input" ||
-        tagName === "textarea" ||
-        tagName === "select" ||
-        tagName === "button"
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        tagName === 'button'
       );
     };
 
@@ -544,25 +550,25 @@ function App() {
       const key = event.key.toLowerCase();
       const hasCurrentPlayback = Boolean(playback?.current_url);
 
-      if (event.code === "Space" || key === "spacebar") {
+      if (event.code === 'Space' || key === 'spacebar') {
         if (!hasCurrentPlayback) {
           return;
         }
         event.preventDefault();
-        const isPaused = playback?.state.toLowerCase() === "paused";
+        const isPaused = playback?.state.toLowerCase() === 'paused';
         onPausePlayback(!isPaused).catch((err) => setError(String(err)));
         return;
       }
 
-      if (key === "f") {
+      if (key === 'f') {
         event.preventDefault();
         onSetFullscreen(!Boolean(playback?.fullscreen)).catch((err) =>
-          setError(String(err)),
+          setError(String(err))
         );
         return;
       }
 
-      if (key === "m") {
+      if (key === 'm') {
         if (!hasCurrentPlayback) {
           return;
         }
@@ -576,7 +582,7 @@ function App() {
         return;
       }
 
-      if (key === "arrowleft") {
+      if (key === 'arrowleft') {
         if (!hasCurrentPlayback) {
           return;
         }
@@ -585,7 +591,7 @@ function App() {
         return;
       }
 
-      if (key === "arrowright") {
+      if (key === 'arrowright') {
         if (!hasCurrentPlayback) {
           return;
         }
@@ -594,9 +600,9 @@ function App() {
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener('keydown', onKeyDown);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener('keydown', onKeyDown);
     };
   }, [playback]);
 
@@ -605,7 +611,7 @@ function App() {
     setError(null);
 
     try {
-      await invoke("set_phase1_settings", { settings });
+      await invoke('set_phase1_settings', { settings });
       await loadSettings();
     } catch (err) {
       setError(String(err));
@@ -614,7 +620,7 @@ function App() {
 
   const totalGroupChannels = groups.reduce(
     (sum, group) => sum + group.channel_count,
-    0,
+    0
   );
 
   return (
@@ -624,7 +630,7 @@ function App() {
           <h1>OpenTV v0.1</h1>
           <p className="muted">M3U MVP</p>
           <button onClick={refreshEverything} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh All"}
+            {loading ? 'Refreshing...' : 'Refresh All'}
           </button>
         </section>
 
@@ -659,8 +665,8 @@ function App() {
                   type="button"
                   className={
                     source.id === selectedSourceId
-                      ? "list-item source-select active"
-                      : "list-item source-select"
+                      ? 'source-select active list-item'
+                      : 'source-select list-item'
                   }
                   onClick={() => {
                     setSelectedSourceId(source.id);
@@ -692,7 +698,9 @@ function App() {
                 </div>
               </div>
             ))}
-            {sources.length === 0 ? <p className="muted">No sources yet.</p> : null}
+            {sources.length === 0 ? (
+              <p className="muted">No sources yet.</p>
+            ) : null}
           </div>
         </section>
 
@@ -702,7 +710,7 @@ function App() {
             <button
               type="button"
               className={
-                selectedGroup === ALL_GROUPS ? "list-item active" : "list-item"
+                selectedGroup === ALL_GROUPS ? 'active list-item' : 'list-item'
               }
               onClick={() => setSelectedGroup(ALL_GROUPS)}
               disabled={selectedSourceId === null}
@@ -715,7 +723,9 @@ function App() {
                 key={group.name}
                 type="button"
                 className={
-                  selectedGroup === group.name ? "list-item active" : "list-item"
+                  selectedGroup === group.name
+                    ? 'active list-item'
+                    : 'list-item'
                 }
                 onClick={() => setSelectedGroup(group.name)}
               >
@@ -752,7 +762,7 @@ function App() {
           <p className="muted">
             {selectedSource
               ? `${selectedSource.name} · ${channels.length} channels`
-              : "Select or import a source"}
+              : 'Select or import a source'}
           </p>
         </section>
 
@@ -767,7 +777,12 @@ function App() {
                 Play
               </button>
               {channel.logo ? (
-                <img src={channel.logo} alt="" className="channel-logo" loading="lazy" />
+                <img
+                  src={channel.logo}
+                  alt=""
+                  className="channel-logo"
+                  loading="lazy"
+                />
               ) : null}
               <div className="channel-meta">
                 <h3>{channel.name}</h3>
@@ -775,10 +790,10 @@ function App() {
               </div>
               <button
                 type="button"
-                className={channel.is_favorite ? "favorite active" : "favorite"}
+                className={channel.is_favorite ? 'favorite active' : 'favorite'}
                 onClick={() => onToggleFavorite(channel)}
                 aria-label={
-                  channel.is_favorite ? "Remove favorite" : "Add favorite"
+                  channel.is_favorite ? 'Remove favorite' : 'Add favorite'
                 }
               >
                 *
@@ -803,28 +818,29 @@ function App() {
             ) : null}
           </div>
           <p>
-            <strong>Backend:</strong> {playback?.backend ?? "..."}
+            <strong>Backend:</strong> {playback?.backend ?? '...'}
           </p>
           <p>
-            <strong>Status:</strong> {playback?.state ?? "idle"}
+            <strong>Status:</strong> {playback?.state ?? 'idle'}
           </p>
           <p>
-            <strong>Buffering:</strong> {isBuffering ? "yes" : "no"}
+            <strong>Buffering:</strong> {isBuffering ? 'yes' : 'no'}
           </p>
           <p>
-            <strong>Attached:</strong> {playback?.attached_hwnd ?? "none"}
+            <strong>Attached:</strong> {playback?.attached_hwnd ?? 'none'}
           </p>
           <p>
-            <strong>Surface:</strong> {playback?.embedded_surface_hwnd ?? "none"}
+            <strong>Surface:</strong>{' '}
+            {playback?.embedded_surface_hwnd ?? 'none'}
           </p>
           <p>
-            <strong>Mode:</strong> {playback?.render_mode ?? "embedded_surface"}
+            <strong>Mode:</strong> {playback?.render_mode ?? 'embedded_surface'}
           </p>
           <p>
-            <strong>Current URL:</strong> {playback?.current_url ?? "none"}
+            <strong>Current URL:</strong> {playback?.current_url ?? 'none'}
           </p>
           <p>
-            <strong>Error:</strong> {playback?.last_error ?? "none"}
+            <strong>Error:</strong> {playback?.last_error ?? 'none'}
           </p>
 
           <div className="actions-row">
@@ -861,7 +877,7 @@ function App() {
               type="button"
               onClick={() => onSetFullscreen(!Boolean(playback?.fullscreen))}
             >
-              {playback?.fullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              {playback?.fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
             </button>
             <label className="volume">
               Volume
@@ -905,7 +921,8 @@ function App() {
                 onChange={(e) =>
                   setSettings((current) => ({
                     ...current,
-                    startup_behavior: e.currentTarget.value as Phase1Settings["startup_behavior"],
+                    startup_behavior: e.currentTarget
+                      .value as Phase1Settings['startup_behavior'],
                   }))
                 }
               >
@@ -929,7 +946,9 @@ function App() {
                 onClick={() => onPlayChannel(recent.channel.id)}
               >
                 <span>{recent.channel.name}</span>
-                <small>{new Date(recent.played_at * 1000).toLocaleString()}</small>
+                <small>
+                  {new Date(recent.played_at * 1000).toLocaleString()}
+                </small>
               </button>
             ))}
             {recentChannels.length === 0 ? (

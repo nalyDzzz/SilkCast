@@ -1,0 +1,13 @@
+{
+  "plugins": ["prettier-plugin-tailwindcss"],
+  "tailwindFunctions": ["cn", "createTheme"],
+  "tailwindAttributes": ["rootClassName", "classNames"],
+  "tailwindStylesheet": "./src/App.css",
+  "singleQuote": true,
+  "printWidth": 80,
+  "arrowParens": "always",
+  "bracketSpacing": true,
+  "trailingComma": "es5",
+  "semi": true,
+  "tabWidth": 2
+}
