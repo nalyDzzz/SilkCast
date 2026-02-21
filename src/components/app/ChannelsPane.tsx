@@ -1,6 +1,26 @@
 ﻿import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/store/appStore.ts';
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from '@/components/ui/item.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Heart } from 'lucide-react';
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { Checkbox } from '@/components/ui/checkbox.tsx';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
 
 export function ChannelsPane() {
   const {
@@ -35,70 +55,81 @@ export function ChannelsPane() {
   );
 
   return (
-    <section className="pane channels-pane">
-      <section className="card channel-controls">
-        <h2>Channels</h2>
-        <div className="toolbar">
-          <input
+    <section className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Channels</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-4">
+          <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.currentTarget.value)}
             placeholder="Search channels"
             disabled={!selectedSourceExists}
           />
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={favoritesOnly}
-              onChange={(e) => setFavoritesOnly(e.currentTarget.checked)}
-            />
-            Favorites only
-          </label>
-        </div>
-        <p className="muted">
-          {selectedSource
-            ? `${selectedSource.name} - ${channels.length} channels`
-            : 'Select or import a source'}
-        </p>
-      </section>
-
-      <section className="card channel-list">
-        {channels.map((channel) => (
-          <article key={channel.id} className="channel-row">
-            <button
-              type="button"
-              className="channel-play"
-              onClick={() => void playChannel(channel.id)}
-            >
-              Play
-            </button>
-            {channel.logo ? (
-              <img
-                src={channel.logo}
-                alt=""
-                className="channel-logo"
-                loading="lazy"
+          <FieldGroup className="mx-auto w-56">
+            <Field orientation="horizontal">
+              <Checkbox
+                id="favorites-only"
+                name="favorites-only"
+                checked={favoritesOnly}
+                onCheckedChange={(e) => setFavoritesOnly(e === true)}
               />
-            ) : null}
-            <div className="channel-meta">
-              <h3>{channel.name}</h3>
-              <p>{channel.group_name}</p>
-            </div>
-            <button
-              type="button"
-              className={channel.is_favorite ? 'favorite active' : 'favorite'}
-              onClick={() => void toggleFavorite(channel)}
-              aria-label={
-                channel.is_favorite ? 'Remove favorite' : 'Add favorite'
-              }
-            >
-              *
-            </button>
-          </article>
-        ))}
-        {selectedSourceExists && channels.length === 0 ? (
-          <p className="muted">No channels match your filters.</p>
-        ) : null}
-      </section>
+              <FieldLabel htmlFor="favorites-only">Favorites only</FieldLabel>
+            </Field>
+          </FieldGroup>
+        </CardContent>
+        <CardFooter>
+          <p className="text-muted-foreground">
+            {selectedSource
+              ? `${selectedSource.name} - ${channels.length} channels`
+              : 'Select or import a source'}
+          </p>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-2">
+          {channels.map((channel) => (
+            <Item key={channel.id} variant="outline">
+              <ItemMedia>
+                {channel.logo ? (
+                  <img
+                    src={channel.logo}
+                    alt=""
+                    className="h-8 w-8 rounded object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
+              </ItemMedia>
+              <ItemContent
+                className="cursor-pointer"
+                onClick={() => void playChannel(channel.id)}
+              >
+                <ItemTitle>{channel.name}</ItemTitle>
+                <ItemDescription>{channel.group_name}</ItemDescription>
+              </ItemContent>
+              <ItemActions>
+                <Button
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                  className="group cursor-pointer hover:text-red-500"
+                  data-is-favorite={channel.is_favorite}
+                  onClick={() => void toggleFavorite(channel)}
+                >
+                  <Heart className="group-data-[is-favorite=true]:fill-red-500 group-data-[is-favorite=true]:text-red-500" />
+                </Button>
+              </ItemActions>
+            </Item>
+          ))}
+          {selectedSourceExists && channels.length === 0 ? (
+            <p className="text-muted-foreground">
+              No channels match your filters.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
     </section>
   );
 }

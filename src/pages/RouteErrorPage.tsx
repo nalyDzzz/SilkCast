@@ -14,11 +14,11 @@ export function RouteErrorPage() {
   }
 
   return (
-    <main className="phase1-layout">
-      <section className="pane channels-pane">
-        <section className="card">
+    <main>
+      <section>
+        <section>
           <h2>{title}</h2>
-          <p className="muted">{detail}</p>
+          <p className="text-muted-foreground">{detail}</p>
         </section>
       </section>
     </main>

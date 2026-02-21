@@ -363,7 +363,7 @@ export function DashboardPage() {
   }, [pausePlayback, playback, seekPlayback, setVolume]);
 
   return (
-    <main className="phase1-layout">
+    <main className="grid min-h-screen grid-cols-1 gap-4 p-4 lg:grid-cols-[25%_1fr_25%] xl:grid-cols-[20%_1fr_20%]">
       <SidebarPane />
       <ChannelsPane />
       <PlayerPane

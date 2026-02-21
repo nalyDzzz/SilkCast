@@ -1,8 +1,26 @@
 ﻿import { FormEvent } from 'react';
 import { RefreshCw, Trash2 } from 'lucide-react';
-import { useAppStore } from '../../store/appStore';
+import { useAppStore } from '@/store/appStore';
 import { ALL_GROUPS } from './types';
 import { useShallow } from 'zustand/react/shallow';
+import { Button } from '@/components/ui/button.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card.tsx';
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from '@/components/ui/item.tsx';
 
 export function SidebarPane() {
   const {
@@ -56,125 +74,153 @@ export function SidebarPane() {
   };
 
   return (
-    <aside className="pane sidebar-pane">
-      <section className="card">
-        <h1>OpenTV v0.1</h1>
-        <p className="muted">M3U MVP</p>
-        <button onClick={() => void refreshEverything()} disabled={loading}>
-          {loading ? 'Refreshing...' : 'Refresh All'}
-        </button>
-      </section>
-
-      <section className="card">
-        <h2>Import M3U</h2>
-        <form onSubmit={handleImportSubmit} className="stack">
-          <input
-            value={m3uName}
-            onChange={(e) => setM3uName(e.currentTarget.value)}
-            placeholder="Playlist name"
-            required
-          />
-          <input
-            value={m3uLocation}
-            onChange={(e) => setM3uLocation(e.currentTarget.value)}
-            placeholder="https://... or /path/to/file.m3u"
-            required
-          />
-          <button type="submit">Import Playlist</button>
-        </form>
-        {importMessage ? <p className="success">{importMessage}</p> : null}
-      </section>
-
-      <section className="card">
-        <div className="section-head">
-          <h2>Sources</h2>
-        </div>
-        <div className="list">
-          {sources.map((source) => (
-            <div key={source.id} className="source-row">
-              <button
-                type="button"
-                className={
-                  source.id === selectedSourceId
-                    ? 'source-select active list-item'
-                    : 'source-select list-item'
-                }
-                onClick={() => {
-                  setSelectedSourceId(source.id);
-                  setSelectedGroup(ALL_GROUPS);
-                }}
-              >
-                <span>{source.name}</span>
-                <small>{source.source_type}</small>
-              </button>
-              <div className="source-actions">
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => void refreshSource(source.id)}
-                  aria-label={`Refresh ${source.name}`}
-                  title={`Refresh ${source.name}`}
-                >
-                  <RefreshCw size={16} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button danger"
-                  onClick={() => {
-                    const confirmed = window.confirm(
-                      `Delete playlist "${source.name}"? This removes all its channels.`
-                    );
-                    if (!confirmed) {
-                      return;
-                    }
-                    void deleteSource(source);
-                  }}
-                  aria-label={`Delete ${source.name}`}
-                  title={`Delete ${source.name}`}
-                >
-                  <Trash2 size={16} aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-          ))}
-          {sources.length === 0 ? (
-            <p className="muted">No sources yet.</p>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="card">
-        <h2>Groups</h2>
-        <div className="list">
-          <button
-            type="button"
-            className={
-              selectedGroup === ALL_GROUPS ? 'active list-item' : 'list-item'
-            }
-            onClick={() => setSelectedGroup(ALL_GROUPS)}
-            disabled={!selectedSourceExists}
+    <aside className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>OpenTV v0.1</CardTitle>
+          <CardDescription>M3U MVP</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            className="w-full cursor-pointer"
+            onClick={() => void refreshEverything()}
+            disabled={loading}
           >
-            <span>All Channels</span>
-            <small>{totalGroupChannels}</small>
-          </button>
-          {groups.map((group) => (
-            <button
-              key={group.name}
-              type="button"
-              className={
-                selectedGroup === group.name ? 'active list-item' : 'list-item'
-              }
-              onClick={() => setSelectedGroup(group.name)}
-            >
-              <span>{group.name}</span>
-              <small>{group.channel_count}</small>
-            </button>
-          ))}
-          {selectedSourceExists && groups.length === 0 ? (
-            <p className="muted">No groups for this source.</p>
+            {loading ? 'Refreshing...' : 'Refresh All'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Import M3U</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleImportSubmit} className="flex flex-col gap-3">
+            <Input
+              value={m3uName}
+              onChange={(e) => setM3uName(e.currentTarget.value)}
+              placeholder="Playlist name"
+              required
+            />
+            <Input
+              value={m3uLocation}
+              onChange={(e) => setM3uLocation(e.currentTarget.value)}
+              placeholder="https://... or /path/to/file.m3u"
+              required
+            />
+            <Button type="submit">Import Playlist</Button>
+          </form>
+        </CardContent>
+        <CardFooter>
+          {importMessage ? (
+            <p className="text-green-500">{importMessage}</p>
           ) : null}
-        </div>
-      </section>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sources</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ItemGroup className="gap-2">
+            {sources.map((source) => (
+              <Item
+                key={source.id}
+                variant={
+                  selectedSourceId === source.id
+                    ? 'outline-selected'
+                    : 'outline'
+                }
+                size="sm"
+              >
+                <ItemContent
+                  onClick={() => {
+                    setSelectedSourceId(source.id);
+                    setSelectedGroup(ALL_GROUPS);
+                  }}
+                  className="cursor-pointer"
+                >
+                  <ItemTitle>{source.name}</ItemTitle>
+                  <ItemDescription>{source.source_type}</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Button
+                    size="icon-sm"
+                    type="button"
+                    onClick={() => void refreshSource(source.id)}
+                  >
+                    <RefreshCw size={16} aria-hidden="true" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    onClick={() => {
+                      const confirmed = window.confirm(
+                        `Delete playlist "${source.name}"? This removes all its channels.`
+                      );
+                      if (!confirmed) {
+                        return;
+                      }
+                      void deleteSource(source);
+                    }}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </Button>
+                </ItemActions>
+              </Item>
+            ))}
+            {sources.length === 0 ? (
+              <p className="text-muted-foreground">No sources yet.</p>
+            ) : null}
+          </ItemGroup>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Channels</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ItemGroup className="gap-2">
+            <Item
+              variant={
+                selectedGroup === ALL_GROUPS ? 'outline-selected' : 'outline'
+              }
+              size="sm"
+            >
+              <ItemContent
+                className="cursor-pointer"
+                onClick={() => setSelectedGroup(ALL_GROUPS)}
+              >
+                <ItemTitle>All Channels</ItemTitle>
+                <ItemDescription>{totalGroupChannels}</ItemDescription>
+              </ItemContent>
+            </Item>
+            {groups.map((group) => (
+              <Item
+                key={group.name}
+                variant={
+                  selectedGroup === group.name ? 'outline-selected' : 'outline'
+                }
+                size="sm"
+                onClick={() => setSelectedGroup(group.name)}
+              >
+                <ItemContent className="cursor-pointer">
+                  <ItemTitle>{group.name}</ItemTitle>
+                  <ItemDescription>{group.channel_count}</ItemDescription>
+                </ItemContent>
+              </Item>
+            ))}
+            {selectedSourceExists && groups.length === 0 ? (
+              <p className="text-muted-foreground">
+                No groups for this source.
+              </p>
+            ) : null}
+          </ItemGroup>
+        </CardContent>
+      </Card>
     </aside>
   );
 }
