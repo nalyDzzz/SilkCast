@@ -323,6 +323,8 @@ struct MpvPlaybackBackend {
     api: MpvApi,
     #[cfg(windows)]
     embedded_surface: Option<EmbeddedSurfaceHost>,
+    #[cfg(target_os = "linux")]
+    embedded_surface_parent: Option<u64>,
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -382,6 +384,8 @@ impl MpvPlaybackBackend {
             api,
             #[cfg(windows)]
             embedded_surface: None,
+            #[cfg(target_os = "linux")]
+            embedded_surface_parent: None,
         })
     }
 
@@ -414,6 +418,14 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn attach_window(&mut self, hwnd: u64) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            self.embedded_surface = None;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.embedded_surface_parent = None;
+        }
         self.set_wid(hwnd)
     }
 
@@ -483,13 +495,18 @@ impl PlaybackBackend for MpvPlaybackBackend {
         let cache = format!("{cache_seconds}");
         self.command(&["set", "cache-secs", &cache], "set cache-secs")?;
 
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
+            #[cfg(windows)]
+            let embedded_target = self.embedded_surface.as_ref().map(|surface| surface.hwnd_u64());
+            #[cfg(target_os = "linux")]
+            let embedded_target = self.embedded_surface_parent;
+
             // mpv may recreate video output after runtime option changes
             // (e.g., buffering/hwdec), so immediately reassert embedded target.
-            if let Some(surface) = self.embedded_surface.as_ref() {
+            if let Some(target_wid) = embedded_target {
                 self.command(&["set", "force-window", "no"], "set force-window")?;
-                self.set_wid(surface.hwnd_u64())?;
+                self.set_wid(target_wid)?;
             }
         }
 
@@ -522,7 +539,19 @@ impl PlaybackBackend for MpvPlaybackBackend {
             return Ok(surface_hwnd);
         }
 
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            let _ = bounds;
+            if parent_hwnd == 0 {
+                return Err("cannot attach embedded surface to window id 0".to_string());
+            }
+            self.command(&["set", "force-window", "no"], "set force-window")?;
+            self.set_wid(parent_hwnd)?;
+            self.embedded_surface_parent = Some(parent_hwnd);
+            Ok(parent_hwnd)
+        }
+
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = parent_hwnd;
             let _ = bounds;
@@ -549,7 +578,16 @@ impl PlaybackBackend for MpvPlaybackBackend {
             return Err("embedded surface mode is not active".to_string());
         }
 
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            let _ = bounds;
+            if self.embedded_surface_parent.is_none() {
+                return Err("embedded surface mode is not active".to_string());
+            }
+            Ok(())
+        }
+
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = bounds;
             Err("embedded surface mode is currently implemented only on Windows".to_string())
@@ -561,6 +599,10 @@ impl PlaybackBackend for MpvPlaybackBackend {
         #[cfg(windows)]
         {
             self.embedded_surface = None;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.embedded_surface_parent = None;
         }
         self.command(&["set", "force-window", "no"], "set force-window")
     }
@@ -654,4 +696,3 @@ fn load_mpv_library() -> Result<libloading::Library, String> {
         errors.join(" | ")
     ))
 }
-
