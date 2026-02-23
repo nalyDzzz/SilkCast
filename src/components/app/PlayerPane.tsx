@@ -211,6 +211,71 @@ export function PlayerPane() {
     };
   }, []);
 
+  useEffect(() => {
+    const isInteractiveTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      if (target.isContentEditable) {
+        return true;
+      }
+      const tagName = target.tagName.toLowerCase();
+      return (
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select" ||
+        tagName === "button"
+      );
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (!activeChannel) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (event.code === "Space" || key === "spacebar") {
+        event.preventDefault();
+        void handleTogglePlayPause();
+        return;
+      }
+
+      if (key === "f") {
+        event.preventDefault();
+        void handleToggleFullscreen();
+        return;
+      }
+
+      if (key === "m") {
+        event.preventDefault();
+        setIsMuted((current) => !current);
+        return;
+      }
+
+      if (key === "arrowleft") {
+        event.preventDefault();
+        handleSeekRelative(-10);
+        return;
+      }
+
+      if (key === "arrowright") {
+        event.preventDefault();
+        handleSeekRelative(10);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [activeChannel]);
+
   const playerOverlayMessage = useMemo(() => {
     if (videoState === "loading") {
       return "Loading stream...";
