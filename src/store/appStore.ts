@@ -20,6 +20,7 @@ type AppState = {
   selectedGroup: string;
   channels: ChannelRecord[];
   recentChannels: { channel: ChannelRecord; played_at: number }[];
+  activeChannel: ChannelRecord | null;
   playback: PlaybackStatus | null;
   settings: Phase1Settings;
   m3uName: string;
@@ -46,6 +47,7 @@ type AppActions = {
   loadGroups: (sourceId: number) => Promise<void>;
   loadChannels: (sourceId: number) => Promise<void>;
   loadRecents: () => Promise<void>;
+  openChannelInMpv: (channel: ChannelRecord) => Promise<void>;
   loadPlaybackStatus: () => Promise<void>;
   loadSettings: () => Promise<void>;
   refreshEverything: () => Promise<void>;
@@ -71,6 +73,7 @@ const initialState: AppState = {
   selectedGroup: ALL_GROUPS,
   channels: [],
   recentChannels: [],
+  activeChannel: null,
   playback: null,
   settings: DEFAULT_SETTINGS,
   m3uName: '',
@@ -146,6 +149,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ recentChannels });
   },
 
+  openChannelInMpv: async (channel) => {
+    set({ error: null });
+    try {
+      await playbackApi.openExternalWindow(channel.stream_url);
+      set({ activeChannel: null });
+      await playbackApi.recordRecentChannelPlay(channel.id);
+      await get().loadRecents();
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
   loadPlaybackStatus: async () => {
     const playback = await playbackApi.getPlaybackState();
     set({ playback });
@@ -217,8 +232,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ error: null });
 
     try {
-      await playbackApi.playChannel(channelId);
-      await Promise.all([get().loadPlaybackStatus(), get().loadRecents()]);
+      const channel =
+        get().channels.find((item) => item.id === channelId) ??
+        get().recentChannels.find((item) => item.channel.id === channelId)?.channel;
+      if (!channel) {
+        throw new Error(`channel ${channelId} not found in local state`);
+      }
+
+      set({ activeChannel: channel });
+      await playbackApi.recordRecentChannelPlay(channelId);
+      await get().loadRecents();
     } catch (err) {
       set({ error: String(err) });
     }

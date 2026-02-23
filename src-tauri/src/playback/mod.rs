@@ -191,8 +191,10 @@ trait PlaybackBackend {
         parent_hwnd: u64,
         bounds: EmbeddedSurfaceBounds,
     ) -> Result<u64, String>;
-    fn update_embedded_surface_bounds(&mut self, bounds: EmbeddedSurfaceBounds)
-        -> Result<(), String>;
+    fn update_embedded_surface_bounds(
+        &mut self,
+        bounds: EmbeddedSurfaceBounds,
+    ) -> Result<(), String>;
     fn stop_embedded_surface_mode(&mut self) -> Result<(), String>;
 }
 
@@ -294,7 +296,9 @@ impl BackendKind {
         bounds: EmbeddedSurfaceBounds,
     ) -> Result<u64, String> {
         match self {
-            BackendKind::Active(backend) => backend.start_embedded_surface_mode(parent_hwnd, bounds),
+            BackendKind::Active(backend) => {
+                backend.start_embedded_surface_mode(parent_hwnd, bounds)
+            }
             BackendKind::Unavailable(reason) => Err(reason.clone()),
         }
     }
@@ -347,10 +351,10 @@ impl MpvPlaybackBackend {
         };
 
         let set_option_string = |name: &str, value: &str| -> Result<(), String> {
-            let option_name =
-                CString::new(name).map_err(|err| format!("cstring error for option name: {err}"))?;
-            let option_value =
-                CString::new(value).map_err(|err| format!("cstring error for option value: {err}"))?;
+            let option_name = CString::new(name)
+                .map_err(|err| format!("cstring error for option name: {err}"))?;
+            let option_value = CString::new(value)
+                .map_err(|err| format!("cstring error for option value: {err}"))?;
             let rc = unsafe {
                 (api.mpv_set_option_string)(handle, option_name.as_ptr(), option_value.as_ptr())
             };
@@ -409,6 +413,12 @@ impl MpvPlaybackBackend {
         let wid = format!("{hwnd}");
         self.command(&["set", "wid", &wid], "set wid")
     }
+
+    fn clear_wid(&self) -> Result<(), String> {
+        // mpv expects -1 for "no embedding target"; using 0 can map to an
+        // invalid/null native handle and cause window lifecycle issues.
+        self.command(&["set", "wid", "-1"], "set wid -1")
+    }
 }
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -454,7 +464,9 @@ impl PlaybackBackend for MpvPlaybackBackend {
 
         Err(format!(
             "failed to stop playback: {} | {}",
-            stop_result.err().unwrap_or_else(|| "unknown stop error".to_string()),
+            stop_result
+                .err()
+                .unwrap_or_else(|| "unknown stop error".to_string()),
             clear_result
                 .err()
                 .unwrap_or_else(|| "unknown playlist-clear error".to_string())
@@ -498,7 +510,10 @@ impl PlaybackBackend for MpvPlaybackBackend {
         #[cfg(any(windows, target_os = "linux"))]
         {
             #[cfg(windows)]
-            let embedded_target = self.embedded_surface.as_ref().map(|surface| surface.hwnd_u64());
+            let embedded_target = self
+                .embedded_surface
+                .as_ref()
+                .map(|surface| surface.hwnd_u64());
             #[cfg(target_os = "linux")]
             let embedded_target = self.embedded_surface_parent;
 
@@ -595,7 +610,7 @@ impl PlaybackBackend for MpvPlaybackBackend {
     }
 
     fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
-        let _ = self.set_wid(0);
+        let _ = self.clear_wid();
         #[cfg(windows)]
         {
             self.embedded_surface = None;

@@ -15,6 +15,7 @@ use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::process::Command;
 use tauri::{Manager, State};
 
 #[derive(Debug, Serialize)]
@@ -228,6 +229,26 @@ fn play_channel(
 }
 
 #[tauri::command]
+fn record_recent_channel_play(
+    channel_id: i64,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    let channel = get_channel_by_id(&state.context.db_path, channel_id)?
+        .ok_or_else(|| format!("channel {channel_id} not found"))?;
+    record_recent_play(&state.context.db_path, channel_id)?;
+    emit_backend_event(&app, "recents_updated", json!({}))?;
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!(
+            "recorded recent channel play {} ({})",
+            channel.name, channel_id
+        ),
+    )
+}
+
+#[tauri::command]
 fn get_phase1_settings(state: State<SharedState>) -> Result<Phase1Settings, String> {
     load_phase1_settings(&state.context.db_path)
 }
@@ -345,6 +366,62 @@ fn playback_load_url(
         "INFO",
         &format!("playback loading URL: {url}"),
     )
+}
+
+#[tauri::command]
+fn playback_open_external_window(
+    url: String,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<(), String> {
+    {
+        let mut playback = state
+            .playback
+            .lock()
+            .map_err(|_| "playback state lock poisoned".to_string())?;
+        let _ = playback.stop();
+        emit_backend_event(
+            &app,
+            "playback_state_changed",
+            json!({ "state": playback.status() }),
+        )?;
+    }
+
+    spawn_mpv_popout_process(&url)?;
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!("spawned external mpv pop-out for URL: {url}"),
+    )
+}
+
+fn spawn_mpv_popout_process(url: &str) -> Result<(), String> {
+    let args = [
+        "--force-window=yes",
+        "--idle=no",
+        "--keep-open=no",
+        "--osc=yes",
+        "--input-default-bindings=yes",
+        "--input-vo-keyboard=yes",
+        "--title=OpenTV Pop-out",
+        "--",
+        url,
+    ];
+    let candidates = ["mpv.exe", "mpv"];
+    let mut errors: Vec<String> = Vec::new();
+
+    for binary in candidates {
+        match Command::new(binary).args(args).spawn() {
+            Ok(_child) => return Ok(()),
+            Err(err) => errors.push(format!("{binary}: {err}")),
+        }
+    }
+
+    Err(format!(
+        "unable to launch mpv pop-out process (tried: {}): {}",
+        candidates.join(", "),
+        errors.join(" | ")
+    ))
 }
 
 #[tauri::command]
@@ -689,6 +766,7 @@ pub fn run() {
             set_channel_favorite_state,
             list_recently_played,
             play_channel,
+            record_recent_channel_play,
             get_phase1_settings,
             set_phase1_settings,
             emit_phase0_ping,
@@ -696,6 +774,7 @@ pub fn run() {
             playback_attach_window,
             playback_attach_current_window,
             playback_load_url,
+            playback_open_external_window,
             playback_pause,
             playback_stop,
             playback_set_volume,
@@ -708,4 +787,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

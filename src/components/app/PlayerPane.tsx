@@ -1,36 +1,32 @@
-import { FormEvent, ReactNode } from 'react';
-import { useAppStore } from '@/store/appStore';
-import { useShallow } from 'zustand/react/shallow';
-import { Button } from '@/components/ui/button.tsx';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import Hls from "hls.js";
+import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
+import { Button } from "@/components/ui/button.tsx";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card.tsx';
-import { Field, FieldLabel } from '@/components/ui/field.tsx';
-import { Slider } from '@/components/ui/slider.tsx';
-import { Checkbox } from '@/components/ui/checkbox.tsx';
+} from "@/components/ui/card.tsx";
+import { Field, FieldLabel } from "@/components/ui/field.tsx";
+import { Slider } from "@/components/ui/slider.tsx";
+import { Checkbox } from "@/components/ui/checkbox.tsx";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select.tsx';
-import { Phase1Settings } from '@/components/app/types.ts';
+} from "@/components/ui/select.tsx";
+import { Phase1Settings } from "@/components/app/types.ts";
 import {
   Item,
   ItemContent,
   ItemDescription,
   ItemGroup,
   ItemTitle,
-} from '@/components/ui/item.tsx';
-
-type PlayerPaneProps = {
-  embeddedSurfaceRef: React.RefObject<HTMLDivElement | null>;
-  onSetFullscreen: (fullscreen: boolean) => void;
-};
+} from "@/components/ui/item.tsx";
 
 type InfoLineProps = {
   label: string;
@@ -45,141 +41,364 @@ function InfoLine({ label, children }: InfoLineProps) {
   );
 }
 
-export function PlayerPane({
-  embeddedSurfaceRef,
-  onSetFullscreen,
-}: PlayerPaneProps) {
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "00:00";
+  }
+
+  const total = Math.floor(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function isLikelyHlsUrl(url: string) {
+  const normalized = url.toLowerCase();
+  return normalized.includes(".m3u8") || normalized.includes("m3u8");
+}
+
+export function PlayerPane() {
   const {
+    activeChannel,
     playback,
     settings,
     recentChannels,
     error,
-    pausePlayback,
-    stopPlayback,
-    seekPlayback,
-    setVolume,
+    setError,
     setSettings,
     saveSettings,
     playChannel,
+    openChannelInMpv,
   } = useAppStore(
     useShallow((state) => ({
+      activeChannel: state.activeChannel,
       playback: state.playback,
       settings: state.settings,
       recentChannels: state.recentChannels,
       error: state.error,
-      pausePlayback: state.pausePlayback,
-      stopPlayback: state.stopPlayback,
-      seekPlayback: state.seekPlayback,
-      setVolume: state.setVolume,
+      setError: state.setError,
       setSettings: state.setSettings,
       saveSettings: state.saveSettings,
       playChannel: state.playChannel,
+      openChannelInMpv: state.openChannelInMpv,
     }))
   );
 
-  const playerOverlayMessage = (() => {
-    if (playback?.state === 'loading') {
-      return 'Loading stream...';
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerShellRef = useRef<HTMLDivElement | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const hlsNativeFallbackTriedRef = useRef(false);
+  const [videoState, setVideoState] = useState<"idle" | "loading" | "playing" | "paused" | "error">("idle");
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [playbackEngine, setPlaybackEngine] = useState<"hlsjs" | "native" | "none">("none");
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(100);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const destroyHlsPlayer = () => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
     }
-    if (playback?.state === 'error') {
-      return playback.last_error ?? 'Playback error';
+  };
+
+  const startNativePlayback = (video: HTMLVideoElement, url: string) => {
+    destroyHlsPlayer();
+    setPlaybackEngine("native");
+    video.src = url;
+    video.load();
+    void video.play().catch((err) => {
+      setVideoState("error");
+      setVideoError(String(err));
+    });
+  };
+
+  const startHlsPlayback = (video: HTMLVideoElement, url: string) => {
+    destroyHlsPlayer();
+    setPlaybackEngine("hlsjs");
+    const hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: true,
+    });
+    hlsRef.current = hls;
+
+    hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+      hls.loadSource(url);
+    });
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      void video.play().catch((err) => {
+        setVideoState("error");
+        setVideoError(String(err));
+      });
+    });
+
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (!data.fatal) {
+        return;
+      }
+
+      destroyHlsPlayer();
+      if (!hlsNativeFallbackTriedRef.current) {
+        hlsNativeFallbackTriedRef.current = true;
+        startNativePlayback(video, url);
+        return;
+      }
+
+      setVideoState("error");
+      setVideoError(`hls.js fatal error (${data.type}/${data.details})`);
+    });
+
+    hls.attachMedia(video);
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
     }
-    if (!playback?.current_url || playback.state === 'stopped') {
-      return 'Select a channel to start playback';
+
+    hlsNativeFallbackTriedRef.current = false;
+    if (!activeChannel) {
+      destroyHlsPlayer();
+      video.removeAttribute("src");
+      video.load();
+      setVideoState("idle");
+      setVideoError(null);
+      setCurrentTime(0);
+      setDuration(0);
+      setPlaybackEngine("none");
+      return;
+    }
+
+    setVideoState("loading");
+    setVideoError(null);
+    setCurrentTime(0);
+    setDuration(0);
+    if (Hls.isSupported() && isLikelyHlsUrl(activeChannel.stream_url)) {
+      startHlsPlayback(video, activeChannel.stream_url);
+    } else {
+      startNativePlayback(video, activeChannel.stream_url);
+    }
+  }, [activeChannel]);
+
+  useEffect(() => {
+    return () => {
+      destroyHlsPlayer();
+    };
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    video.volume = volume / 100;
+    video.muted = isMuted;
+  }, [isMuted, volume]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
+  }, []);
+
+  const playerOverlayMessage = useMemo(() => {
+    if (videoState === "loading") {
+      return "Loading stream...";
+    }
+    if (videoState === "error") {
+      return videoError ?? "This stream could not be played in the in-app web player. Use MPV pop-out.";
+    }
+    if (!activeChannel) {
+      return "Select a channel to start playback";
     }
     return null;
-  })();
-
-  const isBuffering = playback?.state.toLowerCase() === 'loading';
+  }, [activeChannel, videoError, videoState]);
 
   const handleSaveSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void saveSettings();
   };
 
+  const handleTogglePlayPause = async () => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    try {
+      if (video.paused) {
+        await video.play();
+      } else {
+        video.pause();
+      }
+    } catch (err) {
+      setVideoState("error");
+      setVideoError(String(err));
+    }
+  };
+
+  const handleSeekRelative = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    const next = Math.max(0, Math.min(video.duration || 0, video.currentTime + seconds));
+    video.currentTime = next;
+  };
+
+  const teardownInAppPlayer = () => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    destroyHlsPlayer();
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    setVideoState("idle");
+    setVideoError(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setPlaybackEngine("none");
+  };
+
+  const handleOpenInMpv = async () => {
+    if (!activeChannel) {
+      return;
+    }
+
+    try {
+      teardownInAppPlayer();
+      await openChannelInMpv(activeChannel);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handleToggleFullscreen = async () => {
+    const shell = playerShellRef.current;
+    if (!shell) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    await shell.requestFullscreen();
+  };
+
   return (
     <aside className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Player</CardTitle>
+          <CardTitle>Player (Web First)</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="relative mb-3">
-            <div
-              ref={embeddedSurfaceRef}
-              className="aspect-video w-full rounded-lg border bg-muted-foreground"
+          <div ref={playerShellRef} className="relative mb-3 aspect-video overflow-hidden rounded-lg border bg-black">
+            <video
+              ref={videoRef}
+              className="h-full w-full"
+              playsInline
+              onCanPlay={() => {
+                if (videoState !== "playing") {
+                  setVideoState("playing");
+                }
+              }}
+              onPlaying={() => setVideoState("playing")}
+              onPause={() => setVideoState("paused")}
+              onWaiting={() => setVideoState("loading")}
+              onError={() => {
+                const mediaError = videoRef.current?.error;
+                const message = mediaError
+                  ? `Media error code ${mediaError.code}.`
+                  : "Unknown media error.";
+                setVideoState("error");
+                setVideoError(message);
+              }}
+              onTimeUpdate={() => {
+                const video = videoRef.current;
+                if (!video) {
+                  return;
+                }
+                setCurrentTime(video.currentTime);
+                setDuration(video.duration || 0);
+              }}
             />
+
             {playerOverlayMessage ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/55 p-3 text-center font-semibold text-white">
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/55 p-3 text-center font-semibold text-white">
                 {playerOverlayMessage}
               </div>
             ) : null}
+
+            <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-black/65 p-2 text-white">
+              <Button type="button" size="sm" variant="secondary" onClick={() => void handleTogglePlayPause()} disabled={!activeChannel}>
+                {videoState === "playing" ? "Pause" : "Play"}
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => handleSeekRelative(-10)} disabled={!activeChannel}>
+                -10s
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => handleSeekRelative(10)} disabled={!activeChannel}>
+                +10s
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setIsMuted((current) => !current)} disabled={!activeChannel}>
+                {isMuted ? "Unmute" : "Mute"}
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => void handleToggleFullscreen()} disabled={!activeChannel}>
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </Button>
+            </div>
           </div>
 
-          <InfoLine label="Backend">{playback?.backend ?? '...'}</InfoLine>
-          <InfoLine label="Status">{playback?.state ?? 'idle'}</InfoLine>
-          <InfoLine label="Buffering">{isBuffering ? 'yes' : 'no'}</InfoLine>
-          <InfoLine label="Attached">
-            {playback?.attached_hwnd ?? 'none'}
-          </InfoLine>
-          <InfoLine label="Surface">
-            {playback?.embedded_surface_hwnd ?? 'none'}
-          </InfoLine>
-          <InfoLine label="Mode">
-            {playback?.render_mode ?? 'embedded_surface'}
-          </InfoLine>
-          <InfoLine label="Current URL">
-            {playback?.current_url ?? 'none'}
-          </InfoLine>
-          <InfoLine label="Error">{playback?.last_error ?? 'none'}</InfoLine>
+          <Field>
+            <FieldLabel>Volume</FieldLabel>
+            <Slider
+              min={0}
+              max={100}
+              value={[Math.round(volume)]}
+              onValueChange={(value) => setVolume(value[0])}
+              step={1}
+            />
+          </Field>
 
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            <Button type="button" onClick={() => void pausePlayback(true)}>
-              Pause
-            </Button>
-            <Button type="button" onClick={() => void pausePlayback(false)}>
-              Resume
-            </Button>
-            <Button type="button" onClick={() => void stopPlayback()}>
-              Stop
-            </Button>
+          <div className="mt-2 flex items-center justify-between text-sm">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button type="button" onClick={() => void handleOpenInMpv()} disabled={!activeChannel}>
+              Open In MPV Pop-out
+            </Button>
             <Button
               type="button"
-              onClick={() => void seekPlayback(-10)}
-              disabled={!Boolean(playback?.current_url)}
+              variant="outline"
+              onClick={teardownInAppPlayer}
+              disabled={!activeChannel}
             >
-              -10s
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void seekPlayback(10)}
-              disabled={!Boolean(playback?.current_url)}
-            >
-              +10s
+              Stop In-App
             </Button>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              onClick={() => onSetFullscreen(!Boolean(playback?.fullscreen))}
-            >
-              {playback?.fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            </Button>
-            <Field>
-              <FieldLabel>Volume</FieldLabel>
-              <Slider
-                min={0}
-                max={100}
-                defaultValue={[Math.round(playback?.volume ?? 100)]}
-                onValueChange={(value) => void setVolume(value[0])}
-                step={1}
-              />
-            </Field>
-          </div>
+          <InfoLine label="Active Channel">{activeChannel?.name ?? "none"}</InfoLine>
+          <InfoLine label="Web Status">{videoState}</InfoLine>
+          <InfoLine label="Web Engine">{playbackEngine}</InfoLine>
+          <InfoLine label="MPV Backend">{playback?.backend ?? "..."}</InfoLine>
+          <InfoLine label="MPV Render Mode">{playback?.render_mode ?? "external_window"}</InfoLine>
+          <InfoLine label="MPV URL">{playback?.current_url ?? "none"}</InfoLine>
         </CardContent>
       </Card>
 
@@ -217,7 +436,7 @@ export function PlayerPane({
                 onValueChange={(e) =>
                   setSettings((current) => ({
                     ...current,
-                    startup_behavior: e as Phase1Settings['startup_behavior'],
+                    startup_behavior: e as Phase1Settings["startup_behavior"],
                   }))
                 }
               >
@@ -226,9 +445,7 @@ export function PlayerPane({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="home">Home view</SelectItem>
-                  <SelectItem value="resume_last">
-                    Resume last channel
-                  </SelectItem>
+                  <SelectItem value="resume_last">Resume last channel</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -253,24 +470,18 @@ export function PlayerPane({
               >
                 <ItemContent>
                   <ItemTitle>{recent.channel.name}</ItemTitle>
-                  <ItemDescription>
-                    {new Date(recent.played_at * 1000).toLocaleString()}
-                  </ItemDescription>
+                  <ItemDescription>{new Date(recent.played_at * 1000).toLocaleString()}</ItemDescription>
                 </ItemContent>
               </Item>
             ))}
             {recentChannels.length === 0 ? (
-              <p className="text-muted-foreground">
-                No recently played channels.
-              </p>
+              <p className="text-muted-foreground">No recently played channels.</p>
             ) : null}
           </ItemGroup>
         </CardContent>
       </Card>
       {error ? (
-        <p className="border-destructive-0 m-0 rounded-lg border p-3 font-semibold text-destructive">
-          {error}
-        </p>
+        <p className="border-destructive-0 m-0 rounded-lg border p-3 font-semibold text-destructive">{error}</p>
       ) : null}
     </aside>
   );

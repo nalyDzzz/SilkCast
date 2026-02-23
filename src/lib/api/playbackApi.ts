@@ -12,6 +12,10 @@ export function playChannel(channelId: number) {
   return tauriInvoke<void>('play_channel', { channelId });
 }
 
+export function recordRecentChannelPlay(channelId: number) {
+  return tauriInvoke<void>('record_recent_channel_play', { channelId });
+}
+
 export function getPlaybackState() {
   return tauriInvoke<PlaybackStatus>('playback_state');
 }
@@ -34,6 +38,10 @@ export function setVolume(volume: number) {
 
 export function seekPlayback(seconds: number) {
   return tauriInvoke<void>('playback_seek', { seconds });
+}
+
+export function openExternalWindow(url: string) {
+  return tauriInvoke<void>('playback_open_external_window', { url });
 }
 
 export function startEmbeddedSurfaceMode(bounds: EmbeddedBounds) {
