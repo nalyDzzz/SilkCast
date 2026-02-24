@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useNavigate } from "react-router";
 import "../App.css";
 import { ChannelsPane } from "../components/app/ChannelsPane";
 import { PlayerPane } from "../components/app/PlayerPane";
@@ -13,6 +14,8 @@ import { useAppStore } from "../store/appStore";
 import { useShallow } from "zustand/react/shallow";
 
 export function DashboardPage() {
+  const navigate = useNavigate();
+
   const {
     selectedSourceId,
     selectedGroup,
@@ -48,6 +51,12 @@ export function DashboardPage() {
       refreshEverything: state.refreshEverything,
     }))
   );
+
+  useEffect(() => {
+    if (selectedSourceId === null) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate, selectedSourceId]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

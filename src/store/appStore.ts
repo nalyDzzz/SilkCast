@@ -13,9 +13,41 @@ import * as recentsApi from '../lib/api/recentsApi';
 import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
 
+const LAST_SELECTED_SOURCE_KEY = 'opentv:lastSelectedSourceId';
+
+const readLastSelectedSourceId = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const rawValue = window.localStorage.getItem(LAST_SELECTED_SOURCE_KEY);
+  if (!rawValue) {
+    return null;
+  }
+
+  const parsed = Number(rawValue);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const writeLastSelectedSourceId = (sourceId: number | null) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (sourceId === null) {
+    window.localStorage.removeItem(LAST_SELECTED_SOURCE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(LAST_SELECTED_SOURCE_KEY, sourceId.toString());
+};
+
+const initialSelectedSourceId = readLastSelectedSourceId();
+
 type AppState = {
   sources: SourceRecord[];
   selectedSourceId: number | null;
+  hasPersistedSourceSelection: boolean;
   groups: { name: string; channel_count: number }[];
   selectedGroup: string;
   channels: ChannelRecord[];
@@ -62,13 +94,15 @@ type AppActions = {
   setVolume: (nextVolume: number) => Promise<void>;
   seekPlayback: (seconds: number) => Promise<void>;
   saveSettings: () => Promise<void>;
+  logout: () => void;
 };
 
 type AppStore = AppState & AppActions;
 
 const initialState: AppState = {
   sources: [],
-  selectedSourceId: null,
+  selectedSourceId: initialSelectedSourceId,
+  hasPersistedSourceSelection: initialSelectedSourceId !== null,
   groups: [],
   selectedGroup: ALL_GROUPS,
   channels: [],
@@ -92,7 +126,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setM3uLocation: (value) => set({ m3uLocation: value }),
   setSearchQuery: (value) => set({ searchQuery: value }),
   setFavoritesOnly: (value) => set({ favoritesOnly: value }),
-  setSelectedSourceId: (sourceId) => set({ selectedSourceId: sourceId }),
+  setSelectedSourceId: (sourceId) => {
+    writeLastSelectedSourceId(sourceId);
+    set({
+      selectedSourceId: sourceId,
+      hasPersistedSourceSelection: sourceId !== null,
+    });
+  },
   setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
   setSettings: (updater) =>
     set((state) => ({ settings: updater(state.settings) })),
@@ -105,21 +145,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((state) => {
       if (sourceList.length === 0) {
+        writeLastSelectedSourceId(null);
         return {
           sources: sourceList,
           selectedSourceId: null,
+          hasPersistedSourceSelection: false,
         };
       }
 
-      const selectedSourceId =
+      const rememberedSourceId = readLastSelectedSourceId();
+      const persistedSelectionIsValid =
+        rememberedSourceId !== null &&
+        sourceList.some((source) => source.id === rememberedSourceId);
+
+      const inMemorySelectionIsValid =
         state.selectedSourceId !== null &&
-        sourceList.some((source) => source.id === state.selectedSourceId)
+        sourceList.some((source) => source.id === state.selectedSourceId);
+
+      const selectedSourceId = persistedSelectionIsValid
+        ? rememberedSourceId
+        : inMemorySelectionIsValid
           ? state.selectedSourceId
           : sourceList[0].id;
 
       return {
         sources: sourceList,
         selectedSourceId,
+        hasPersistedSourceSelection: persistedSelectionIsValid,
       };
     });
   },
@@ -202,10 +254,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     try {
       const result = await sourcesApi.addM3uSource(name, location);
+      writeLastSelectedSourceId(result.source_id);
       set({
         m3uName: '',
         m3uLocation: '',
         selectedSourceId: result.source_id,
+        hasPersistedSourceSelection: true,
         selectedGroup: ALL_GROUPS,
         importMessage: `Imported ${result.imported_channels} channels.`,
       });
@@ -369,5 +423,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } catch (err) {
       set({ error: String(err) });
     }
+  },
+
+  logout: () => {
+    writeLastSelectedSourceId(null);
+    set({
+      selectedSourceId: null,
+      hasPersistedSourceSelection: false,
+      selectedGroup: ALL_GROUPS,
+      activeChannel: null,
+      groups: [],
+      channels: [],
+    });
   },
 }));
