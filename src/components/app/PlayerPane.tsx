@@ -107,6 +107,11 @@ export function PlayerPane() {
   const [volume, setVolume] = useState(100);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [draftSettings, setDraftSettings] = useState<Phase1Settings>(settings);
+
+  useEffect(() => {
+    setDraftSettings(settings);
+  }, [settings]);
 
   const destroyHlsPlayer = () => {
     if (hlsRef.current) {
@@ -308,6 +313,7 @@ export function PlayerPane() {
 
   const handleSaveSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setSettings(() => draftSettings);
     void saveSettings();
   };
 
@@ -541,9 +547,9 @@ export function PlayerPane() {
           <form onSubmit={handleSaveSettings} className="flex flex-col gap-4">
             <Field orientation="horizontal">
               <Checkbox
-                checked={settings.hardware_decode}
+                checked={draftSettings.hardware_decode}
                 onCheckedChange={(e) =>
-                  setSettings((current) => ({
+                  setDraftSettings((current) => ({
                     ...current,
                     hardware_decode: e === true,
                   }))
@@ -563,9 +569,9 @@ export function PlayerPane() {
             <Field>
               <FieldLabel>Startup</FieldLabel>
               <Select
-                value={settings.startup_behavior}
+                value={draftSettings.startup_behavior}
                 onValueChange={(e) =>
-                  setSettings((current) => ({
+                  setDraftSettings((current) => ({
                     ...current,
                     startup_behavior: e as Phase1Settings['startup_behavior'],
                   }))
@@ -585,9 +591,9 @@ export function PlayerPane() {
             <Field>
               <FieldLabel>Default Player</FieldLabel>
               <Select
-                value={settings.preferred_player}
+                value={draftSettings.preferred_player}
                 onValueChange={(value) =>
-                  setSettings((current) => ({
+                  setDraftSettings((current) => ({
                     ...current,
                     preferred_player:
                       value as Phase1Settings['preferred_player'],

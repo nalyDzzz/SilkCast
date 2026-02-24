@@ -130,7 +130,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     writeLastSelectedSourceId(sourceId);
     set({
       selectedSourceId: sourceId,
-      hasPersistedSourceSelection: sourceId !== null,
+      hasPersistedSourceSelection: false,
     });
   },
   setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
@@ -259,7 +259,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         m3uName: '',
         m3uLocation: '',
         selectedSourceId: result.source_id,
-        hasPersistedSourceSelection: true,
+        hasPersistedSourceSelection: false,
         selectedGroup: ALL_GROUPS,
         importMessage: `Imported ${result.imported_channels} channels.`,
       });
