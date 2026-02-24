@@ -180,6 +180,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
         get().loadRecents(),
         get().loadSettings(),
       ]);
+
+      const { settings, recentChannels, activeChannel } = get();
+      if (
+        settings.startup_behavior === 'resume_last' &&
+        settings.preferred_player === 'web' &&
+        recentChannels.length > 0 &&
+        activeChannel === null
+      ) {
+        set({ activeChannel: recentChannels[0].channel });
+      }
     } catch (err) {
       set({ error: String(err) });
     } finally {
@@ -234,12 +244,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const channel =
         get().channels.find((item) => item.id === channelId) ??
-        get().recentChannels.find((item) => item.channel.id === channelId)?.channel;
+        get().recentChannels.find((item) => item.channel.id === channelId)
+          ?.channel;
       if (!channel) {
         throw new Error(`channel ${channelId} not found in local state`);
       }
 
-      set({ activeChannel: channel });
+      if (get().settings.preferred_player === 'mpv') {
+        await playbackApi.openExternalWindow(channel.stream_url);
+        set({ activeChannel: null });
+      } else {
+        set({ activeChannel: channel });
+      }
+
       await playbackApi.recordRecentChannelPlay(channelId);
       await get().loadRecents();
     } catch (err) {

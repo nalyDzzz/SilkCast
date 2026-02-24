@@ -44,6 +44,7 @@ export type Phase1Settings = {
   hardware_decode: boolean;
   buffering_preset: 'normal';
   startup_behavior: 'home' | 'resume_last';
+  preferred_player: 'web' | 'mpv';
 };
 
 export type BackendEvent = {
@@ -63,4 +64,5 @@ export const DEFAULT_SETTINGS: Phase1Settings = {
   hardware_decode: true,
   buffering_preset: 'normal',
   startup_behavior: 'home',
+  preferred_player: 'web',
 };

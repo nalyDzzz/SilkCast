@@ -107,6 +107,7 @@ pub struct Phase1Settings {
     pub hardware_decode: bool,
     pub buffering_preset: String,
     pub startup_behavior: String,
+    pub preferred_player: String,
 }
 
 impl Default for Phase1Settings {
@@ -115,6 +116,7 @@ impl Default for Phase1Settings {
             hardware_decode: true,
             buffering_preset: "normal".to_string(),
             startup_behavior: "home".to_string(),
+            preferred_player: "web".to_string(),
         }
     }
 }
@@ -127,6 +129,10 @@ impl Phase1Settings {
 
         if !matches!(self.startup_behavior.as_str(), "home" | "resume_last") {
             return Err("startup_behavior must be one of: home, resume_last".to_string());
+        }
+
+        if !matches!(self.preferred_player.as_str(), "web" | "mpv") {
+            return Err("preferred_player must be one of: web, mpv".to_string());
         }
 
         Ok(())
@@ -257,6 +263,8 @@ pub fn load_phase1_settings(db_path: &Path) -> Result<Phase1Settings, String> {
     let _buffering_preset = get_setting(db_path, "playback.buffering_preset")?;
     let startup_behavior =
         get_setting(db_path, "startup.behavior")?.unwrap_or_else(|| "home".to_string());
+    let preferred_player =
+        get_setting(db_path, "playback.preferred_player")?.unwrap_or_else(|| "web".to_string());
 
     let hardware_decode = hwdec_raw
         .as_deref()
@@ -267,6 +275,7 @@ pub fn load_phase1_settings(db_path: &Path) -> Result<Phase1Settings, String> {
         hardware_decode,
         buffering_preset: "normal".to_string(),
         startup_behavior,
+        preferred_player,
     };
     settings.validate()?;
     Ok(settings)
@@ -287,6 +296,11 @@ pub fn save_phase1_settings(db_path: &Path, settings: &Phase1Settings) -> Result
     )?;
     set_setting(db_path, "playback.buffering_preset", "normal")?;
     set_setting(db_path, "startup.behavior", &normalized.startup_behavior)?;
+    set_setting(
+        db_path,
+        "playback.preferred_player",
+        &normalized.preferred_player,
+    )?;
     Ok(())
 }
 

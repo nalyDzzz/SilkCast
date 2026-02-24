@@ -658,7 +658,7 @@ pub fn run() {
                 }
             }
 
-            if settings.startup_behavior == "resume_last" {
+            if settings.startup_behavior == "resume_last" && settings.preferred_player == "mpv" {
                 match list_recent_channels(&state.context.db_path, 1) {
                     Ok(recent) => {
                         if let Some(last_channel) = recent.into_iter().next() {
@@ -738,6 +738,14 @@ pub fn run() {
                         );
                     }
                 }
+            } else if settings.startup_behavior == "resume_last"
+                && settings.preferred_player == "web"
+            {
+                let _ = append_log(
+                    &state.context.log_path,
+                    "INFO",
+                    "startup resume_last deferred to web player flow",
+                );
             }
 
             append_log(
