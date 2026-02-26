@@ -1,30 +1,38 @@
-import { Navigate, createHashRouter } from 'react-router';
+import { createHashRouter } from 'react-router';
 import { AppLayout } from '@/components/layouts/AppLayout';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { HomePage } from '@/pages/HomePage';
-import { LibraryPage } from '@/pages/LibraryPage';
+import { LivePage } from '@/pages/LivePage';
+import { MoviesPage } from '@/pages/MoviesPage';
 import { RouteErrorPage } from '@/pages/RouteErrorPage';
+import { SeriesPage } from '@/pages/SeriesPage';
 
 export const appRouter = createHashRouter([
   {
+    path: '/',
+    element: <HomePage />,
+    errorElement: <RouteErrorPage />,
+  },
+  {
+    path: '/dashboard',
     element: <AppLayout />,
     errorElement: <RouteErrorPage />,
     children: [
       {
-        path: '/',
-        element: <HomePage />,
-      },
-      {
-        path: '/dashboard',
+        index: true,
         element: <DashboardPage />,
       },
       {
-        path: '/library',
-        element: <LibraryPage />,
+        path: 'live',
+        element: <LivePage />,
       },
       {
-        path: '*',
-        element: <Navigate to="/" replace />,
+        path: 'movies',
+        element: <MoviesPage />,
+      },
+      {
+        path: 'series',
+        element: <SeriesPage />,
       },
     ],
   },
