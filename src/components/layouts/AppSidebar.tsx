@@ -7,8 +7,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { Film, Home, Tv, TvMinimal } from 'lucide-react';
-import { Link, useLocation } from 'react-router';
+import { Film, Home, LogOut, Settings, Tv, TvMinimal } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router';
+import { useAppStore } from '@/store/appStore.ts';
+import { useShallow } from 'zustand/react/shallow';
 
 const data = {
   navMain: [
@@ -36,7 +38,19 @@ const data = {
 };
 
 export function AppSidebar() {
+  const navigate = useNavigate();
   const location = useLocation();
+
+  const { logout } = useAppStore(
+    useShallow((state) => ({
+      logout: state.logout,
+    }))
+  );
+
+  const handleLogout = () => {
+    logout();
+    navigate('/', { replace: true });
+  };
 
   return (
     <Sidebar
@@ -65,7 +79,32 @@ export function AppSidebar() {
         </SidebarGroup>
         <SidebarGroup />
       </SidebarContent>
-      <SidebarFooter />
+      <SidebarFooter>
+        <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild className="cursor-pointer">
+                <Link to={'/dashboard/settings'}>
+                  <Settings />
+                  <span>Settings</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                className="cursor-pointer"
+                onClick={handleLogout}
+              >
+                <div>
+                  <LogOut />
+                  <span>Switch Playlist</span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+      </SidebarFooter>
     </Sidebar>
   );
 }

@@ -32,7 +32,6 @@ const SIDEBAR_WIDTH_MOBILE = '18rem';
 const SIDEBAR_WIDTH_ICON = '4rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 
-
 type SidebarContextProps = {
   state: 'expanded' | 'collapsed';
   open: boolean;
@@ -486,7 +485,7 @@ const sidebarMenuButtonVariants = cva(
       size: {
         default: 'h-8 text-sm',
         sm: 'h-7 text-xs',
-        lg: 'h-12 text-sm group-data-[collapsible=icon]:!size-12 group-data-[collapsible=icon]:p-0!',
+        lg: 'h-12 text-sm group-data-[collapsible=icon]:size-12! group-data-[collapsible=icon]:p-0!',
       },
     },
     defaultVariants: {
@@ -495,7 +494,6 @@ const sidebarMenuButtonVariants = cva(
     },
   }
 );
-
 
 function SidebarMenuButton({
   asChild = false,

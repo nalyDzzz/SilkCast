@@ -6,6 +6,7 @@ import { LivePage } from '@/pages/LivePage';
 import { MoviesPage } from '@/pages/MoviesPage';
 import { RouteErrorPage } from '@/pages/RouteErrorPage';
 import { SeriesPage } from '@/pages/SeriesPage';
+import { SettingsPage } from '@/pages/SettingsPage.tsx';
 
 export const appRouter = createHashRouter([
   {
@@ -33,6 +34,10 @@ export const appRouter = createHashRouter([
       {
         path: 'series',
         element: <SeriesPage />,
+      },
+      {
+        path: 'settings',
+        element: <SettingsPage />,
       },
     ],
   },
