@@ -1171,4 +1171,82 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn delete_source_cascades_channels_favorites_and_recents() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = make_source_with_channels(&context.db_path);
+
+        let channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("failed to list channels");
+        assert_eq!(channels.len(), 3);
+
+        set_channel_favorite(&context.db_path, channels[0].id, true).expect("favorite set failed");
+        record_recent_play(&context.db_path, channels[0].id).expect("record recent failed");
+
+        delete_source(&context.db_path, source_id).expect("delete source failed");
+
+        let remaining_sources = list_sources(&context.db_path).expect("failed to list sources");
+        assert!(remaining_sources.is_empty());
+
+        let remaining_channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("failed to list channels after delete");
+        assert!(remaining_channels.is_empty());
+
+        let recent = list_recent_channels(&context.db_path, 10).expect("failed to list recents");
+        assert!(recent.is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn list_groups_respects_media_kind_filter() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = make_source_with_channels(&context.db_path);
+
+        let all = list_groups_for_source(&context.db_path, source_id, None)
+            .expect("failed to list groups");
+        assert_eq!(all.len(), 3);
+
+        let movies = list_groups_for_source(&context.db_path, source_id, Some("movie"))
+            .expect("failed to list movie groups");
+        assert_eq!(movies.len(), 1);
+        assert_eq!(movies[0].name, "Cinema");
+        assert_eq!(movies[0].channel_count, 1);
+
+        let unknown_kind = list_groups_for_source(&context.db_path, source_id, Some("unknown-kind"))
+            .expect("failed to list unknown-kind groups");
+        assert_eq!(unknown_kind.len(), 1);
+        assert_eq!(unknown_kind[0].name, "News");
+        assert_eq!(unknown_kind[0].channel_count, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_phase1_settings_rejects_invalid_persisted_values() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        set_setting(&context.db_path, "startup.behavior", "invalid-mode")
+            .expect("failed to store invalid startup behavior");
+        let err = load_phase1_settings(&context.db_path).expect_err("should reject invalid setting");
+        assert!(err.contains("startup_behavior"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn source_registry_rejects_unsupported_source_type() {
+        let registry = SourceRegistry::with_defaults();
+        let err = registry
+            .validate("xtream", &json!({}))
+            .expect_err("unsupported source type should fail");
+        assert!(err.contains("unsupported source type"));
+    }
 }

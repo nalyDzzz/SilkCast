@@ -404,6 +404,19 @@ fn has_movie_file_extension(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_root() -> PathBuf {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("opentv-m3u-test-{ts}"));
+        fs::create_dir_all(&dir).expect("failed to create temp test dir");
+        dir
+    }
 
     #[test]
     fn parse_m3u_extracts_extinf_metadata() {
@@ -494,5 +507,42 @@ https://stream.example/pamela.m3u8
         );
         assert_eq!(channels[0].group_name.as_deref(), Some("NETFLIX MOVIES"));
         assert_eq!(channels[0].media_kind, "movie");
+    }
+
+    #[test]
+    fn load_m3u_location_reads_plain_file_path() {
+        let root = make_temp_root();
+        let path = root.join("sample.m3u");
+        fs::write(&path, "#EXTM3U\n#EXTINF:-1,Sample\nhttps://stream.example/a.m3u8\n")
+            .expect("failed to write sample m3u");
+
+        let content =
+            load_m3u_location(path.to_str().expect("non-utf8 path")).expect("read should succeed");
+        assert!(content.contains("#EXTM3U"));
+        assert!(content.contains("Sample"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_m3u_location_reads_file_url() {
+        let root = make_temp_root();
+        let path = root.join("sample-url.m3u");
+        fs::write(&path, "#EXTM3U\n#EXTINF:-1,Url Sample\nhttps://stream.example/b.m3u8\n")
+            .expect("failed to write sample m3u");
+
+        let file_url = url::Url::from_file_path(&path)
+            .expect("file path should convert to file URL")
+            .to_string();
+        let content = load_m3u_location(&file_url).expect("file url read should succeed");
+        assert!(content.contains("Url Sample"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_m3u_location_rejects_empty_location() {
+        let err = load_m3u_location("   ").expect_err("empty location should fail");
+        assert!(err.contains("cannot be empty"));
     }
 }
