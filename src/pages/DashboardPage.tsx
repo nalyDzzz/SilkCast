@@ -115,7 +115,7 @@ export function DashboardPage() {
 
     setSelectedGroup(ALL_GROUPS);
     setError(null);
-    void loadGroups(selectedSourceId).catch((err) => setError(String(err)));
+    void loadGroups(selectedSourceId, "live").catch((err) => setError(String(err)));
   }, [
     clearSourceLists,
     loadGroups,
@@ -131,7 +131,9 @@ export function DashboardPage() {
     }
 
     setError(null);
-    void loadChannels(selectedSourceId).catch((err) => setError(String(err)));
+    void loadChannels(selectedSourceId, "live").catch((err) =>
+      setError(String(err))
+    );
   }, [
     clearSourceLists,
     favoritesOnly,

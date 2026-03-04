@@ -76,8 +76,14 @@ type AppActions = {
   setError: (error: string | null) => void;
   clearSourceLists: () => void;
   loadSources: () => Promise<void>;
-  loadGroups: (sourceId: number) => Promise<void>;
-  loadChannels: (sourceId: number) => Promise<void>;
+  loadGroups: (
+    sourceId: number,
+    mediaKind?: 'live' | 'movie' | 'series' | null
+  ) => Promise<void>;
+  loadChannels: (
+    sourceId: number,
+    mediaKind?: 'live' | 'movie' | 'series' | null
+  ) => Promise<void>;
   loadRecents: () => Promise<void>;
   openChannelInMpv: (channel: ChannelRecord) => Promise<void>;
   loadPlaybackStatus: () => Promise<void>;
@@ -86,6 +92,7 @@ type AppActions = {
   addM3uSource: (name: string, location: string) => Promise<void>;
   refreshSource: (sourceId: number) => Promise<void>;
   playChannel: (channelId: number) => Promise<void>;
+  playChannelRecord: (channel: ChannelRecord) => Promise<void>;
   toggleFavorite: (channel: ChannelRecord) => Promise<void>;
   deleteSource: (source: SourceRecord) => Promise<void>;
   pausePlayback: (paused: boolean) => Promise<void>;
@@ -176,18 +183,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
-  loadGroups: async (sourceId) => {
-    const groups = await sourcesApi.listSourceGroups(sourceId);
+  loadGroups: async (sourceId, mediaKind = null) => {
+    const groups = await sourcesApi.listSourceGroups(sourceId, mediaKind);
     set({ groups });
   },
 
-  loadChannels: async (sourceId) => {
+  loadChannels: async (sourceId, mediaKind = null) => {
     const { selectedGroup, searchQuery, favoritesOnly } = get();
     const groupName = selectedGroup === ALL_GROUPS ? null : selectedGroup;
     const query = searchQuery.trim() === '' ? null : searchQuery;
 
     const channels = await channelsApi.listSourceChannels({
       sourceId,
+      mediaKind,
       groupName,
       query,
       favoritesOnly,
@@ -312,6 +320,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
 
       await playbackApi.recordRecentChannelPlay(channelId);
+      await get().loadRecents();
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  playChannelRecord: async (channel) => {
+    set({ error: null });
+
+    try {
+      if (get().settings.preferred_player === 'mpv') {
+        await playbackApi.openExternalWindow(channel.stream_url);
+        set({ activeChannel: null });
+      } else {
+        set({ activeChannel: channel });
+      }
+
+      await playbackApi.recordRecentChannelPlay(channel.id);
       await get().loadRecents();
     } catch (err) {
       set({ error: String(err) });

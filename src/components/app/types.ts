@@ -20,6 +20,7 @@ export type ChannelRecord = {
   tvg_id: string | null;
   tvg_name: string | null;
   stream_url: string;
+  media_kind: "live" | "movie" | "series";
   is_favorite: boolean;
 };
 

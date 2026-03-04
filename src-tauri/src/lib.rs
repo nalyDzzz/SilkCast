@@ -15,7 +15,9 @@ use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{Child, Command};
+use std::thread;
 use tauri::{Manager, State};
 
 #[derive(Debug, Serialize)]
@@ -144,14 +146,16 @@ fn delete_registered_source(
 #[tauri::command]
 fn list_source_groups(
     source_id: i64,
+    media_kind: Option<String>,
     state: State<SharedState>,
 ) -> Result<Vec<GroupRecord>, String> {
-    list_groups_for_source(&state.context.db_path, source_id)
+    list_groups_for_source(&state.context.db_path, source_id, media_kind.as_deref())
 }
 
 #[tauri::command]
 fn list_source_channels(
     source_id: i64,
+    media_kind: Option<String>,
     group_name: Option<String>,
     query: Option<String>,
     favorites_only: bool,
@@ -160,6 +164,7 @@ fn list_source_channels(
     list_channels_for_source(
         &state.context.db_path,
         source_id,
+        media_kind.as_deref(),
         group_name.as_deref(),
         query.as_deref(),
         favorites_only,
@@ -387,7 +392,8 @@ fn playback_open_external_window(
         )?;
     }
 
-    spawn_mpv_popout_process(&url)?;
+    let child = spawn_mpv_popout_process(&url)?;
+    monitor_external_mpv_process(child, app.clone(), url.clone(), state.context.log_path.clone());
     append_log(
         &state.context.log_path,
         "INFO",
@@ -395,7 +401,7 @@ fn playback_open_external_window(
     )
 }
 
-fn spawn_mpv_popout_process(url: &str) -> Result<(), String> {
+fn spawn_mpv_popout_process(url: &str) -> Result<Child, String> {
     let args = [
         "--force-window=yes",
         "--idle=no",
@@ -412,7 +418,7 @@ fn spawn_mpv_popout_process(url: &str) -> Result<(), String> {
 
     for binary in candidates {
         match Command::new(binary).args(args).spawn() {
-            Ok(_child) => return Ok(()),
+            Ok(child) => return Ok(child),
             Err(err) => errors.push(format!("{binary}: {err}")),
         }
     }
@@ -422,6 +428,36 @@ fn spawn_mpv_popout_process(url: &str) -> Result<(), String> {
         candidates.join(", "),
         errors.join(" | ")
     ))
+}
+
+fn monitor_external_mpv_process(
+    mut child: Child,
+    app: tauri::AppHandle,
+    url: String,
+    log_path: PathBuf,
+) {
+    thread::spawn(move || {
+        let wait_result = child.wait();
+
+        let (exit_code, ok, wait_error) = match wait_result {
+            Ok(status) => (status.code(), status.success(), None),
+            Err(err) => (None, false, Some(err.to_string())),
+        };
+
+        let payload = json!({
+            "url": url,
+            "exit_code": exit_code,
+            "ok": ok,
+            "wait_error": wait_error,
+        });
+
+        let _ = emit_backend_event(&app, "external_playback_closed", payload.clone());
+        let _ = append_log(
+            &log_path,
+            "INFO",
+            &format!("external mpv pop-out closed: {}", payload),
+        );
+    });
 }
 
 #[tauri::command]

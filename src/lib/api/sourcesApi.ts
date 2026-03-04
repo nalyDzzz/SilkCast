@@ -9,8 +9,11 @@ export function listRegisteredSources() {
   return tauriInvoke<SourceRecord[]>('list_registered_sources');
 }
 
-export function listSourceGroups(sourceId: number) {
-  return tauriInvoke<GroupRecord[]>('list_source_groups', { sourceId });
+export function listSourceGroups(
+  sourceId: number,
+  mediaKind: "live" | "movie" | "series" | null = null
+) {
+  return tauriInvoke<GroupRecord[]>('list_source_groups', { sourceId, mediaKind });
 }
 
 export function addM3uSource(name: string, location: string) {

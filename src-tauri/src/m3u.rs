@@ -81,10 +81,8 @@ struct M3uMeta {
 }
 
 fn parse_extinf(input: &str) -> M3uMeta {
-    let mut sections = input.splitn(2, ',');
-    let attribute_section = sections.next().unwrap_or_default();
-    let raw_display = sections
-        .next()
+    let (attribute_section, display_section) = split_extinf_sections(input);
+    let raw_display = display_section
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string);
@@ -96,6 +94,28 @@ fn parse_extinf(input: &str) -> M3uMeta {
         display_name,
         inline_stream_url,
     }
+}
+
+fn split_extinf_sections(input: &str) -> (&str, Option<&str>) {
+    let bytes = input.as_bytes();
+    let mut in_quotes = false;
+    let mut idx = 0usize;
+
+    while idx < bytes.len() {
+        if bytes[idx] == b'"' {
+            in_quotes = !in_quotes;
+            idx += 1;
+            continue;
+        }
+
+        if bytes[idx] == b',' && !in_quotes {
+            return (&input[..idx], Some(&input[idx + 1..]));
+        }
+
+        idx += 1;
+    }
+
+    (input, None)
 }
 
 fn parse_attributes(section: &str) -> HashMap<String, String> {
@@ -207,6 +227,7 @@ fn looks_like_stream_url(value: &str) -> bool {
 }
 
 fn build_channel_record(meta: M3uMeta, stream_url: &str) -> ChannelInsertRecord {
+    let media_kind = classify_media_kind(&meta, stream_url);
     let channel_name = first_non_empty(&[
         meta.display_name.as_deref(),
         meta.attributes.get("tvg-name").map(String::as_str),
@@ -222,7 +243,162 @@ fn build_channel_record(meta: M3uMeta, stream_url: &str) -> ChannelInsertRecord 
         tvg_id: clean_opt(meta.attributes.get("tvg-id")),
         tvg_name: clean_opt(meta.attributes.get("tvg-name")),
         stream_url: stream_url.to_string(),
+        media_kind: media_kind.to_string(),
     }
+}
+
+fn classify_media_kind(meta: &M3uMeta, stream_url: &str) -> &'static str {
+    if media_type_attr_matches(meta, &["series", "tvshow", "tv_show"]) {
+        return "series";
+    }
+    if media_type_attr_matches(meta, &["movie", "vod", "film"]) {
+        return "movie";
+    }
+
+    let group = meta
+        .attributes
+        .get("group-title")
+        .map(String::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let display_name = meta
+        .display_name
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let tvg_name = meta
+        .attributes
+        .get("tvg-name")
+        .map(String::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let url = stream_url.trim().to_ascii_lowercase();
+
+    if looks_like_series(&group, &display_name, &tvg_name, &url) {
+        return "series";
+    }
+
+    if looks_like_movie(&group, &display_name, &tvg_name, &url) {
+        return "movie";
+    }
+
+    "live"
+}
+
+fn media_type_attr_matches(meta: &M3uMeta, expected_values: &[&str]) -> bool {
+    let candidate_keys = ["media-type", "tvg-type", "type", "content-type"];
+    for key in candidate_keys {
+        let value = meta
+            .attributes
+            .get(key)
+            .map(String::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if value.is_empty() {
+            continue;
+        }
+
+        if expected_values
+            .iter()
+            .any(|expected| value.contains(expected))
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn looks_like_series(group: &str, display_name: &str, tvg_name: &str, url: &str) -> bool {
+    if url.contains("/series/") || url.contains("\\series\\") {
+        return true;
+    }
+
+    let series_terms = [
+        "series",
+        "tv series",
+        "tv shows",
+        "tv show",
+        "shows",
+        "episodes",
+        "season",
+        "anime",
+    ];
+    if contains_any_term(group, &series_terms) {
+        return true;
+    }
+
+    looks_like_episode_marker(display_name) || looks_like_episode_marker(tvg_name)
+}
+
+fn looks_like_movie(group: &str, display_name: &str, tvg_name: &str, url: &str) -> bool {
+    if url.contains("/movie/") || url.contains("\\movie\\") || url.contains("/vod/") {
+        return true;
+    }
+
+    if has_movie_file_extension(url) {
+        return true;
+    }
+
+    let movie_terms = [
+        "movie",
+        "movies",
+        "vod",
+        "films",
+        "film",
+        "cinema",
+        "box office",
+    ];
+
+    contains_any_term(group, &movie_terms)
+        || contains_any_term(display_name, &movie_terms)
+        || contains_any_term(tvg_name, &movie_terms)
+}
+
+fn contains_any_term(input: &str, terms: &[&str]) -> bool {
+    terms.iter().any(|term| input.contains(term))
+}
+
+fn looks_like_episode_marker(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    let mut idx = 0usize;
+    while idx + 5 < bytes.len() {
+        let c = bytes[idx] as char;
+        if c != 's' {
+            idx += 1;
+            continue;
+        }
+
+        if !is_ascii_digit(bytes[idx + 1]) || !is_ascii_digit(bytes[idx + 2]) {
+            idx += 1;
+            continue;
+        }
+
+        let e = bytes[idx + 3] as char;
+        if e != 'e' {
+            idx += 1;
+            continue;
+        }
+
+        if !is_ascii_digit(bytes[idx + 4]) || !is_ascii_digit(bytes[idx + 5]) {
+            idx += 1;
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn is_ascii_digit(byte: u8) -> bool {
+    byte.is_ascii_digit()
+}
+
+fn has_movie_file_extension(url: &str) -> bool {
+    let movie_exts = [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".m4v", ".webm"];
+    movie_exts.iter().any(|ext| url.ends_with(ext))
 }
 
 #[cfg(test)]
@@ -247,9 +423,11 @@ https://stream.example/sports.m3u8
         assert_eq!(channels[0].tvg_id.as_deref(), Some("news.id"));
         assert_eq!(channels[0].tvg_name.as_deref(), Some("News HD"));
         assert_eq!(channels[0].logo.as_deref(), Some("https://img/news.png"));
+        assert_eq!(channels[0].media_kind, "live");
 
         assert_eq!(channels[1].name, "Sports One");
         assert_eq!(channels[1].group_name.as_deref(), Some("Sports"));
+        assert_eq!(channels[1].media_kind, "live");
     }
 
     #[test]
@@ -260,6 +438,7 @@ https://stream.example/sports.m3u8
         assert_eq!(channels.len(), 1);
         assert_eq!(channels[0].name, "https://stream.example/raw.ts");
         assert_eq!(channels[0].stream_url, "https://stream.example/raw.ts");
+        assert_eq!(channels[0].media_kind, "live");
     }
 
     #[test]
@@ -275,5 +454,45 @@ https://stream.example/sports.m3u8
         assert_eq!(channels[0].stream_url, "https://stream.example/inline.m3u8");
         assert_eq!(channels[0].group_name.as_deref(), Some("Inline"));
         assert_eq!(channels[0].tvg_id.as_deref(), Some("inline.id"));
+        assert_eq!(channels[0].media_kind, "live");
+    }
+
+    #[test]
+    fn parse_m3u_classifies_movies_and_series() {
+        let input = r#"
+#EXTM3U
+#EXTINF:-1 group-title="Movies",Top Gun
+http://provider.example/movie/user/pass/1001.mp4
+#EXTINF:-1 group-title="Series",Some Show S01E02
+http://provider.example/series/user/pass/2001.mkv
+"#;
+
+        let channels = parse_m3u_channels(input);
+        assert_eq!(channels.len(), 2);
+        assert_eq!(channels[0].media_kind, "movie");
+        assert_eq!(channels[1].media_kind, "series");
+    }
+
+    #[test]
+    fn parse_m3u_extinf_with_comma_inside_quoted_tvg_name() {
+        let input = r#"
+#EXTM3U
+#EXTINF:-1 tvg-name="Pamela, A Love Story (2023)" tvg-logo="https://example.com/pamela.jpg" group-title="NETFLIX MOVIES",NF - Pamela, A Love Story (2023)
+https://stream.example/pamela.m3u8
+"#;
+
+        let channels = parse_m3u_channels(input);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "NF - Pamela, A Love Story (2023)");
+        assert_eq!(
+            channels[0].tvg_name.as_deref(),
+            Some("Pamela, A Love Story (2023)")
+        );
+        assert_eq!(
+            channels[0].logo.as_deref(),
+            Some("https://example.com/pamela.jpg")
+        );
+        assert_eq!(channels[0].group_name.as_deref(), Some("NETFLIX MOVIES"));
+        assert_eq!(channels[0].media_kind, "movie");
     }
 }

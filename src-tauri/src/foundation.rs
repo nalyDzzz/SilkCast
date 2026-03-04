@@ -75,6 +75,7 @@ pub struct ChannelInsertRecord {
     pub tvg_id: Option<String>,
     pub tvg_name: Option<String>,
     pub stream_url: String,
+    pub media_kind: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,6 +94,7 @@ pub struct ChannelRecord {
     pub tvg_id: Option<String>,
     pub tvg_name: Option<String>,
     pub stream_url: String,
+    pub media_kind: String,
     pub is_favorite: bool,
 }
 
@@ -190,6 +192,7 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
               tvg_id TEXT,
               tvg_name TEXT,
               stream_url TEXT NOT NULL,
+              media_kind TEXT NOT NULL DEFAULT 'live',
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL,
               FOREIGN KEY(source_id) REFERENCES sources(id) ON DELETE CASCADE
@@ -218,6 +221,12 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
             "#,
         )
         .map_err(|e| format!("db migration failed: {e}"))?;
+
+    // Backfill support for databases created before `media_kind` existed.
+    let _ = connection.execute(
+        "ALTER TABLE channels ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'live'",
+        [],
+    );
 
     Ok(())
 }
@@ -395,9 +404,10 @@ pub fn replace_channels_for_source(
               tvg_id,
               tvg_name,
               stream_url,
+              media_kind,
               created_at,
               updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
         )
         .map_err(|e| format!("prepare insert failed: {e}"))?;
@@ -420,6 +430,7 @@ pub fn replace_channels_for_source(
                 channel.tvg_id,
                 channel.tvg_name,
                 channel.stream_url,
+                normalize_media_kind(&channel.media_kind),
                 ts,
                 ts,
             ])
@@ -446,7 +457,11 @@ pub fn replace_channels_for_source(
     Ok(inserted)
 }
 
-pub fn list_groups_for_source(db_path: &Path, source_id: i64) -> Result<Vec<GroupRecord>, String> {
+pub fn list_groups_for_source(
+    db_path: &Path,
+    source_id: i64,
+    media_kind: Option<&str>,
+) -> Result<Vec<GroupRecord>, String> {
     let connection = open_connection(db_path)?;
     let mut statement = connection
         .prepare(
@@ -454,14 +469,17 @@ pub fn list_groups_for_source(db_path: &Path, source_id: i64) -> Result<Vec<Grou
             SELECT group_name, COUNT(*)
             FROM channels
             WHERE source_id = ?1
+              AND (?2 = '' OR media_kind = ?2)
             GROUP BY group_name
             ORDER BY group_name COLLATE NOCASE ASC
             "#,
         )
         .map_err(|e| format!("prepare failed: {e}"))?;
 
+    let normalized_media_kind = media_kind.map(normalize_media_kind).unwrap_or_default();
+
     let mut rows = statement
-        .query(params![source_id])
+        .query(params![source_id, normalized_media_kind])
         .map_err(|e| format!("query failed: {e}"))?;
 
     let mut groups = Vec::new();
@@ -482,6 +500,7 @@ pub fn list_groups_for_source(db_path: &Path, source_id: i64) -> Result<Vec<Grou
 pub fn list_channels_for_source(
     db_path: &Path,
     source_id: i64,
+    media_kind: Option<&str>,
     group_name: Option<&str>,
     query: Option<&str>,
     favorites_only: bool,
@@ -499,18 +518,21 @@ pub fn list_channels_for_source(
               c.tvg_id,
               c.tvg_name,
               c.stream_url,
+              c.media_kind,
               CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite
             FROM channels c
             LEFT JOIN favorites f ON f.channel_id = c.id
             WHERE c.source_id = ?1
-              AND (?2 = '' OR c.group_name = ?2)
-              AND (?3 = '' OR lower(c.name) LIKE ?3 OR lower(COALESCE(c.tvg_name, '')) LIKE ?3)
-              AND (?4 = 0 OR f.channel_id IS NOT NULL)
+              AND (?2 = '' OR c.media_kind = ?2)
+              AND (?3 = '' OR c.group_name = ?3)
+              AND (?4 = '' OR lower(c.name) LIKE ?4 OR lower(COALESCE(c.tvg_name, '')) LIKE ?4)
+              AND (?5 = 0 OR f.channel_id IS NOT NULL)
             ORDER BY c.name COLLATE NOCASE ASC
             "#,
         )
         .map_err(|e| format!("prepare failed: {e}"))?;
 
+    let normalized_media_kind = media_kind.map(normalize_media_kind).unwrap_or_default();
     let normalized_group = group_name
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -526,6 +548,7 @@ pub fn list_channels_for_source(
     let mut rows = statement
         .query(params![
             source_id,
+            normalized_media_kind,
             normalized_group,
             normalized_query,
             favorites_flag,
@@ -554,6 +577,7 @@ pub fn get_channel_by_id(db_path: &Path, channel_id: i64) -> Result<Option<Chann
               c.tvg_id,
               c.tvg_name,
               c.stream_url,
+              c.media_kind,
               CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite
             FROM channels c
             LEFT JOIN favorites f ON f.channel_id = c.id
@@ -629,6 +653,7 @@ pub fn list_recent_channels(
               c.tvg_id,
               c.tvg_name,
               c.stream_url,
+              c.media_kind,
               CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite,
               recents.played_at
             FROM channels c
@@ -653,7 +678,7 @@ pub fn list_recent_channels(
     while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
         let channel = decode_channel_record(&row)?;
         let played_at = row
-            .get(9)
+            .get(10)
             .map_err(|e| format!("decode played_at failed: {e}"))?;
         recent_channels.push(RecentChannelRecord { channel, played_at });
     }
@@ -763,7 +788,7 @@ fn decode_source_record(row: &rusqlite::Row<'_>) -> Result<SourceRecord, String>
 
 fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, String> {
     let is_favorite: i64 = row
-        .get(8)
+        .get(9)
         .map_err(|e| format!("decode is_favorite failed: {e}"))?;
 
     Ok(ChannelRecord {
@@ -785,8 +810,20 @@ fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, Strin
         stream_url: row
             .get(7)
             .map_err(|e| format!("decode stream_url failed: {e}"))?,
+        media_kind: row
+            .get(8)
+            .map_err(|e| format!("decode media_kind failed: {e}"))?,
         is_favorite: is_favorite == 1,
     })
+}
+
+fn normalize_media_kind(input: &str) -> String {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "movie" => "movie".to_string(),
+        "series" => "series".to_string(),
+        "live" => "live".to_string(),
+        _ => "live".to_string(),
+    }
 }
 
 trait SourceProvider: Send + Sync {
@@ -919,6 +956,7 @@ mod tests {
                     tvg_id: Some("news-1".to_string()),
                     tvg_name: Some("News HD".to_string()),
                     stream_url: "https://stream.example/news.m3u8".to_string(),
+                    media_kind: "live".to_string(),
                 },
                 ChannelInsertRecord {
                     name: "Sports Channel".to_string(),
@@ -927,6 +965,7 @@ mod tests {
                     tvg_id: None,
                     tvg_name: None,
                     stream_url: "https://stream.example/sports.m3u8".to_string(),
+                    media_kind: "live".to_string(),
                 },
             ],
         )
@@ -934,15 +973,17 @@ mod tests {
 
         assert_eq!(count, 2);
 
-        let all_channels = list_channels_for_source(&context.db_path, source_id, None, None, false)
-            .expect("failed to list channels");
+        let all_channels =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to list channels");
         assert_eq!(all_channels.len(), 2);
 
         set_channel_favorite(&context.db_path, all_channels[0].id, true)
             .expect("failed to set favorite");
 
-        let favorites = list_channels_for_source(&context.db_path, source_id, None, None, true)
-            .expect("failed to list favorites");
+        let favorites =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, true)
+                .expect("failed to list favorites");
         assert_eq!(favorites.len(), 1);
 
         let _ = fs::remove_dir_all(root);

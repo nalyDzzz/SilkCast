@@ -3,6 +3,7 @@ import { ChannelRecord } from '../../components/app/types';
 
 type ListSourceChannelsArgs = {
   sourceId: number;
+  mediaKind?: "live" | "movie" | "series" | null;
   groupName: string | null;
   query: string | null;
   favoritesOnly: boolean;
