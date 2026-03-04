@@ -513,8 +513,11 @@ https://stream.example/pamela.m3u8
     fn load_m3u_location_reads_plain_file_path() {
         let root = make_temp_root();
         let path = root.join("sample.m3u");
-        fs::write(&path, "#EXTM3U\n#EXTINF:-1,Sample\nhttps://stream.example/a.m3u8\n")
-            .expect("failed to write sample m3u");
+        fs::write(
+            &path,
+            "#EXTM3U\n#EXTINF:-1,Sample\nhttps://stream.example/a.m3u8\n",
+        )
+        .expect("failed to write sample m3u");
 
         let content =
             load_m3u_location(path.to_str().expect("non-utf8 path")).expect("read should succeed");
@@ -528,8 +531,11 @@ https://stream.example/pamela.m3u8
     fn load_m3u_location_reads_file_url() {
         let root = make_temp_root();
         let path = root.join("sample-url.m3u");
-        fs::write(&path, "#EXTM3U\n#EXTINF:-1,Url Sample\nhttps://stream.example/b.m3u8\n")
-            .expect("failed to write sample m3u");
+        fs::write(
+            &path,
+            "#EXTM3U\n#EXTINF:-1,Url Sample\nhttps://stream.example/b.m3u8\n",
+        )
+        .expect("failed to write sample m3u");
 
         let file_url = url::Url::from_file_path(&path)
             .expect("file path should convert to file URL")

@@ -393,7 +393,12 @@ fn playback_open_external_window(
     }
 
     let child = spawn_mpv_popout_process(&url)?;
-    monitor_external_mpv_process(child, app.clone(), url.clone(), state.context.log_path.clone());
+    monitor_external_mpv_process(
+        child,
+        app.clone(),
+        url.clone(),
+        state.context.log_path.clone(),
+    );
     append_log(
         &state.context.log_path,
         "INFO",
@@ -886,8 +891,9 @@ https://stream.example/sports.m3u8
         .expect("import should succeed");
         assert_eq!(inserted, 2);
 
-        let channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
-            .expect("failed to list imported channels");
+        let channels =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to list imported channels");
         assert_eq!(channels.len(), 2);
 
         let _ = fs::remove_dir_all(root);
@@ -920,6 +926,57 @@ https://stream.example/sports.m3u8
         )
         .expect_err("import should fail");
         assert!(err.contains("0 channels were found"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn import_m3u_source_rejects_missing_location_config() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "Broken Config",
+            &json!({ "location": "placeholder" }),
+        )
+        .expect("failed to create source");
+
+        let state = SharedState::new(context.clone(), false);
+        let err = import_m3u_source(&state, source_id, &json!({}))
+            .expect_err("missing location should fail");
+        assert!(err.contains("config missing `location`"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn import_m3u_source_surfaces_file_read_failures() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let missing_path = root.join("does-not-exist.m3u");
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "Missing File",
+            &json!({ "location": missing_path.to_string_lossy().to_string() }),
+        )
+        .expect("failed to create source");
+
+        let state = SharedState::new(context.clone(), false);
+        let err = import_m3u_source(
+            &state,
+            source_id,
+            &json!({ "location": missing_path.to_string_lossy().to_string() }),
+        )
+        .expect_err("missing file should fail");
+        assert!(err.contains("failed to read m3u file"));
 
         let _ = fs::remove_dir_all(root);
     }

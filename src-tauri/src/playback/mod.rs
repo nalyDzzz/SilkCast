@@ -69,6 +69,26 @@ impl PlaybackEngine {
         }
     }
 
+    #[cfg(test)]
+    fn with_backend_for_tests(backend: Box<dyn PlaybackBackend + Send>) -> Self {
+        let backend = BackendKind::Active(backend);
+        let backend_name = backend.name().to_string();
+        Self {
+            status: PlaybackStatus {
+                state: PlaybackState::Idle,
+                attached_hwnd: None,
+                embedded_surface_hwnd: None,
+                current_url: None,
+                backend: backend_name,
+                last_error: None,
+                volume: 100.0,
+                fullscreen: false,
+                render_mode: PlaybackRenderMode::ExternalWindow,
+            },
+            backend,
+        }
+    }
+
     pub fn status(&self) -> PlaybackStatus {
         self.status.clone()
     }
@@ -710,4 +730,310 @@ fn load_mpv_library() -> Result<libloading::Library, String> {
         MPV_LIBRARY_CANDIDATES.join(", "),
         errors.join(" | ")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct FakeBackendState {
+        fail_load_url: bool,
+        fail_stop: bool,
+        fail_pause: bool,
+        fail_set_volume: bool,
+        fail_set_fullscreen: bool,
+        fail_seek: bool,
+        fail_apply_preferences: bool,
+        fail_start_embedded_surface_mode: bool,
+        fail_update_embedded_surface_bounds: bool,
+        fail_stop_embedded_surface_mode: bool,
+        attached_hwnd: Option<u64>,
+        loaded_url: Option<String>,
+        paused: bool,
+        volume: Option<f64>,
+        fullscreen: Option<bool>,
+        seek_seconds: Option<i64>,
+        hwdec: Option<bool>,
+        cache_seconds: Option<i64>,
+        embedded_parent: Option<u64>,
+        embedded_surface_hwnd: u64,
+        embedded_bounds: Option<EmbeddedSurfaceBounds>,
+    }
+
+    struct FakeBackend {
+        state: Arc<Mutex<FakeBackendState>>,
+    }
+
+    impl FakeBackend {
+        fn new(state: Arc<Mutex<FakeBackendState>>) -> Self {
+            Self { state }
+        }
+    }
+
+    impl PlaybackBackend for FakeBackend {
+        fn name(&self) -> &'static str {
+            "fake-backend"
+        }
+
+        fn attach_window(&mut self, hwnd: u64) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            state.attached_hwnd = Some(hwnd);
+            Ok(())
+        }
+
+        fn load_url(&mut self, url: &str) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_load_url {
+                return Err("fake load_url failure".to_string());
+            }
+            state.loaded_url = Some(url.to_string());
+            Ok(())
+        }
+
+        fn pause(&mut self, paused: bool) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_pause {
+                return Err("fake pause failure".to_string());
+            }
+            state.paused = paused;
+            Ok(())
+        }
+
+        fn stop(&mut self) -> Result<(), String> {
+            let state = self.state.lock().expect("state lock poisoned");
+            if state.fail_stop {
+                return Err("fake stop failure".to_string());
+            }
+            Ok(())
+        }
+
+        fn set_volume(&mut self, volume: f64) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_set_volume {
+                return Err("fake set_volume failure".to_string());
+            }
+            state.volume = Some(volume);
+            Ok(())
+        }
+
+        fn set_fullscreen(&mut self, fullscreen: bool) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_set_fullscreen {
+                return Err("fake set_fullscreen failure".to_string());
+            }
+            state.fullscreen = Some(fullscreen);
+            Ok(())
+        }
+
+        fn seek(&mut self, seconds: i64) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_seek {
+                return Err("fake seek failure".to_string());
+            }
+            state.seek_seconds = Some(seconds);
+            Ok(())
+        }
+
+        fn apply_preferences(
+            &mut self,
+            hardware_decode: bool,
+            cache_seconds: i64,
+        ) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_apply_preferences {
+                return Err("fake apply_preferences failure".to_string());
+            }
+            state.hwdec = Some(hardware_decode);
+            state.cache_seconds = Some(cache_seconds);
+            Ok(())
+        }
+
+        fn start_embedded_surface_mode(
+            &mut self,
+            parent_hwnd: u64,
+            bounds: EmbeddedSurfaceBounds,
+        ) -> Result<u64, String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_start_embedded_surface_mode {
+                return Err("fake start_embedded_surface_mode failure".to_string());
+            }
+            state.embedded_parent = Some(parent_hwnd);
+            state.embedded_bounds = Some(bounds);
+            Ok(state.embedded_surface_hwnd)
+        }
+
+        fn update_embedded_surface_bounds(
+            &mut self,
+            bounds: EmbeddedSurfaceBounds,
+        ) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_update_embedded_surface_bounds {
+                return Err("fake update_embedded_surface_bounds failure".to_string());
+            }
+            state.embedded_bounds = Some(bounds);
+            Ok(())
+        }
+
+        fn stop_embedded_surface_mode(&mut self) -> Result<(), String> {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            if state.fail_stop_embedded_surface_mode {
+                return Err("fake stop_embedded_surface_mode failure".to_string());
+            }
+            state.embedded_parent = None;
+            Ok(())
+        }
+    }
+
+    fn create_engine_with_fake_backend() -> (PlaybackEngine, Arc<Mutex<FakeBackendState>>) {
+        let state = Arc::new(Mutex::new(FakeBackendState {
+            embedded_surface_hwnd: 4242,
+            ..FakeBackendState::default()
+        }));
+        let backend = Box::new(FakeBackend::new(state.clone()));
+        (PlaybackEngine::with_backend_for_tests(backend), state)
+    }
+
+    #[test]
+    fn load_url_transitions_to_playing_and_sets_current_url() {
+        let (mut engine, _) = create_engine_with_fake_backend();
+        engine
+            .load_url("https://stream.example/channel.m3u8")
+            .expect("load should succeed");
+        let status = engine.status();
+        assert!(matches!(status.state, PlaybackState::Playing));
+        assert_eq!(
+            status.current_url.as_deref(),
+            Some("https://stream.example/channel.m3u8")
+        );
+        assert_eq!(status.last_error, None);
+    }
+
+    #[test]
+    fn load_url_failure_sets_error_state_and_message() {
+        let (mut engine, backend_state) = create_engine_with_fake_backend();
+        {
+            let mut state = backend_state.lock().expect("state lock poisoned");
+            state.fail_load_url = true;
+        }
+
+        let err = engine
+            .load_url("https://stream.example/fail.m3u8")
+            .expect_err("load should fail");
+        assert!(err.contains("fake load_url failure"));
+
+        let status = engine.status();
+        assert!(matches!(status.state, PlaybackState::Error));
+        assert!(status
+            .last_error
+            .as_deref()
+            .expect("last_error expected")
+            .contains("fake load_url failure"));
+    }
+
+    #[test]
+    fn pause_updates_playback_state() {
+        let (mut engine, _) = create_engine_with_fake_backend();
+        engine.pause(true).expect("pause should succeed");
+        assert!(matches!(engine.status().state, PlaybackState::Paused));
+        engine.pause(false).expect("resume should succeed");
+        assert!(matches!(engine.status().state, PlaybackState::Playing));
+    }
+
+    #[test]
+    fn stop_is_non_fatal_even_when_backend_fails() {
+        let (mut engine, backend_state) = create_engine_with_fake_backend();
+        engine
+            .load_url("https://stream.example/live.m3u8")
+            .expect("load should succeed");
+        {
+            let mut state = backend_state.lock().expect("state lock poisoned");
+            state.fail_stop = true;
+        }
+        engine.stop().expect("stop should not fail");
+        let status = engine.status();
+        assert!(matches!(status.state, PlaybackState::Stopped));
+        assert_eq!(status.current_url, None);
+        assert!(status
+            .last_error
+            .as_deref()
+            .expect("last_error expected")
+            .contains("playback stop warning"));
+    }
+
+    #[test]
+    fn set_volume_clamps_to_valid_range() {
+        let (mut engine, backend_state) = create_engine_with_fake_backend();
+        engine.set_volume(150.0).expect("set_volume should succeed");
+        assert_eq!(engine.status().volume, 100.0);
+
+        let state = backend_state.lock().expect("state lock poisoned");
+        assert_eq!(state.volume, Some(100.0));
+    }
+
+    #[test]
+    fn embedded_surface_mode_updates_status_and_then_resets() {
+        let (mut engine, backend_state) = create_engine_with_fake_backend();
+        let surface_hwnd = engine
+            .start_embedded_surface_mode(
+                1001,
+                EmbeddedSurfaceBounds {
+                    x: 10,
+                    y: 20,
+                    width: 800,
+                    height: 450,
+                },
+            )
+            .expect("start_embedded_surface_mode should succeed");
+        assert_eq!(surface_hwnd, 4242);
+
+        let status = engine.status();
+        assert_eq!(status.render_mode, PlaybackRenderMode::EmbeddedSurface);
+        assert_eq!(status.attached_hwnd, Some(1001));
+        assert_eq!(status.embedded_surface_hwnd, Some(4242));
+
+        engine
+            .update_embedded_surface_bounds(EmbeddedSurfaceBounds {
+                x: 0,
+                y: 0,
+                width: 640,
+                height: 360,
+            })
+            .expect("update_embedded_surface_bounds should succeed");
+
+        engine
+            .stop_embedded_surface_mode()
+            .expect("stop_embedded_surface_mode should succeed");
+        let status = engine.status();
+        assert_eq!(status.render_mode, PlaybackRenderMode::ExternalWindow);
+        assert_eq!(status.embedded_surface_hwnd, None);
+
+        let state = backend_state.lock().expect("state lock poisoned");
+        assert_eq!(state.embedded_parent, None);
+    }
+
+    #[test]
+    fn set_fullscreen_skips_backend_call_in_embedded_mode() {
+        let (mut engine, backend_state) = create_engine_with_fake_backend();
+        engine
+            .start_embedded_surface_mode(
+                42,
+                EmbeddedSurfaceBounds {
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 100,
+                },
+            )
+            .expect("start_embedded_surface_mode should succeed");
+
+        engine
+            .set_fullscreen(true)
+            .expect("set_fullscreen should succeed");
+        assert!(engine.status().fullscreen);
+
+        let state = backend_state.lock().expect("state lock poisoned");
+        assert_eq!(state.fullscreen, None);
+    }
 }

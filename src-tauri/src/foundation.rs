@@ -1087,15 +1087,9 @@ mod tests {
         assert_eq!(movies.len(), 1);
         assert_eq!(movies[0].name, "Bravo Movie");
 
-        let by_group = list_channels_for_source(
-            &context.db_path,
-            source_id,
-            None,
-            Some("News"),
-            None,
-            false,
-        )
-        .expect("failed to filter by group");
+        let by_group =
+            list_channels_for_source(&context.db_path, source_id, None, Some("News"), None, false)
+                .expect("failed to filter by group");
         assert_eq!(by_group.len(), 1);
         assert_eq!(by_group[0].name, "Alpha Live");
 
@@ -1112,8 +1106,9 @@ mod tests {
         assert_eq!(by_query[0].name, "Charlie Series");
 
         set_channel_favorite(&context.db_path, all[0].id, true).expect("favorite set failed");
-        let favorites = list_channels_for_source(&context.db_path, source_id, None, None, None, true)
-            .expect("failed to filter favorites");
+        let favorites =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, true)
+                .expect("failed to filter favorites");
         assert_eq!(favorites.len(), 1);
         assert_eq!(favorites[0].id, all[0].id);
 
@@ -1126,11 +1121,18 @@ mod tests {
         let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
         init_storage(&context.db_path).expect("failed to initialize storage");
         let source_id = make_source_with_channels(&context.db_path);
-        let channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
-            .expect("failed to list channels");
+        let channels =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to list channels");
 
-        let channel_a = channels.iter().find(|c| c.name == "Alpha Live").expect("missing A");
-        let channel_b = channels.iter().find(|c| c.name == "Bravo Movie").expect("missing B");
+        let channel_a = channels
+            .iter()
+            .find(|c| c.name == "Alpha Live")
+            .expect("missing A");
+        let channel_b = channels
+            .iter()
+            .find(|c| c.name == "Bravo Movie")
+            .expect("missing B");
         let channel_c = channels
             .iter()
             .find(|c| c.name == "Charlie Series")
@@ -1179,8 +1181,9 @@ mod tests {
         init_storage(&context.db_path).expect("failed to initialize storage");
         let source_id = make_source_with_channels(&context.db_path);
 
-        let channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
-            .expect("failed to list channels");
+        let channels =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to list channels");
         assert_eq!(channels.len(), 3);
 
         set_channel_favorite(&context.db_path, channels[0].id, true).expect("favorite set failed");
@@ -1191,8 +1194,9 @@ mod tests {
         let remaining_sources = list_sources(&context.db_path).expect("failed to list sources");
         assert!(remaining_sources.is_empty());
 
-        let remaining_channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
-            .expect("failed to list channels after delete");
+        let remaining_channels =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to list channels after delete");
         assert!(remaining_channels.is_empty());
 
         let recent = list_recent_channels(&context.db_path, 10).expect("failed to list recents");
@@ -1218,8 +1222,9 @@ mod tests {
         assert_eq!(movies[0].name, "Cinema");
         assert_eq!(movies[0].channel_count, 1);
 
-        let unknown_kind = list_groups_for_source(&context.db_path, source_id, Some("unknown-kind"))
-            .expect("failed to list unknown-kind groups");
+        let unknown_kind =
+            list_groups_for_source(&context.db_path, source_id, Some("unknown-kind"))
+                .expect("failed to list unknown-kind groups");
         assert_eq!(unknown_kind.len(), 1);
         assert_eq!(unknown_kind[0].name, "News");
         assert_eq!(unknown_kind[0].channel_count, 1);
@@ -1235,7 +1240,8 @@ mod tests {
 
         set_setting(&context.db_path, "startup.behavior", "invalid-mode")
             .expect("failed to store invalid startup behavior");
-        let err = load_phase1_settings(&context.db_path).expect_err("should reject invalid setting");
+        let err =
+            load_phase1_settings(&context.db_path).expect_err("should reject invalid setting");
         assert!(err.contains("startup_behavior"));
 
         let _ = fs::remove_dir_all(root);
