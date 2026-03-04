@@ -1131,14 +1131,9 @@ https://stream.example/sports.m3u8
 
     #[test]
     fn spawn_mpv_popout_process_with_candidates_uses_fallback_binary() {
-        #[cfg(windows)]
-        let fallback = "cmd";
-        #[cfg(not(windows))]
-        let fallback = "sh";
-
         let mut child = spawn_mpv_popout_process_with_candidates(
             "https://stream.example/live.m3u8",
-            &["definitely-missing-binary-1", fallback],
+            &["definitely-missing-binary-1", "rustc"],
         )
         .expect("fallback candidate should spawn");
 

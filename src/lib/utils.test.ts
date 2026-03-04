@@ -1,16 +1,25 @@
+import { describe, it, expect } from "vitest";
 import { cn } from "./utils";
 
 describe("cn", () => {
-  it("merges conflicting Tailwind classes with last-one-wins behavior", () => {
-    expect(cn("p-2", "p-4", "text-sm", "text-lg")).toBe("p-4 text-lg");
+  it("merges class names", () => {
+    expect(cn("foo", "bar")).toBe("foo bar");
   });
 
-  it("keeps truthy conditional classes", () => {
-    expect(
-      cn("inline-flex", {
-        "font-semibold": true,
-        hidden: false,
-      })
-    ).toBe("inline-flex font-semibold");
+  it("handles conditional classes via clsx", () => {
+    expect(cn("base", false && "hidden", "visible")).toBe("base visible");
+  });
+
+  it("resolves tailwind conflicts with twMerge", () => {
+    const result = cn("p-4", "p-2");
+    expect(result).toBe("p-2");
+  });
+
+  it("returns empty string for no arguments", () => {
+    expect(cn()).toBe("");
+  });
+
+  it("filters out falsy values", () => {
+    expect(cn("a", undefined, null, "", "b")).toBe("a b");
   });
 });
