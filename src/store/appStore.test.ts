@@ -38,7 +38,7 @@ vi.mock("../lib/api/settingsApi", () => ({
 
 // Lazy imports so mocks are applied first
 const getSourcesApi = () =>
-  import("../lib/api/sourcesApi") as Promise<{
+  import("../lib/api/sourcesApi") as unknown as Promise<{
     listRegisteredSources: Mock;
     listSourceGroups: Mock;
     addM3uSource: Mock;
@@ -47,7 +47,7 @@ const getSourcesApi = () =>
   }>;
 
 const getPlaybackApi = () =>
-  import("../lib/api/playbackApi") as Promise<{
+  import("../lib/api/playbackApi") as unknown as Promise<{
     getPlaybackState: Mock;
     openExternalWindow: Mock;
     recordRecentChannelPlay: Mock;
@@ -59,18 +59,18 @@ const getPlaybackApi = () =>
   }>;
 
 const getRecentsApi = () =>
-  import("../lib/api/recentsApi") as Promise<{
+  import("../lib/api/recentsApi") as unknown as Promise<{
     listRecentlyPlayed: Mock;
   }>;
 
 const getSettingsApi = () =>
-  import("../lib/api/settingsApi") as Promise<{
+  import("../lib/api/settingsApi") as unknown as Promise<{
     getPhase1Settings: Mock;
     setPhase1Settings: Mock;
   }>;
 
 const getChannelsApi = () =>
-  import("../lib/api/channelsApi") as Promise<{
+  import("../lib/api/channelsApi") as unknown as Promise<{
     listSourceChannels: Mock;
     setChannelFavoriteState: Mock;
   }>;
