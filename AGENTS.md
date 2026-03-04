@@ -13,3 +13,6 @@
 - Do not generate monolithic files.
 - Split code into smaller, focused components/modules where it improves readability and maintainability.
 - Keep responsibilities separated and colocate related files when it makes sense.
+
+## Testing
+- When developing a feature, write tests for that feature when it makes sense.
