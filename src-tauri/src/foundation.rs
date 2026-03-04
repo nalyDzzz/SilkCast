@@ -884,6 +884,53 @@ mod tests {
         dir
     }
 
+    fn make_source_with_channels(db_path: &Path) -> i64 {
+        let source_id = create_source(
+            db_path,
+            "m3u",
+            "Playlist",
+            &json!({ "location": "https://example.com/list.m3u" }),
+        )
+        .expect("failed to create source");
+
+        replace_channels_for_source(
+            db_path,
+            source_id,
+            &[
+                ChannelInsertRecord {
+                    name: "Alpha Live".to_string(),
+                    group_name: Some("News".to_string()),
+                    logo: None,
+                    tvg_id: Some("alpha-live".to_string()),
+                    tvg_name: Some("Alpha Live HD".to_string()),
+                    stream_url: "https://stream.example/live.m3u8".to_string(),
+                    media_kind: "live".to_string(),
+                },
+                ChannelInsertRecord {
+                    name: "Bravo Movie".to_string(),
+                    group_name: Some("Cinema".to_string()),
+                    logo: None,
+                    tvg_id: Some("bravo-movie".to_string()),
+                    tvg_name: Some("Bravo Movie 2026".to_string()),
+                    stream_url: "https://stream.example/movie.mp4".to_string(),
+                    media_kind: "movie".to_string(),
+                },
+                ChannelInsertRecord {
+                    name: "Charlie Series".to_string(),
+                    group_name: Some("Shows".to_string()),
+                    logo: None,
+                    tvg_id: Some("charlie-series".to_string()),
+                    tvg_name: Some("Charlie S01E02".to_string()),
+                    stream_url: "https://stream.example/series.mkv".to_string(),
+                    media_kind: "series".to_string(),
+                },
+            ],
+        )
+        .expect("failed to insert channels");
+
+        source_id
+    }
+
     #[test]
     fn storage_settings_roundtrip() {
         let root = make_temp_root();
@@ -985,6 +1032,142 @@ mod tests {
             list_channels_for_source(&context.db_path, source_id, None, None, None, true)
                 .expect("failed to list favorites");
         assert_eq!(favorites.len(), 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn phase1_settings_roundtrip_and_normalize_buffering() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        let input = Phase1Settings {
+            hardware_decode: false,
+            buffering_preset: "high".to_string(),
+            startup_behavior: "resume_last".to_string(),
+            preferred_player: "mpv".to_string(),
+        };
+        save_phase1_settings(&context.db_path, &input).expect("failed to save settings");
+
+        let loaded =
+            load_phase1_settings(&context.db_path).expect("failed to load settings from storage");
+        assert!(!loaded.hardware_decode);
+        assert_eq!(loaded.startup_behavior, "resume_last");
+        assert_eq!(loaded.preferred_player, "mpv");
+        assert_eq!(loaded.buffering_preset, "normal");
+
+        let stored_buffering =
+            get_setting(&context.db_path, "playback.buffering_preset").expect("read failed");
+        assert_eq!(stored_buffering.as_deref(), Some("normal"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn list_channels_applies_filters() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = make_source_with_channels(&context.db_path);
+
+        let all = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("failed to list all channels");
+        assert_eq!(all.len(), 3);
+
+        let movies = list_channels_for_source(
+            &context.db_path,
+            source_id,
+            Some("movie"),
+            None,
+            None,
+            false,
+        )
+        .expect("failed to filter by media_kind");
+        assert_eq!(movies.len(), 1);
+        assert_eq!(movies[0].name, "Bravo Movie");
+
+        let by_group = list_channels_for_source(
+            &context.db_path,
+            source_id,
+            None,
+            Some("News"),
+            None,
+            false,
+        )
+        .expect("failed to filter by group");
+        assert_eq!(by_group.len(), 1);
+        assert_eq!(by_group[0].name, "Alpha Live");
+
+        let by_query = list_channels_for_source(
+            &context.db_path,
+            source_id,
+            None,
+            None,
+            Some("s01e02"),
+            false,
+        )
+        .expect("failed to filter by query");
+        assert_eq!(by_query.len(), 1);
+        assert_eq!(by_query[0].name, "Charlie Series");
+
+        set_channel_favorite(&context.db_path, all[0].id, true).expect("favorite set failed");
+        let favorites = list_channels_for_source(&context.db_path, source_id, None, None, None, true)
+            .expect("failed to filter favorites");
+        assert_eq!(favorites.len(), 1);
+        assert_eq!(favorites[0].id, all[0].id);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recent_channels_limit_and_ordering() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = make_source_with_channels(&context.db_path);
+        let channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("failed to list channels");
+
+        let channel_a = channels.iter().find(|c| c.name == "Alpha Live").expect("missing A");
+        let channel_b = channels.iter().find(|c| c.name == "Bravo Movie").expect("missing B");
+        let channel_c = channels
+            .iter()
+            .find(|c| c.name == "Charlie Series")
+            .expect("missing C");
+
+        let connection = open_connection(&context.db_path).expect("failed to open db connection");
+        connection
+            .execute(
+                "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
+                params![channel_a.id, 100],
+            )
+            .expect("insert recent A");
+        connection
+            .execute(
+                "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
+                params![channel_b.id, 200],
+            )
+            .expect("insert recent B");
+        connection
+            .execute(
+                "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
+                params![channel_a.id, 300],
+            )
+            .expect("insert recent A second");
+        connection
+            .execute(
+                "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
+                params![channel_c.id, 250],
+            )
+            .expect("insert recent C");
+
+        let recents = list_recent_channels(&context.db_path, 2).expect("failed to read recents");
+        assert_eq!(recents.len(), 2);
+        assert_eq!(recents[0].channel.name, "Alpha Live");
+        assert_eq!(recents[0].played_at, 300);
+        assert_eq!(recents[1].channel.name, "Charlie Series");
+        assert_eq!(recents[1].played_at, 250);
 
         let _ = fs::remove_dir_all(root);
     }

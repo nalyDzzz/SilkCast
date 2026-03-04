@@ -831,3 +831,96 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_root() -> PathBuf {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("opentv-lib-test-{ts}"));
+        fs::create_dir_all(&dir).expect("failed to create temp test dir");
+        dir
+    }
+
+    #[test]
+    fn import_m3u_source_inserts_channels_from_local_file() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let playlist_path = root.join("playlist.m3u");
+        fs::write(
+            &playlist_path,
+            r#"#EXTM3U
+#EXTINF:-1 group-title="News",News One
+https://stream.example/news.m3u8
+#EXTINF:-1 group-title="Sports",Sports One
+https://stream.example/sports.m3u8
+"#,
+        )
+        .expect("failed to write test playlist");
+
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "Local Playlist",
+            &json!({ "location": playlist_path.to_string_lossy().to_string() }),
+        )
+        .expect("failed to create source");
+
+        let state = SharedState::new(context.clone(), false);
+        let inserted = import_m3u_source(
+            &state,
+            source_id,
+            &json!({ "location": playlist_path.to_string_lossy().to_string() }),
+        )
+        .expect("import should succeed");
+        assert_eq!(inserted, 2);
+
+        let channels = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("failed to list imported channels");
+        assert_eq!(channels.len(), 2);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn import_m3u_source_errors_when_playlist_has_no_channels() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let playlist_path = root.join("empty.m3u");
+        fs::write(&playlist_path, "#EXTM3U\n# no channels here\n")
+            .expect("failed to write empty playlist");
+
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "Empty Playlist",
+            &json!({ "location": playlist_path.to_string_lossy().to_string() }),
+        )
+        .expect("failed to create source");
+
+        let state = SharedState::new(context.clone(), false);
+        let err = import_m3u_source(
+            &state,
+            source_id,
+            &json!({ "location": playlist_path.to_string_lossy().to_string() }),
+        )
+        .expect_err("import should fail");
+        assert!(err.contains("0 channels were found"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+}
