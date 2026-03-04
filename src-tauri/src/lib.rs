@@ -26,6 +26,13 @@ struct M3uImportResult {
     imported_channels: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupResumeMode {
+    None,
+    ResumeWithMpv,
+    ResumeWithWebDeferred,
+}
+
 #[tauri::command]
 fn get_runtime_info(state: State<SharedState>) -> RuntimeInfo {
     RuntimeInfo {
@@ -63,17 +70,8 @@ fn add_m3u_source(
     app: tauri::AppHandle,
     state: State<SharedState>,
 ) -> Result<M3uImportResult, String> {
-    let config = json!({ "location": location });
-    state.source_kind_supported("m3u", &config)?;
-
-    let source_id = create_source(&state.context.db_path, "m3u", &name, &config)?;
-    let imported_channels = match import_m3u_source(&state, source_id, &config) {
-        Ok(count) => count,
-        Err(err) => {
-            let _ = delete_source(&state.context.db_path, source_id);
-            return Err(err);
-        }
-    };
+    let result = create_and_import_m3u_source(&state, &name, &location)?;
+    let source_id = result.source_id;
 
     emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
     emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
@@ -82,13 +80,13 @@ fn add_m3u_source(
     append_log(
         &state.context.log_path,
         "INFO",
-        &format!("registered m3u source {source_id}:{name} with {imported_channels} channels"),
+        &format!(
+            "registered m3u source {source_id}:{name} with {} channels",
+            result.imported_channels
+        ),
     )?;
 
-    Ok(M3uImportResult {
-        source_id,
-        imported_channels,
-    })
+    Ok(result)
 }
 
 #[tauri::command]
@@ -97,14 +95,7 @@ fn refresh_m3u_source(
     app: tauri::AppHandle,
     state: State<SharedState>,
 ) -> Result<M3uImportResult, String> {
-    let source = get_source_by_id(&state.context.db_path, source_id)?
-        .ok_or_else(|| format!("source {source_id} not found"))?;
-
-    if source.source_type != "m3u" {
-        return Err("refresh is currently supported only for m3u sources".to_string());
-    }
-
-    let imported_channels = import_m3u_source(&state, source_id, &source.config)?;
+    let result = refresh_m3u_source_core(&state, source_id)?;
 
     emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
     emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
@@ -112,13 +103,13 @@ fn refresh_m3u_source(
     append_log(
         &state.context.log_path,
         "INFO",
-        &format!("refreshed source {source_id} with {imported_channels} channels"),
+        &format!(
+            "refreshed source {source_id} with {} channels",
+            result.imported_channels
+        ),
     )?;
 
-    Ok(M3uImportResult {
-        source_id,
-        imported_channels,
-    })
+    Ok(result)
 }
 
 #[tauri::command]
@@ -198,7 +189,7 @@ fn list_recently_played(
     limit: Option<u32>,
     state: State<SharedState>,
 ) -> Result<Vec<RecentChannelRecord>, String> {
-    let normalized_limit = limit.unwrap_or(20).clamp(1, 100) as usize;
+    let normalized_limit = normalize_recent_limit(limit);
     list_recent_channels(&state.context.db_path, normalized_limit)
 }
 
@@ -407,32 +398,7 @@ fn playback_open_external_window(
 }
 
 fn spawn_mpv_popout_process(url: &str) -> Result<Child, String> {
-    let args = [
-        "--force-window=yes",
-        "--idle=no",
-        "--keep-open=no",
-        "--osc=yes",
-        "--input-default-bindings=yes",
-        "--input-vo-keyboard=yes",
-        "--title=OpenTV Pop-out",
-        "--",
-        url,
-    ];
-    let candidates = ["mpv.exe", "mpv"];
-    let mut errors: Vec<String> = Vec::new();
-
-    for binary in candidates {
-        match Command::new(binary).args(args).spawn() {
-            Ok(child) => return Ok(child),
-            Err(err) => errors.push(format!("{binary}: {err}")),
-        }
-    }
-
-    Err(format!(
-        "unable to launch mpv pop-out process (tried: {}): {}",
-        candidates.join(", "),
-        errors.join(" | ")
-    ))
+    spawn_mpv_popout_process_with_candidates(url, &["mpv.exe", "mpv"])
 }
 
 fn monitor_external_mpv_process(
@@ -644,6 +610,89 @@ fn import_m3u_source(state: &SharedState, source_id: i64, config: &Value) -> Res
     Ok(inserted)
 }
 
+fn create_and_import_m3u_source(
+    state: &SharedState,
+    name: &str,
+    location: &str,
+) -> Result<M3uImportResult, String> {
+    let config = json!({ "location": location });
+    state.source_kind_supported("m3u", &config)?;
+
+    let source_id = create_source(&state.context.db_path, "m3u", name, &config)?;
+    let imported_channels = match import_m3u_source(state, source_id, &config) {
+        Ok(count) => count,
+        Err(err) => {
+            let _ = delete_source(&state.context.db_path, source_id);
+            return Err(err);
+        }
+    };
+
+    Ok(M3uImportResult {
+        source_id,
+        imported_channels,
+    })
+}
+
+fn refresh_m3u_source_core(state: &SharedState, source_id: i64) -> Result<M3uImportResult, String> {
+    let source = get_source_by_id(&state.context.db_path, source_id)?
+        .ok_or_else(|| format!("source {source_id} not found"))?;
+
+    if source.source_type != "m3u" {
+        return Err("refresh is currently supported only for m3u sources".to_string());
+    }
+
+    let imported_channels = import_m3u_source(state, source_id, &source.config)?;
+    Ok(M3uImportResult {
+        source_id,
+        imported_channels,
+    })
+}
+
+fn normalize_recent_limit(limit: Option<u32>) -> usize {
+    limit.unwrap_or(20).clamp(1, 100) as usize
+}
+
+fn spawn_mpv_popout_process_with_candidates(
+    url: &str,
+    candidates: &[&str],
+) -> Result<Child, String> {
+    let args = [
+        "--force-window=yes",
+        "--idle=no",
+        "--keep-open=no",
+        "--osc=yes",
+        "--input-default-bindings=yes",
+        "--input-vo-keyboard=yes",
+        "--title=OpenTV Pop-out",
+        "--",
+        url,
+    ];
+    let mut errors: Vec<String> = Vec::new();
+
+    for binary in candidates {
+        match Command::new(binary).args(args).spawn() {
+            Ok(child) => return Ok(child),
+            Err(err) => errors.push(format!("{binary}: {err}")),
+        }
+    }
+
+    Err(format!(
+        "unable to launch mpv pop-out process (tried: {}): {}",
+        candidates.join(", "),
+        errors.join(" | ")
+    ))
+}
+
+fn determine_startup_resume_mode(settings: &Phase1Settings) -> StartupResumeMode {
+    if settings.startup_behavior == "resume_last" && settings.preferred_player == "mpv" {
+        StartupResumeMode::ResumeWithMpv
+    } else if settings.startup_behavior == "resume_last" && settings.preferred_player == "web" {
+        StartupResumeMode::ResumeWithWebDeferred
+    } else {
+        StartupResumeMode::None
+    }
+}
+
 fn resolve_main_window_id(app: &tauri::AppHandle) -> Result<u64, String> {
     let window = app
         .get_webview_window("main")
@@ -699,7 +748,7 @@ pub fn run() {
                 }
             }
 
-            if settings.startup_behavior == "resume_last" && settings.preferred_player == "mpv" {
+            if determine_startup_resume_mode(&settings) == StartupResumeMode::ResumeWithMpv {
                 match list_recent_channels(&state.context.db_path, 1) {
                     Ok(recent) => {
                         if let Some(last_channel) = recent.into_iter().next() {
@@ -779,8 +828,8 @@ pub fn run() {
                         );
                     }
                 }
-            } else if settings.startup_behavior == "resume_last"
-                && settings.preferred_player == "web"
+            } else if determine_startup_resume_mode(&settings)
+                == StartupResumeMode::ResumeWithWebDeferred
             {
                 let _ = append_log(
                     &state.context.log_path,
@@ -979,5 +1028,120 @@ https://stream.example/sports.m3u8
         assert!(err.contains("failed to read m3u file"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn create_and_import_m3u_source_rolls_back_source_when_import_fails() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let state = SharedState::new(context.clone(), false);
+        let err = create_and_import_m3u_source(
+            &state,
+            "Will Rollback",
+            &root.join("missing-file.m3u").to_string_lossy(),
+        )
+        .expect_err("import should fail");
+        assert!(err.contains("failed to read m3u file"));
+
+        let sources = list_sources(&context.db_path).expect("failed to list sources");
+        assert!(sources.is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refresh_m3u_source_core_rejects_not_found_and_wrong_type() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+        let state = SharedState::new(context.clone(), false);
+
+        let not_found_err =
+            refresh_m3u_source_core(&state, 9999).expect_err("missing source should fail");
+        assert!(not_found_err.contains("not found"));
+
+        let non_m3u_source_id = create_source(
+            &context.db_path,
+            "xtream",
+            "Non M3U",
+            &json!({ "endpoint": "https://example.com/api" }),
+        )
+        .expect("failed to create non-m3u source");
+        let wrong_type_err = refresh_m3u_source_core(&state, non_m3u_source_id)
+            .expect_err("non-m3u refresh should fail");
+        assert!(wrong_type_err.contains("only for m3u"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn normalize_recent_limit_clamps_values() {
+        assert_eq!(normalize_recent_limit(None), 20);
+        assert_eq!(normalize_recent_limit(Some(0)), 1);
+        assert_eq!(normalize_recent_limit(Some(1)), 1);
+        assert_eq!(normalize_recent_limit(Some(200)), 100);
+    }
+
+    #[test]
+    fn determine_startup_resume_mode_covers_supported_modes() {
+        assert_eq!(
+            determine_startup_resume_mode(&Phase1Settings {
+                hardware_decode: true,
+                buffering_preset: "normal".to_string(),
+                startup_behavior: "home".to_string(),
+                preferred_player: "web".to_string(),
+            }),
+            StartupResumeMode::None
+        );
+        assert_eq!(
+            determine_startup_resume_mode(&Phase1Settings {
+                hardware_decode: true,
+                buffering_preset: "normal".to_string(),
+                startup_behavior: "resume_last".to_string(),
+                preferred_player: "mpv".to_string(),
+            }),
+            StartupResumeMode::ResumeWithMpv
+        );
+        assert_eq!(
+            determine_startup_resume_mode(&Phase1Settings {
+                hardware_decode: true,
+                buffering_preset: "normal".to_string(),
+                startup_behavior: "resume_last".to_string(),
+                preferred_player: "web".to_string(),
+            }),
+            StartupResumeMode::ResumeWithWebDeferred
+        );
+    }
+
+    #[test]
+    fn spawn_mpv_popout_process_with_candidates_returns_error_when_all_missing() {
+        let err = spawn_mpv_popout_process_with_candidates(
+            "https://stream.example/live.m3u8",
+            &["definitely-missing-binary-1", "definitely-missing-binary-2"],
+        )
+        .expect_err("all candidates missing should fail");
+        assert!(err.contains("unable to launch mpv pop-out process"));
+        assert!(err.contains("definitely-missing-binary-1"));
+        assert!(err.contains("definitely-missing-binary-2"));
+    }
+
+    #[test]
+    fn spawn_mpv_popout_process_with_candidates_uses_fallback_binary() {
+        #[cfg(windows)]
+        let fallback = "cmd";
+        #[cfg(not(windows))]
+        let fallback = "sh";
+
+        let mut child = spawn_mpv_popout_process_with_candidates(
+            "https://stream.example/live.m3u8",
+            &["definitely-missing-binary-1", fallback],
+        )
+        .expect("fallback candidate should spawn");
+
+        let _ = child.wait();
     }
 }
