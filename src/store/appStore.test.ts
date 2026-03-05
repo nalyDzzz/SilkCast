@@ -407,6 +407,49 @@ describe("appStore", () => {
     });
   });
 
+  describe("refreshSource", () => {
+    it("refreshes selected source and reloads filtered groups/channels", async () => {
+      const sourcesApi = await getSourcesApi();
+      const channelsApi = await getChannelsApi();
+      sourcesApi.refreshM3uSource.mockResolvedValue({
+        source_id: 10,
+        imported_channels: 7,
+      });
+      sourcesApi.listSourceGroups.mockResolvedValue([]);
+      channelsApi.listSourceChannels.mockResolvedValue([]);
+
+      useAppStore.setState({ selectedSourceId: 10 });
+      await useAppStore.getState().refreshSource(10, "live");
+
+      expect(sourcesApi.refreshM3uSource).toHaveBeenCalledWith(10);
+      expect(sourcesApi.listSourceGroups).toHaveBeenCalledWith(10, "live");
+      expect(channelsApi.listSourceChannels).toHaveBeenCalledWith({
+        sourceId: 10,
+        mediaKind: "live",
+        groupName: null,
+        query: null,
+        favoritesOnly: false,
+      });
+      expect(useAppStore.getState().importMessage).toBe("Refreshed 7 channels.");
+    });
+
+    it("does not reload groups/channels when source is not selected", async () => {
+      const sourcesApi = await getSourcesApi();
+      const channelsApi = await getChannelsApi();
+      sourcesApi.refreshM3uSource.mockResolvedValue({
+        source_id: 10,
+        imported_channels: 5,
+      });
+
+      useAppStore.setState({ selectedSourceId: 5 });
+      await useAppStore.getState().refreshSource(10, "movie");
+
+      expect(sourcesApi.refreshM3uSource).toHaveBeenCalledWith(10);
+      expect(sourcesApi.listSourceGroups).not.toHaveBeenCalled();
+      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
+    });
+  });
+
   describe("deleteSource", () => {
     it("deletes source and reloads", async () => {
       const sourcesApi = await getSourcesApi();

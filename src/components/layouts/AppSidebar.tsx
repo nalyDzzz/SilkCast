@@ -69,9 +69,15 @@ export function AppSidebar() {
       return;
     }
 
+    const mediaKind = location.pathname.startsWith('/dashboard/movies')
+      ? 'movie'
+      : location.pathname.startsWith('/dashboard/series')
+        ? 'series'
+        : 'live';
+
     setIsRefreshing(true);
     try {
-      await refreshSource(selectedSourceId);
+      await refreshSource(selectedSourceId, mediaKind);
     } finally {
       setIsRefreshing(false);
     }

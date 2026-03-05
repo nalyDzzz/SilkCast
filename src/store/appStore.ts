@@ -90,7 +90,10 @@ type AppActions = {
   loadSettings: () => Promise<void>;
   refreshEverything: () => Promise<void>;
   addM3uSource: (name: string, location: string) => Promise<void>;
-  refreshSource: (sourceId: number) => Promise<void>;
+  refreshSource: (
+    sourceId: number,
+    mediaKind?: 'live' | 'movie' | 'series' | null
+  ) => Promise<void>;
   playChannel: (channelId: number) => Promise<void>;
   playChannelRecord: (channel: ChannelRecord) => Promise<void>;
   toggleFavorite: (channel: ChannelRecord) => Promise<void>;
@@ -282,7 +285,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  refreshSource: async (sourceId) => {
+  refreshSource: async (sourceId, mediaKind = null) => {
     set({ error: null, importMessage: null });
 
     try {
@@ -291,8 +294,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       if (sourceId === get().selectedSourceId) {
         await Promise.all([
-          get().loadGroups(sourceId),
-          get().loadChannels(sourceId),
+          get().loadGroups(sourceId, mediaKind),
+          get().loadChannels(sourceId, mediaKind),
         ]);
       }
     } catch (err) {
