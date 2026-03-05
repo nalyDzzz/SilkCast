@@ -7,10 +7,19 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { Film, Home, LogOut, Settings, Tv, TvMinimal } from 'lucide-react';
+import {
+  Film,
+  Home,
+  LogOut,
+  RefreshCw,
+  Settings,
+  Tv,
+  TvMinimal,
+} from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAppStore } from '@/store/appStore.ts';
 import { useShallow } from 'zustand/react/shallow';
+import { useState } from 'react';
 
 const data = {
   navMain: [
@@ -40,16 +49,32 @@ const data = {
 export function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { logout } = useAppStore(
+  const { logout, refreshSource, selectedSourceId } = useAppStore(
     useShallow((state) => ({
       logout: state.logout,
+      refreshSource: state.refreshSource,
+      selectedSourceId: state.selectedSourceId,
     }))
   );
 
   const handleLogout = () => {
     logout();
     navigate('/', { replace: true });
+  };
+
+  const handleRefreshPlaylist = async () => {
+    if (selectedSourceId === null || isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+    try {
+      await refreshSource(selectedSourceId);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -82,6 +107,16 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarGroup>
           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="cursor-pointer"
+                disabled={selectedSourceId === null || isRefreshing}
+                onClick={() => void handleRefreshPlaylist()}
+              >
+                <RefreshCw className={isRefreshing ? 'animate-spin' : undefined} />
+                <span>{isRefreshing ? 'Refreshing...' : 'Refresh Playlist'}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton asChild className="cursor-pointer">
                 <Link to={'/dashboard/settings'}>
