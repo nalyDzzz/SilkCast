@@ -1,25 +1,34 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useShallow } from "zustand/react/shallow";
-import { BackendEvent, ChannelRecord, GroupRecord } from "@/components/app/types";
-import { MovieCard } from "@/components/movies/MovieCard";
-import { VirtualizedMovieGrid } from "@/components/movies/VirtualizedMovieGrid";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
+import { useShallow } from 'zustand/react/shallow';
+import {
+  BackendEvent,
+  ChannelRecord,
+  GroupRecord,
+  PlaybackStatus,
+} from '@/components/app/types';
+import { LiveChannelRow } from '@/components/live/LiveChannelRow';
+import { MovieCard } from '@/components/movies/MovieCard';
+import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { listSourceChannels, setChannelFavoriteState } from "@/lib/api/channelsApi";
-import { subscribeBackendEvents } from "@/lib/api/eventsApi";
-import { listSourceGroups } from "@/lib/api/sourcesApi";
-import { useAppStore } from "@/store/appStore";
+} from '@/components/ui/select';
+import {
+  listSourceChannels,
+  setChannelFavoriteState,
+} from '@/lib/api/channelsApi';
+import { subscribeBackendEvents } from '@/lib/api/eventsApi';
+import { listSourceGroups } from '@/lib/api/sourcesApi';
+import { useAppStore } from '@/store/appStore';
 
-type MediaCatalogKind = "movie" | "series";
+type MediaCatalogKind = 'live' | 'movie' | 'series';
 
 type MediaCatalogCopy = {
   title: string;
@@ -27,22 +36,33 @@ type MediaCatalogCopy = {
   pluralLabel: string;
   allGroupsValue: string;
   favoritesFieldId: string;
+  searchPlaceholder: string;
 };
 
 const MEDIA_COPY: Record<MediaCatalogKind, MediaCatalogCopy> = {
+  live: {
+    title: 'Live TV',
+    singularLabel: 'Channel',
+    pluralLabel: 'channels',
+    allGroupsValue: '__all_live__',
+    favoritesFieldId: 'live-favorites-only',
+    searchPlaceholder: 'Search channels',
+  },
   movie: {
-    title: "Movies",
-    singularLabel: "Movie",
-    pluralLabel: "movies",
-    allGroupsValue: "__all_movies__",
-    favoritesFieldId: "movies-favorites-only",
+    title: 'Movies',
+    singularLabel: 'Movie',
+    pluralLabel: 'movies',
+    allGroupsValue: '__all_movies__',
+    favoritesFieldId: 'movies-favorites-only',
+    searchPlaceholder: 'Search movies',
   },
   series: {
-    title: "Series",
-    singularLabel: "Series",
-    pluralLabel: "series",
-    allGroupsValue: "__all_series__",
-    favoritesFieldId: "series-favorites-only",
+    title: 'Series',
+    singularLabel: 'Series',
+    pluralLabel: 'series',
+    allGroupsValue: '__all_series__',
+    favoritesFieldId: 'series-favorites-only',
+    searchPlaceholder: 'Search series',
   },
 };
 
@@ -55,17 +75,25 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
+    activeChannel,
     selectedSourceId,
     settings,
     loadSources,
     loadSettings,
+    loadRecents,
+    loadPlaybackStatus,
+    setPlayback,
     playChannelRecord,
   } = useAppStore(
     useShallow((state) => ({
+      activeChannel: state.activeChannel,
       selectedSourceId: state.selectedSourceId,
       settings: state.settings,
       loadSources: state.loadSources,
       loadSettings: state.loadSettings,
+      loadRecents: state.loadRecents,
+      loadPlaybackStatus: state.loadPlaybackStatus,
+      setPlayback: state.setPlayback,
       playChannelRecord: state.playChannelRecord,
     }))
   );
@@ -73,31 +101,56 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const [items, setItems] = useState<ChannelRecord[]>([]);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [selectedGroup, setSelectedGroup] = useState(copy.allGroupsValue);
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playingItemId, setPlayingItemId] = useState<number | null>(null);
   const [lastPlayedItemId, setLastPlayedItemId] = useState<number | null>(null);
   const [playbackMessage, setPlaybackMessage] = useState<string | null>(null);
-  const [lastPlayedItemUrl, setLastPlayedItemUrl] = useState<string | null>(null);
-  const [brokenPosterIds, setBrokenPosterIds] = useState<Record<number, true>>({});
+  const [lastPlayedItemUrl, setLastPlayedItemUrl] = useState<string | null>(
+    null
+  );
+  const [brokenPosterIds, setBrokenPosterIds] = useState<Record<number, true>>(
+    {}
+  );
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const requestVersionRef = useRef(0);
 
   const selectedGroupName = useMemo(
     () => (selectedGroup === copy.allGroupsValue ? null : selectedGroup),
     [copy.allGroupsValue, selectedGroup]
   );
+  const activeItemId = useMemo(
+    () => (activeChannel?.media_kind === mediaKind ? activeChannel.id : null),
+    [activeChannel, mediaKind]
+  );
+  const catalogSummary = useMemo(() => {
+    if (selectedSourceId === null) {
+      return `Select or import a source to browse ${copy.pluralLabel}.`;
+    }
+
+    if (loading) {
+      return `Loading your ${copy.pluralLabel}...`;
+    }
+
+    return `${items.length} ${copy.pluralLabel} available`;
+  }, [copy.pluralLabel, items.length, loading, selectedSourceId]);
 
   useEffect(() => {
     void loadSources().catch((err) => setError(String(err)));
     void loadSettings().catch((err) => setError(String(err)));
-  }, [loadSettings, loadSources]);
+
+    if (mediaKind === 'live') {
+      void loadRecents().catch((err) => setError(String(err)));
+      void loadPlaybackStatus().catch((err) => setError(String(err)));
+    }
+  }, [loadPlaybackStatus, loadRecents, loadSettings, loadSources, mediaKind]);
 
   useEffect(() => {
     if (selectedSourceId === null) {
-      navigate("/", { replace: true });
+      navigate('/', { replace: true });
     }
   }, [navigate, selectedSourceId]);
 
@@ -110,19 +163,49 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     void listSourceGroups(selectedSourceId, mediaKind)
       .then(setGroups)
       .catch((err) => setError(String(err)));
-  }, [mediaKind, selectedSourceId]);
+  }, [mediaKind, refreshVersion, selectedSourceId]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
     subscribeBackendEvents((backendEvent: BackendEvent) => {
-      if (backendEvent.event !== "external_playback_closed") {
+      if (
+        backendEvent.event === 'playback_state_changed' &&
+        mediaKind === 'live'
+      ) {
+        const playbackState = backendEvent.payload['state'] as
+          | PlaybackStatus
+          | undefined;
+
+        if (playbackState) {
+          setPlayback(playbackState);
+        }
         return;
       }
 
-      const closedUrl = backendEvent.payload["url"];
+      if (backendEvent.event === 'sources_updated') {
+        void loadSources().catch((err) => setError(String(err)));
+        setRefreshVersion((current) => current + 1);
+        return;
+      }
+
+      if (backendEvent.event === 'settings_updated') {
+        void loadSettings().catch((err) => setError(String(err)));
+        return;
+      }
+
+      if (backendEvent.event === 'recents_updated') {
+        void loadRecents().catch((err) => setError(String(err)));
+        return;
+      }
+
+      if (backendEvent.event !== 'external_playback_closed') {
+        return;
+      }
+
+      const closedUrl = backendEvent.payload['url'];
       if (
-        typeof closedUrl === "string" &&
+        typeof closedUrl === 'string' &&
         lastPlayedItemUrl !== null &&
         closedUrl === lastPlayedItemUrl
       ) {
@@ -142,7 +225,15 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         unlisten();
       }
     };
-  }, [copy.singularLabel, lastPlayedItemUrl]);
+  }, [
+    copy.singularLabel,
+    lastPlayedItemUrl,
+    loadRecents,
+    loadSettings,
+    loadSources,
+    mediaKind,
+    setPlayback,
+  ]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -169,7 +260,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
       sourceId: selectedSourceId,
       mediaKind,
       groupName: selectedGroupName,
-      query: debouncedQuery.trim() === "" ? null : debouncedQuery.trim(),
+      query: debouncedQuery.trim() === '' ? null : debouncedQuery.trim(),
       favoritesOnly,
     })
       .then((nextItems) => {
@@ -187,25 +278,37 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
           setLoading(false);
         }
       });
-  }, [debouncedQuery, favoritesOnly, mediaKind, selectedGroupName, selectedSourceId]);
+  }, [
+    debouncedQuery,
+    favoritesOnly,
+    mediaKind,
+    refreshVersion,
+    selectedGroupName,
+    selectedSourceId,
+  ]);
 
-  const handleToggleFavorite = useCallback(async (item: ChannelRecord) => {
-    try {
-      await setChannelFavoriteState(item.id, !item.is_favorite);
-      setItems((current) =>
-        current.map((currentItem) =>
-          currentItem.id === item.id
-            ? {
-                ...currentItem,
-                is_favorite: !currentItem.is_favorite,
-              }
-            : currentItem
-        )
-      );
-    } catch (err) {
-      setError(String(err));
-    }
-  }, []);
+  const handleToggleFavorite = useCallback(
+    async (item: ChannelRecord) => {
+      try {
+        await setChannelFavoriteState(item.id, !item.is_favorite);
+        setItems((current) =>
+          favoritesOnly && item.is_favorite
+            ? current.filter((currentItem) => currentItem.id !== item.id)
+            : current.map((currentItem) =>
+                currentItem.id === item.id
+                  ? {
+                      ...currentItem,
+                      is_favorite: !currentItem.is_favorite,
+                    }
+                  : currentItem
+              )
+        );
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [favoritesOnly]
+  );
 
   const handlePlayItem = useCallback(
     async (item: ChannelRecord) => {
@@ -214,14 +317,16 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         setPlaybackMessage(`Starting "${item.name}"...`);
         await playChannelRecord(item);
         setLastPlayedItemId(item.id);
-        setLastPlayedItemUrl(settings.preferred_player === "mpv" ? item.stream_url : null);
+        setLastPlayedItemUrl(
+          settings.preferred_player === 'mpv' ? item.stream_url : null
+        );
         setPlaybackMessage(
-          settings.preferred_player === "mpv"
+          settings.preferred_player === 'mpv'
             ? `Now playing "${item.name}" in MPV pop-out.`
             : `Now playing "${item.name}" in the in-app player.`
         );
-        if (settings.preferred_player === "web") {
-          navigate("/dashboard/player", {
+        if (settings.preferred_player === 'web') {
+          navigate('/dashboard/player', {
             state: {
               returnTo: location.pathname,
             },
@@ -253,12 +358,10 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     <main className="box-border h-full overflow-hidden p-4 md:p-6">
       <section className="flex h-full min-h-0 flex-col gap-4">
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{copy.title}</h1>
-          <p className="text-sm text-muted-foreground">
-            {loading
-              ? `Loading your ${mediaKind} catalog...`
-              : `${items.length} ${copy.pluralLabel} available`}
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+            {copy.title}
+          </h1>
+          <p className="text-sm text-muted-foreground">{catalogSummary}</p>
         </header>
 
         {playbackMessage ? (
@@ -271,7 +374,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
           <Input
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder={`Search ${copy.pluralLabel}`}
+            placeholder={copy.searchPlaceholder}
             disabled={selectedSourceId === null}
           />
           <Select value={selectedGroup} onValueChange={setSelectedGroup}>
@@ -287,13 +390,18 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
               ))}
             </SelectContent>
           </Select>
-          <Field orientation="horizontal" className="justify-start rounded-md border px-3">
+          <Field
+            orientation="horizontal"
+            className="justify-start rounded-md border px-3"
+          >
             <Checkbox
               id={copy.favoritesFieldId}
               checked={favoritesOnly}
               onCheckedChange={(checked) => setFavoritesOnly(checked === true)}
             />
-            <FieldLabel htmlFor={copy.favoritesFieldId}>Favorites only</FieldLabel>
+            <FieldLabel htmlFor={copy.favoritesFieldId}>
+              Favorites only
+            </FieldLabel>
           </Field>
         </div>
 
@@ -304,21 +412,44 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         ) : null}
 
         <div className="min-h-0 flex-1">
-          <VirtualizedMovieGrid
-            items={items}
-            getItemKey={(item) => item.id}
-            renderItem={(item) => (
-              <MovieCard
-                movie={item}
-                isPlaying={playingItemId === item.id}
-                isLastPlayed={lastPlayedItemId === item.id}
-                isPosterBroken={Boolean(brokenPosterIds[item.id])}
-                onPlay={(nextItem) => void handlePlayItem(nextItem)}
-                onToggleFavorite={(nextItem) => void handleToggleFavorite(nextItem)}
-                onPosterError={handlePosterError}
-              />
-            )}
-          />
+          {mediaKind === 'live' ? (
+            <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
+              <div className="h-full overflow-y-auto pr-1">
+                <div className="flex flex-col gap-2">
+                  {items.map((item) => (
+                    <LiveChannelRow
+                      key={item.id}
+                      channel={item}
+                      isActive={activeItemId === item.id}
+                      isPlaying={playingItemId === item.id}
+                      onPlay={(nextItem) => void handlePlayItem(nextItem)}
+                      onToggleFavorite={(nextItem) =>
+                        void handleToggleFavorite(nextItem)
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <VirtualizedMovieGrid
+              items={items}
+              getItemKey={(item) => item.id}
+              renderItem={(item) => (
+                <MovieCard
+                  movie={item}
+                  isPlaying={playingItemId === item.id}
+                  isLastPlayed={lastPlayedItemId === item.id}
+                  isPosterBroken={Boolean(brokenPosterIds[item.id])}
+                  onPlay={(nextItem) => void handlePlayItem(nextItem)}
+                  onToggleFavorite={(nextItem) =>
+                    void handleToggleFavorite(nextItem)
+                  }
+                  onPosterError={handlePosterError}
+                />
+              )}
+            />
+          )}
         </div>
 
         {!loading && items.length === 0 ? (
