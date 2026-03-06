@@ -370,13 +370,35 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   deleteSource: async (source) => {
-    set({ error: null, importMessage: null });
+    const deletingSelectedSource = get().selectedSourceId === source.id;
+    const activeChannelBelongsToSource =
+      get().activeChannel?.source_id === source.id;
+
+    set({
+      error: null,
+      importMessage: null,
+      selectedGroup: ALL_GROUPS,
+      activeChannel: activeChannelBelongsToSource ? null : get().activeChannel,
+    });
 
     try {
       await sourcesApi.deleteRegisteredSource(source.id);
       await get().loadSources();
+
+      if (deletingSelectedSource) {
+        const nextSelectedSourceId = get().selectedSourceId;
+
+        if (nextSelectedSourceId === null) {
+          get().clearSourceLists();
+        } else {
+          await Promise.all([
+            get().loadGroups(nextSelectedSourceId),
+            get().loadChannels(nextSelectedSourceId),
+          ]);
+        }
+      }
+
       set({
-        selectedGroup: ALL_GROUPS,
         importMessage: `Deleted "${source.name}".`,
       });
     } catch (err) {

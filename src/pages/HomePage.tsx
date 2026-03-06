@@ -1,4 +1,4 @@
-import { FormEvent, useEffect } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ export function HomePage() {
     setSelectedSourceId,
     loadSources,
     addM3uSource,
+    deleteSource,
   } = useAppStore(
     useShallow((state) => ({
       loading: state.loading,
@@ -54,8 +55,10 @@ export function HomePage() {
       setSelectedSourceId: state.setSelectedSourceId,
       loadSources: state.loadSources,
       addM3uSource: state.addM3uSource,
+      deleteSource: state.deleteSource,
     }))
   );
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   useEffect(() => {
     void loadSources().catch((err) => setError(String(err)));
@@ -77,6 +80,36 @@ export function HomePage() {
     void addM3uSource(m3uName, m3uLocation);
   };
 
+  const selectedSource =
+    selectedSourceId === null
+      ? null
+      : sources.find((source) => source.id === selectedSourceId) ?? null;
+  const isDeletingSource = pendingDeleteId !== null;
+  const isDeletingSelectedSource =
+    pendingDeleteId !== null && pendingDeleteId === selectedSourceId;
+
+  const handleDeleteSelected = async () => {
+    if (!selectedSource) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete "${selectedSource.name}"? This removes the playlist and its imported channels.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingDeleteId(selectedSource.id);
+
+    try {
+      await deleteSource(selectedSource);
+    } finally {
+      setPendingDeleteId(null);
+    }
+  };
+
   return (
     <main className="min-h-screen p-4 md:p-8">
       <section className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -92,15 +125,15 @@ export function HomePage() {
           <CardHeader>
             <CardTitle>Select Playlist</CardTitle>
             <CardDescription>
-              Choose an imported playlist to continue.
+              Choose an imported playlist to continue or remove it.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Select
-              value={selectedSourceId?.toString()}
+              value={selectedSourceId?.toString() ?? ''}
               onValueChange={(value) => setSelectedSourceId(Number(value))}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" disabled={isDeletingSource}>
                 <SelectValue placeholder="Select a playlist" />
               </SelectTrigger>
               <SelectContent>
@@ -117,13 +150,24 @@ export function HomePage() {
               </p>
             ) : null}
           </CardContent>
-          <CardFooter>
+          <CardFooter className="flex-col gap-3 sm:flex-row">
             <Button
-              className="w-full"
+              className="w-full sm:flex-1"
               onClick={() => navigate('/dashboard')}
-              disabled={selectedSourceId === null}
+              disabled={selectedSourceId === null || isDeletingSource}
             >
               Log In To Dashboard
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-full sm:flex-1"
+              onClick={() => void handleDeleteSelected()}
+              disabled={selectedSource === null || loading || isDeletingSource}
+            >
+              {isDeletingSelectedSource
+                ? 'Deleting...'
+                : 'Delete Selected Playlist'}
             </Button>
           </CardFooter>
         </Card>
@@ -149,7 +193,7 @@ export function HomePage() {
                 placeholder="https://... or /path/to/file.m3u"
                 required
               />
-              <Button type="submit" disabled={loading}>
+              <Button type="submit" disabled={loading || isDeletingSource}>
                 {loading ? 'Importing...' : 'Import Playlist'}
               </Button>
             </form>

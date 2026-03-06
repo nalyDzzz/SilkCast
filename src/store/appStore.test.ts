@@ -451,10 +451,36 @@ describe("appStore", () => {
   });
 
   describe("deleteSource", () => {
-    it("deletes source and reloads", async () => {
+    it("reloads source data when deleting the selected source", async () => {
       const sourcesApi = await getSourcesApi();
+      const channelsApi = await getChannelsApi();
       sourcesApi.deleteRegisteredSource.mockResolvedValue(undefined);
-      sourcesApi.listRegisteredSources.mockResolvedValue([]);
+      sourcesApi.listRegisteredSources.mockResolvedValue([
+        {
+          id: 2,
+          source_type: "m3u",
+          name: "Replacement",
+          config: {},
+          created_at: 2000,
+        },
+      ]);
+      sourcesApi.listSourceGroups.mockResolvedValue([
+        { name: "All", channel_count: 1 },
+      ]);
+      channelsApi.listSourceChannels.mockResolvedValue([
+        {
+          id: 2,
+          source_id: 2,
+          name: "Backup",
+          group_name: "All",
+          logo: null,
+          tvg_id: null,
+          tvg_name: null,
+          stream_url: "http://backup",
+          media_kind: "live" as const,
+          is_favorite: false,
+        },
+      ]);
 
       const source = {
         id: 1,
@@ -463,12 +489,128 @@ describe("appStore", () => {
         config: {},
         created_at: 1000,
       };
+      useAppStore.setState({
+        sources: [source],
+        selectedSourceId: 1,
+        selectedGroup: "Sports",
+        groups: [{ name: "Sports", channel_count: 4 }],
+        channels: [
+          {
+            id: 1,
+            source_id: 1,
+            name: "Old Channel",
+            group_name: "Sports",
+            logo: null,
+            tvg_id: null,
+            tvg_name: null,
+            stream_url: "http://old",
+            media_kind: "live",
+            is_favorite: false,
+          },
+        ],
+        activeChannel: {
+          id: 1,
+          source_id: 1,
+          name: "Old Channel",
+          group_name: "Sports",
+          logo: null,
+          tvg_id: null,
+          tvg_name: null,
+          stream_url: "http://old",
+          media_kind: "live",
+          is_favorite: false,
+        },
+      });
 
       await useAppStore.getState().deleteSource(source);
 
       const state = useAppStore.getState();
+      expect(state.selectedSourceId).toBe(2);
       expect(state.selectedGroup).toBe(ALL_GROUPS);
+      expect(state.groups).toEqual([{ name: "All", channel_count: 1 }]);
+      expect(state.channels).toEqual([
+        {
+          id: 2,
+          source_id: 2,
+          name: "Backup",
+          group_name: "All",
+          logo: null,
+          tvg_id: null,
+          tvg_name: null,
+          stream_url: "http://backup",
+          media_kind: "live",
+          is_favorite: false,
+        },
+      ]);
+      expect(state.activeChannel).toBeNull();
+      expect(sourcesApi.listSourceGroups).toHaveBeenCalledWith(2, null);
+      expect(channelsApi.listSourceChannels).toHaveBeenCalledWith({
+        sourceId: 2,
+        mediaKind: null,
+        groupName: null,
+        query: null,
+        favoritesOnly: false,
+      });
       expect(state.importMessage).toBe('Deleted "Old".');
+    });
+
+    it("clears source data when deleting the last selected source", async () => {
+      const sourcesApi = await getSourcesApi();
+      const channelsApi = await getChannelsApi();
+      sourcesApi.deleteRegisteredSource.mockResolvedValue(undefined);
+      sourcesApi.listRegisteredSources.mockResolvedValue([]);
+
+      const source = {
+        id: 1,
+        source_type: "m3u",
+        name: "Only",
+        config: {},
+        created_at: 1000,
+      };
+      useAppStore.setState({
+        sources: [source],
+        selectedSourceId: 1,
+        selectedGroup: "News",
+        groups: [{ name: "News", channel_count: 2 }],
+        channels: [
+          {
+            id: 1,
+            source_id: 1,
+            name: "Only Channel",
+            group_name: "News",
+            logo: null,
+            tvg_id: null,
+            tvg_name: null,
+            stream_url: "http://only",
+            media_kind: "live",
+            is_favorite: false,
+          },
+        ],
+        activeChannel: {
+          id: 1,
+          source_id: 1,
+          name: "Only Channel",
+          group_name: "News",
+          logo: null,
+          tvg_id: null,
+          tvg_name: null,
+          stream_url: "http://only",
+          media_kind: "live",
+          is_favorite: false,
+        },
+      });
+
+      await useAppStore.getState().deleteSource(source);
+
+      const state = useAppStore.getState();
+      expect(state.selectedSourceId).toBeNull();
+      expect(state.selectedGroup).toBe(ALL_GROUPS);
+      expect(state.groups).toEqual([]);
+      expect(state.channels).toEqual([]);
+      expect(state.activeChannel).toBeNull();
+      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
+      expect(sourcesApi.listSourceGroups).not.toHaveBeenCalled();
+      expect(state.importMessage).toBe('Deleted "Only".');
     });
   });
 
