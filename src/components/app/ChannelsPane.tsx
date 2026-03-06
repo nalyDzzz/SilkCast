@@ -1,4 +1,5 @@
-﻿import { useMemo } from 'react';
+import { useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/store/appStore.ts';
 import {
@@ -23,11 +24,15 @@ import { Checkbox } from '@/components/ui/checkbox.tsx';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
 
 export function ChannelsPane() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const {
     sources,
     selectedSourceId,
     searchQuery,
     favoritesOnly,
+    settings,
     channels,
     selectedSourceExists,
     setSearchQuery,
@@ -40,6 +45,7 @@ export function ChannelsPane() {
       selectedSourceId: state.selectedSourceId,
       searchQuery: state.searchQuery,
       favoritesOnly: state.favoritesOnly,
+      settings: state.settings,
       channels: state.channels,
       selectedSourceExists: state.selectedSourceId !== null,
       setSearchQuery: state.setSearchQuery,
@@ -53,6 +59,17 @@ export function ChannelsPane() {
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
     [sources, selectedSourceId]
   );
+
+  const handlePlayChannel = async (channelId: number) => {
+    await playChannel(channelId);
+    if (settings.preferred_player === 'web') {
+      navigate('/dashboard/player', {
+        state: {
+          returnTo: location.pathname,
+        },
+      });
+    }
+  };
 
   return (
     <section className="flex flex-col gap-4">
@@ -104,7 +121,7 @@ export function ChannelsPane() {
               </ItemMedia>
               <ItemContent
                 className="cursor-pointer"
-                onClick={() => void playChannel(channel.id)}
+                onClick={() => void handlePlayChannel(channel.id)}
               >
                 <ItemTitle>{channel.name}</ItemTitle>
                 <ItemDescription>{channel.group_name}</ItemDescription>

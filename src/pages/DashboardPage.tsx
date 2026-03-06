@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
-import "../App.css";
 import { ChannelsPane } from "../components/app/ChannelsPane";
 import { PlayerPane } from "../components/app/PlayerPane";
 import { SidebarPane } from "../components/app/SidebarPane";

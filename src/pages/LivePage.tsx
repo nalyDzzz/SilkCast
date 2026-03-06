@@ -1,8 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
-import "../App.css";
 import { ChannelsPane } from "../components/app/ChannelsPane";
-import { PlayerPane } from "../components/app/PlayerPane";
 import { SidebarPane } from "../components/app/SidebarPane";
 import {
   ALL_GROUPS,
@@ -21,6 +19,7 @@ export function LivePage() {
     selectedGroup,
     searchQuery,
     favoritesOnly,
+    settings,
     setPlayback,
     setError,
     clearSourceLists,
@@ -38,6 +37,7 @@ export function LivePage() {
       selectedGroup: state.selectedGroup,
       searchQuery: state.searchQuery,
       favoritesOnly: state.favoritesOnly,
+      settings: state.settings,
       setPlayback: state.setPlayback,
       setError: state.setError,
       clearSourceLists: state.clearSourceLists,
@@ -149,10 +149,21 @@ export function LivePage() {
   }, [loadPlaybackStatus, setError]);
 
   return (
-    <main className="grid min-h-screen grid-cols-1 gap-4 p-4 lg:grid-cols-[25%_1fr_25%] xl:grid-cols-[20%_1fr_20%]">
+    <main className="grid h-full min-h-0 grid-cols-1 gap-4 p-4 md:p-6 xl:grid-cols-[320px_1fr]">
       <SidebarPane />
-      <ChannelsPane />
-      <PlayerPane />
+      <section className="flex min-h-0 flex-col gap-4">
+        <header className="rounded-xl border bg-card/70 p-4 backdrop-blur-sm">
+          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+            Live TV
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {settings.preferred_player === "web"
+              ? "Pick a channel and we'll open the full-screen in-app player."
+              : "Pick a channel to launch MPV pop-out playback."}
+          </p>
+        </header>
+        <ChannelsPane />
+      </section>
     </main>
   );
 }

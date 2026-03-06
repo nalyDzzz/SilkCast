@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { renderWithRouter } from "../../test/renderWithRouter";
 import { ChannelsPane } from "./ChannelsPane";
 import { useAppStore } from "../../store/appStore";
@@ -144,5 +146,49 @@ describe("ChannelsPane", () => {
   it("renders the favorites checkbox", () => {
     renderWithRouter(<ChannelsPane />);
     expect(screen.getByText("Favorites only")).toBeInTheDocument();
+  });
+
+  it("navigates to player route when web player is selected", async () => {
+    const user = userEvent.setup();
+
+    resetStore({
+      sources: [
+        {
+          id: 1,
+          source_type: "m3u",
+          name: "Test",
+          config: {},
+          created_at: 1000,
+        },
+      ],
+      selectedSourceId: 1,
+      settings: { ...DEFAULT_SETTINGS, preferred_player: "web" },
+      channels: [
+        {
+          id: 1,
+          source_id: 1,
+          name: "CNN",
+          group_name: "News",
+          logo: null,
+          tvg_id: null,
+          tvg_name: null,
+          stream_url: "http://cnn.m3u8",
+          media_kind: "live",
+          is_favorite: false,
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard/live"]}>
+        <Routes>
+          <Route path="/dashboard/live" element={<ChannelsPane />} />
+          <Route path="/dashboard/player" element={<p>Player Screen</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByText("CNN"));
+    expect(await screen.findByText("Player Screen")).toBeInTheDocument();
   });
 });

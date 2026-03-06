@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 import { BackendEvent, ChannelRecord, GroupRecord } from "@/components/app/types";
 import { MovieCard } from "@/components/movies/MovieCard";
@@ -23,6 +23,7 @@ const ALL_MOVIE_GROUPS = "__all_movies__";
 
 export function MoviesPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     selectedSourceId,
     settings,
@@ -191,7 +192,11 @@ export function MoviesPage() {
           : `Now playing "${movie.name}" in the in-app player.`
       );
       if (settings.preferred_player === "web") {
-        navigate("/dashboard/live");
+        navigate("/dashboard/player", {
+          state: {
+            returnTo: location.pathname,
+          },
+        });
       }
     } catch (err) {
       setError(String(err));
@@ -199,7 +204,7 @@ export function MoviesPage() {
     } finally {
       setPlayingMovieId(null);
     }
-  }, [navigate, playChannelRecord, settings.preferred_player]);
+  }, [location.pathname, navigate, playChannelRecord, settings.preferred_player]);
 
   const handlePosterError = useCallback((movieId: number) => {
     setBrokenPosterIds((current) => {

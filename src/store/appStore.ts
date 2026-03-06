@@ -71,6 +71,7 @@ type AppActions = {
   setFavoritesOnly: (value: boolean) => void;
   setSelectedSourceId: (sourceId: number | null) => void;
   setSelectedGroup: (groupName: string) => void;
+  setActiveChannel: (channel: ChannelRecord | null) => void;
   setSettings: (updater: (current: Phase1Settings) => Phase1Settings) => void;
   setPlayback: (playback: PlaybackStatus) => void;
   setError: (error: string | null) => void;
@@ -144,6 +145,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
   setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
+  setActiveChannel: (channel) => set({ activeChannel: channel }),
   setSettings: (updater) =>
     set((state) => ({ settings: updater(state.settings) })),
   setPlayback: (playback) => set({ playback }),
