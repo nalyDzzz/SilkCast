@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 
 use crate::playback::PlaybackEngine;
+use crate::xtream::XtreamConfig;
 
 #[derive(Clone)]
 pub struct AppContext {
@@ -847,6 +848,7 @@ impl SourceRegistry {
     fn with_defaults() -> Self {
         let mut providers: HashMap<String, Arc<dyn SourceProvider>> = HashMap::new();
         providers.insert("m3u".to_string(), Arc::new(M3uSourceProvider));
+        providers.insert("xtream".to_string(), Arc::new(XtreamSourceProvider));
         Self { providers }
     }
 }
@@ -863,6 +865,14 @@ impl SourceProvider for M3uSourceProvider {
             return Err("m3u config requires a non-empty `location`".to_string());
         }
         Ok(())
+    }
+}
+
+struct XtreamSourceProvider;
+
+impl SourceProvider for XtreamSourceProvider {
+    fn validate_config(&self, config: &Value) -> Result<(), String> {
+        XtreamConfig::from_value(config).map(|_| ())
     }
 }
 
@@ -976,6 +986,26 @@ mod tests {
 
         let m3u_bad = registry.validate("m3u", &json!({ "location": "" }));
         assert!(m3u_bad.is_err());
+
+        let xtream_ok = registry.validate(
+            "xtream",
+            &json!({
+                "server_url": "https://provider.example:8080/player_api.php",
+                "username": "alice",
+                "password": "secret"
+            }),
+        );
+        assert!(xtream_ok.is_ok());
+
+        let xtream_bad = registry.validate(
+            "xtream",
+            &json!({
+                "server_url": "provider.example",
+                "username": "alice",
+                "password": ""
+            }),
+        );
+        assert!(xtream_bad.is_err());
     }
 
     #[test]
@@ -1251,7 +1281,7 @@ mod tests {
     fn source_registry_rejects_unsupported_source_type() {
         let registry = SourceRegistry::with_defaults();
         let err = registry
-            .validate("xtream", &json!({}))
+            .validate("plex", &json!({}))
             .expect_err("unsupported source type should fail");
         assert!(err.contains("unsupported source type"));
     }

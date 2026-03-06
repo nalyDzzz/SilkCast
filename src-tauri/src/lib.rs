@@ -1,6 +1,7 @@
 mod foundation;
 mod m3u;
 mod playback;
+mod xtream;
 
 use foundation::{
     append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
@@ -19,9 +20,10 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
 use tauri::{Manager, State};
+use xtream::{import_xtream_channels, XtreamConfig};
 
 #[derive(Debug, Serialize)]
-struct M3uImportResult {
+struct SourceImportResult {
     source_id: i64,
     imported_channels: usize,
 }
@@ -69,7 +71,7 @@ fn add_m3u_source(
     location: String,
     app: tauri::AppHandle,
     state: State<SharedState>,
-) -> Result<M3uImportResult, String> {
+) -> Result<SourceImportResult, String> {
     let result = create_and_import_m3u_source(&state, &name, &location)?;
     let source_id = result.source_id;
 
@@ -90,11 +92,39 @@ fn add_m3u_source(
 }
 
 #[tauri::command]
+fn add_xtream_source(
+    name: String,
+    server_url: String,
+    username: String,
+    password: String,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<SourceImportResult, String> {
+    let result = create_and_import_xtream_source(&state, &name, &server_url, &username, &password)?;
+    let source_id = result.source_id;
+
+    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
+
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!(
+            "registered xtream source {source_id}:{name} with {} catalog items",
+            result.imported_channels
+        ),
+    )?;
+
+    Ok(result)
+}
+
+#[tauri::command]
 fn refresh_m3u_source(
     source_id: i64,
     app: tauri::AppHandle,
     state: State<SharedState>,
-) -> Result<M3uImportResult, String> {
+) -> Result<SourceImportResult, String> {
     let result = refresh_m3u_source_core(&state, source_id)?;
 
     emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
@@ -105,6 +135,29 @@ fn refresh_m3u_source(
         "INFO",
         &format!(
             "refreshed source {source_id} with {} channels",
+            result.imported_channels
+        ),
+    )?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+fn refresh_registered_source(
+    source_id: i64,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<SourceImportResult, String> {
+    let result = refresh_registered_source_core(&state, source_id)?;
+
+    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
+
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!(
+            "refreshed source {source_id} with {} catalog items",
             result.imported_channels
         ),
     )?;
@@ -610,16 +663,39 @@ fn import_m3u_source(state: &SharedState, source_id: i64, config: &Value) -> Res
     Ok(inserted)
 }
 
+fn import_xtream_source(
+    state: &SharedState,
+    source_id: i64,
+    config: &Value,
+) -> Result<usize, String> {
+    let xtream_config = XtreamConfig::from_value(config)?;
+    let channels = import_xtream_channels(&xtream_config)?;
+    replace_channels_for_source(&state.context.db_path, source_id, &channels)
+}
+
+fn import_source_catalog(
+    state: &SharedState,
+    source_type: &str,
+    source_id: i64,
+    config: &Value,
+) -> Result<usize, String> {
+    match source_type {
+        "m3u" => import_m3u_source(state, source_id, config),
+        "xtream" => import_xtream_source(state, source_id, config),
+        _ => Err(format!("unsupported source type: {source_type}")),
+    }
+}
+
 fn create_and_import_m3u_source(
     state: &SharedState,
     name: &str,
     location: &str,
-) -> Result<M3uImportResult, String> {
+) -> Result<SourceImportResult, String> {
     let config = json!({ "location": location });
     state.source_kind_supported("m3u", &config)?;
 
     let source_id = create_source(&state.context.db_path, "m3u", name, &config)?;
-    let imported_channels = match import_m3u_source(state, source_id, &config) {
+    let imported_channels = match import_source_catalog(state, "m3u", source_id, &config) {
         Ok(count) => count,
         Err(err) => {
             let _ = delete_source(&state.context.db_path, source_id);
@@ -627,13 +703,50 @@ fn create_and_import_m3u_source(
         }
     };
 
-    Ok(M3uImportResult {
+    Ok(SourceImportResult {
         source_id,
         imported_channels,
     })
 }
 
-fn refresh_m3u_source_core(state: &SharedState, source_id: i64) -> Result<M3uImportResult, String> {
+fn create_and_import_xtream_source(
+    state: &SharedState,
+    name: &str,
+    server_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<SourceImportResult, String> {
+    let xtream_config = XtreamConfig::from_value(&json!({
+        "server_url": server_url,
+        "username": username,
+        "password": password
+    }))?;
+    let config = json!({
+        "server_url": xtream_config.server_url,
+        "username": xtream_config.username,
+        "password": xtream_config.password
+    });
+    state.source_kind_supported("xtream", &config)?;
+
+    let source_id = create_source(&state.context.db_path, "xtream", name, &config)?;
+    let imported_channels = match import_source_catalog(state, "xtream", source_id, &config) {
+        Ok(count) => count,
+        Err(err) => {
+            let _ = delete_source(&state.context.db_path, source_id);
+            return Err(err);
+        }
+    };
+
+    Ok(SourceImportResult {
+        source_id,
+        imported_channels,
+    })
+}
+
+fn refresh_m3u_source_core(
+    state: &SharedState,
+    source_id: i64,
+) -> Result<SourceImportResult, String> {
     let source = get_source_by_id(&state.context.db_path, source_id)?
         .ok_or_else(|| format!("source {source_id} not found"))?;
 
@@ -641,8 +754,23 @@ fn refresh_m3u_source_core(state: &SharedState, source_id: i64) -> Result<M3uImp
         return Err("refresh is currently supported only for m3u sources".to_string());
     }
 
-    let imported_channels = import_m3u_source(state, source_id, &source.config)?;
-    Ok(M3uImportResult {
+    let imported_channels = import_source_catalog(state, "m3u", source_id, &source.config)?;
+    Ok(SourceImportResult {
+        source_id,
+        imported_channels,
+    })
+}
+
+fn refresh_registered_source_core(
+    state: &SharedState,
+    source_id: i64,
+) -> Result<SourceImportResult, String> {
+    let source = get_source_by_id(&state.context.db_path, source_id)?
+        .ok_or_else(|| format!("source {source_id} not found"))?;
+
+    let imported_channels =
+        import_source_catalog(state, &source.source_type, source_id, &source.config)?;
+    Ok(SourceImportResult {
         source_id,
         imported_channels,
     })
@@ -857,7 +985,9 @@ pub fn run() {
             set_debug_mode,
             list_registered_sources,
             add_m3u_source,
+            add_xtream_source,
             refresh_m3u_source,
+            refresh_registered_source,
             delete_registered_source,
             list_source_groups,
             list_source_channels,

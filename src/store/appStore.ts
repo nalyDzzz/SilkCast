@@ -91,6 +91,12 @@ type AppActions = {
   loadSettings: () => Promise<void>;
   refreshEverything: () => Promise<void>;
   addM3uSource: (name: string, location: string) => Promise<void>;
+  addXtreamSource: (
+    name: string,
+    serverUrl: string,
+    username: string,
+    password: string
+  ) => Promise<void>;
   refreshSource: (
     sourceId: number,
     mediaKind?: 'live' | 'movie' | 'series' | null
@@ -287,12 +293,46 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  addXtreamSource: async (name, serverUrl, username, password) => {
+    set({ error: null, importMessage: null });
+
+    try {
+      const result = await sourcesApi.addXtreamSource(
+        name,
+        serverUrl,
+        username,
+        password
+      );
+      writeLastSelectedSourceId(result.source_id);
+      set({
+        selectedSourceId: result.source_id,
+        hasPersistedSourceSelection: false,
+        selectedGroup: ALL_GROUPS,
+        importMessage: `Imported ${result.imported_channels} catalog items.`,
+      });
+
+      await Promise.all([
+        get().loadSources(),
+        get().loadGroups(result.source_id),
+        get().loadChannels(result.source_id),
+      ]);
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
   refreshSource: async (sourceId, mediaKind = null) => {
     set({ error: null, importMessage: null });
 
     try {
-      const result = await sourcesApi.refreshM3uSource(sourceId);
-      set({ importMessage: `Refreshed ${result.imported_channels} channels.` });
+      const source = get().sources.find((item) => item.id === sourceId) ?? null;
+      const result = await sourcesApi.refreshRegisteredSource(sourceId);
+      set({
+        importMessage:
+          source?.source_type === 'xtream'
+            ? `Refreshed ${result.imported_channels} catalog items.`
+            : `Refreshed ${result.imported_channels} channels.`,
+      });
 
       if (sourceId === get().selectedSourceId) {
         await Promise.all([

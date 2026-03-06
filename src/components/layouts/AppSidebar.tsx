@@ -64,7 +64,7 @@ export function AppSidebar() {
     navigate('/', { replace: true });
   };
 
-  const handleRefreshPlaylist = async () => {
+  const handleRefreshSource = async () => {
     if (selectedSourceId === null || isRefreshing) {
       return;
     }
@@ -117,10 +117,12 @@ export function AppSidebar() {
               <SidebarMenuButton
                 className="cursor-pointer"
                 disabled={selectedSourceId === null || isRefreshing}
-                onClick={() => void handleRefreshPlaylist()}
+                onClick={() => void handleRefreshSource()}
               >
-                <RefreshCw className={isRefreshing ? 'animate-spin' : undefined} />
-                <span>{isRefreshing ? 'Refreshing...' : 'Refresh Playlist'}</span>
+                <RefreshCw
+                  className={isRefreshing ? 'animate-spin' : undefined}
+                />
+                <span>{isRefreshing ? 'Refreshing...' : 'Refresh Source'}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -139,7 +141,7 @@ export function AppSidebar() {
               >
                 <div>
                   <LogOut />
-                  <span>Switch Playlist</span>
+                  <span>Switch Source</span>
                 </div>
               </SidebarMenuButton>
             </SidebarMenuItem>

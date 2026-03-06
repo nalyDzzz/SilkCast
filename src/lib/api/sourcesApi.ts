@@ -1,7 +1,7 @@
 import { tauriInvoke } from '../tauriClient';
 import {
   GroupRecord,
-  M3uImportResult,
+  SourceImportResult,
   SourceRecord,
 } from '@/components/app/types';
 
@@ -11,17 +11,36 @@ export function listRegisteredSources() {
 
 export function listSourceGroups(
   sourceId: number,
-  mediaKind: "live" | "movie" | "series" | null = null
+  mediaKind: 'live' | 'movie' | 'series' | null = null
 ) {
-  return tauriInvoke<GroupRecord[]>('list_source_groups', { sourceId, mediaKind });
+  return tauriInvoke<GroupRecord[]>('list_source_groups', {
+    sourceId,
+    mediaKind,
+  });
 }
 
 export function addM3uSource(name: string, location: string) {
-  return tauriInvoke<M3uImportResult>('add_m3u_source', { name, location });
+  return tauriInvoke<SourceImportResult>('add_m3u_source', { name, location });
 }
 
-export function refreshM3uSource(sourceId: number) {
-  return tauriInvoke<M3uImportResult>('refresh_m3u_source', { sourceId });
+export function addXtreamSource(
+  name: string,
+  serverUrl: string,
+  username: string,
+  password: string
+) {
+  return tauriInvoke<SourceImportResult>('add_xtream_source', {
+    name,
+    serverUrl,
+    username,
+    password,
+  });
+}
+
+export function refreshRegisteredSource(sourceId: number) {
+  return tauriInvoke<SourceImportResult>('refresh_registered_source', {
+    sourceId,
+  });
 }
 
 export function deleteRegisteredSource(sourceId: number) {

@@ -20,7 +20,7 @@ export type ChannelRecord = {
   tvg_id: string | null;
   tvg_name: string | null;
   stream_url: string;
-  media_kind: "live" | "movie" | "series";
+  media_kind: 'live' | 'movie' | 'series';
   is_favorite: boolean;
 };
 
@@ -54,7 +54,7 @@ export type BackendEvent = {
   ts: number;
 };
 
-export type M3uImportResult = {
+export type SourceImportResult = {
   source_id: number;
   imported_channels: number;
 };
