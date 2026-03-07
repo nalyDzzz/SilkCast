@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { HomePage } from './HomePage';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
 import * as sourcesApi from '../lib/api/sourcesApi';
@@ -51,6 +52,7 @@ describe('HomePage', () => {
   beforeEach(() => {
     resetStore();
     vi.clearAllMocks();
+    window.localStorage.clear();
     vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([]);
   });
 
@@ -210,5 +212,67 @@ describe('HomePage', () => {
     });
 
     confirmSpy.mockRestore();
+  });
+
+  it('auto-navigates to dashboard for remembered xtream source ids returned as strings', async () => {
+    window.localStorage.setItem('opentv:lastSelectedSourceId', '2');
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      {
+        id: 1,
+        source_type: 'm3u',
+        name: 'M3U',
+        config: {},
+        created_at: 1000,
+      },
+      {
+        id: '2' as unknown as number,
+        source_type: 'xtream',
+        name: 'Xtream',
+        config: {},
+        created_at: 2000,
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
+    expect(useAppStore.getState().selectedSourceId).toBe(2);
+    expect(useAppStore.getState().hasPersistedSourceSelection).toBe(true);
+  });
+
+  it('does not auto-navigate when remembered source is no longer available', async () => {
+    window.localStorage.setItem('opentv:lastSelectedSourceId', '99');
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      {
+        id: 1,
+        source_type: 'm3u',
+        name: 'M3U',
+        config: {},
+        created_at: 1000,
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(sourcesApi.listRegisteredSources).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByText('Dashboard Route')).not.toBeInTheDocument();
+    expect(useAppStore.getState().hasPersistedSourceSelection).toBe(false);
+    expect(useAppStore.getState().selectedSourceId).toBe(1);
   });
 });

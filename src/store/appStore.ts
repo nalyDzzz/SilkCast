@@ -15,18 +15,50 @@ import * as sourcesApi from '../lib/api/sourcesApi';
 
 const LAST_SELECTED_SOURCE_KEY = 'opentv:lastSelectedSourceId';
 
+const isValidSourceId = (value: number) =>
+  Number.isInteger(value) && value > 0;
+
+const normalizeSourceId = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    return isValidSourceId(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (normalized === '') {
+      return null;
+    }
+
+    const parsed = Number(normalized);
+    return isValidSourceId(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const normalizeSourceRecord = (source: SourceRecord): SourceRecord | null => {
+  const normalizedSourceId = normalizeSourceId(
+    (source as SourceRecord & { id: unknown }).id
+  );
+  if (normalizedSourceId === null) {
+    return null;
+  }
+
+  return source.id === normalizedSourceId
+    ? source
+    : {
+        ...source,
+        id: normalizedSourceId,
+      };
+};
+
 const readLastSelectedSourceId = () => {
   if (typeof window === 'undefined') {
     return null;
   }
 
   const rawValue = window.localStorage.getItem(LAST_SELECTED_SOURCE_KEY);
-  if (!rawValue) {
-    return null;
-  }
-
-  const parsed = Number(rawValue);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return normalizeSourceId(rawValue);
 };
 
 const writeLastSelectedSourceId = (sourceId: number | null) => {
@@ -34,12 +66,16 @@ const writeLastSelectedSourceId = (sourceId: number | null) => {
     return;
   }
 
-  if (sourceId === null) {
+  const normalizedSourceId = normalizeSourceId(sourceId);
+  if (normalizedSourceId === null) {
     window.localStorage.removeItem(LAST_SELECTED_SOURCE_KEY);
     return;
   }
 
-  window.localStorage.setItem(LAST_SELECTED_SOURCE_KEY, sourceId.toString());
+  window.localStorage.setItem(
+    LAST_SELECTED_SOURCE_KEY,
+    normalizedSourceId.toString()
+  );
 };
 
 const initialSelectedSourceId = readLastSelectedSourceId();
@@ -144,9 +180,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSearchQuery: (value) => set({ searchQuery: value }),
   setFavoritesOnly: (value) => set({ favoritesOnly: value }),
   setSelectedSourceId: (sourceId) => {
-    writeLastSelectedSourceId(sourceId);
+    const normalizedSourceId = normalizeSourceId(sourceId);
+    writeLastSelectedSourceId(normalizedSourceId);
     set({
-      selectedSourceId: sourceId,
+      selectedSourceId: normalizedSourceId,
       hasPersistedSourceSelection: false,
     });
   },
@@ -159,7 +196,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   clearSourceLists: () => set({ groups: [], channels: [] }),
 
   loadSources: async () => {
-    const sourceList = await sourcesApi.listRegisteredSources();
+    const sourceListResponse = await sourcesApi.listRegisteredSources();
+    const sourceList = sourceListResponse
+      .map(normalizeSourceRecord)
+      .filter((source): source is SourceRecord => source !== null);
 
     set((state) => {
       if (sourceList.length === 0) {
@@ -176,15 +216,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rememberedSourceId !== null &&
         sourceList.some((source) => source.id === rememberedSourceId);
 
+      const normalizedInMemorySelection = normalizeSourceId(
+        state.selectedSourceId
+      );
       const inMemorySelectionIsValid =
-        state.selectedSourceId !== null &&
-        sourceList.some((source) => source.id === state.selectedSourceId);
+        normalizedInMemorySelection !== null &&
+        sourceList.some((source) => source.id === normalizedInMemorySelection);
 
       const selectedSourceId = persistedSelectionIsValid
         ? rememberedSourceId
         : inMemorySelectionIsValid
-          ? state.selectedSourceId
+          ? normalizedInMemorySelection
           : sourceList[0].id;
+
+      writeLastSelectedSourceId(selectedSourceId);
 
       return {
         sources: sourceList,

@@ -168,7 +168,12 @@ export function HomePage() {
           <CardContent className="space-y-3">
             <Select
               value={selectedSourceId?.toString() ?? ''}
-              onValueChange={(value) => setSelectedSourceId(Number(value))}
+              onValueChange={(value) => {
+                const parsed = Number(value);
+                setSelectedSourceId(
+                  Number.isInteger(parsed) && parsed > 0 ? parsed : null
+                );
+              }}
             >
               <SelectTrigger className="w-full" disabled={isDeletingSource}>
                 <SelectValue placeholder="Select a source" />

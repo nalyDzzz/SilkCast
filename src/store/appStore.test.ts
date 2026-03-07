@@ -207,6 +207,14 @@ describe('appStore', () => {
         window.localStorage.getItem('opentv:lastSelectedSourceId')
       ).toBeNull();
     });
+
+    it('normalizes invalid source ids to null', () => {
+      useAppStore.getState().setSelectedSourceId(Number.NaN);
+      expect(useAppStore.getState().selectedSourceId).toBeNull();
+      expect(
+        window.localStorage.getItem('opentv:lastSelectedSourceId')
+      ).toBeNull();
+    });
   });
 
   describe('setSettings', () => {
@@ -255,6 +263,40 @@ describe('appStore', () => {
       useAppStore.setState({ selectedSourceId: 5 });
       await useAppStore.getState().loadSources();
       expect(useAppStore.getState().selectedSourceId).toBeNull();
+    });
+
+    it('keeps persisted selection when source ids are numeric strings', async () => {
+      const api = await getSourcesApi();
+      api.listRegisteredSources.mockResolvedValue([
+        {
+          id: 1,
+          source_type: 'm3u',
+          name: 'M3U Source',
+          config: {},
+          created_at: 1000,
+        },
+        {
+          id: '2' as unknown as number,
+          source_type: 'xtream',
+          name: 'Xtream Source',
+          config: {},
+          created_at: 2000,
+        },
+      ]);
+
+      window.localStorage.setItem('opentv:lastSelectedSourceId', '2');
+
+      await useAppStore.getState().loadSources();
+
+      const state = useAppStore.getState();
+      expect(state.selectedSourceId).toBe(2);
+      expect(state.hasPersistedSourceSelection).toBe(true);
+      expect(state.sources.find((source) => source.name === 'Xtream Source')?.id).toBe(
+        2
+      );
+      expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+        '2'
+      );
     });
   });
 
