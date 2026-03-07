@@ -75,6 +75,9 @@ export function HomePage() {
   const [importSourceType, setImportSourceType] =
     useState<ImportSourceType>('m3u');
   const [xtreamDraft, setXtreamDraft] = useState(INITIAL_XTREAM_DRAFT);
+  const [pendingSourceId, setPendingSourceId] = useState<number | null>(
+    selectedSourceId
+  );
 
   useEffect(() => {
     void loadSources().catch((err) => setError(String(err)));
@@ -90,6 +93,26 @@ export function HomePage() {
       navigate('/dashboard');
     }
   }, [hasPersistedSourceSelection, navigate, selectedSourceId, sources]);
+
+  useEffect(() => {
+    setPendingSourceId((currentPendingSourceId) => {
+      const currentPendingSourceIsValid =
+        currentPendingSourceId !== null &&
+        sources.some((source) => source.id === currentPendingSourceId);
+      if (currentPendingSourceIsValid) {
+        return currentPendingSourceId;
+      }
+
+      const selectedSourceIsValid =
+        selectedSourceId !== null &&
+        sources.some((source) => source.id === selectedSourceId);
+      if (selectedSourceIsValid) {
+        return selectedSourceId;
+      }
+
+      return sources.length > 0 ? sources[0].id : null;
+    });
+  }, [selectedSourceId, sources]);
 
   const handleImportSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -111,12 +134,12 @@ export function HomePage() {
   };
 
   const selectedSource =
-    selectedSourceId === null
+    pendingSourceId === null
       ? null
-      : (sources.find((source) => source.id === selectedSourceId) ?? null);
+      : (sources.find((source) => source.id === pendingSourceId) ?? null);
   const isDeletingSource = pendingDeleteId !== null;
   const isDeletingSelectedSource =
-    pendingDeleteId !== null && pendingDeleteId === selectedSourceId;
+    pendingDeleteId !== null && pendingDeleteId === pendingSourceId;
 
   const updateXtreamDraft = (field: XtreamDraftField, value: string) => {
     setXtreamDraft((current) => ({
@@ -147,6 +170,15 @@ export function HomePage() {
     }
   };
 
+  const handleOpenDashboard = () => {
+    if (pendingSourceId === null) {
+      return;
+    }
+
+    setSelectedSourceId(pendingSourceId);
+    navigate('/dashboard');
+  };
+
   return (
     <main className="min-h-screen p-4 md:p-8">
       <section className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -167,10 +199,10 @@ export function HomePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <Select
-              value={selectedSourceId?.toString() ?? ''}
+              value={pendingSourceId?.toString() ?? ''}
               onValueChange={(value) => {
                 const parsed = Number(value);
-                setSelectedSourceId(
+                setPendingSourceId(
                   Number.isInteger(parsed) && parsed > 0 ? parsed : null
                 );
               }}
@@ -196,8 +228,8 @@ export function HomePage() {
           <CardFooter className="flex-col gap-3 sm:flex-row">
             <Button
               className="w-full sm:flex-1"
-              onClick={() => navigate('/dashboard')}
-              disabled={selectedSourceId === null || isDeletingSource}
+              onClick={handleOpenDashboard}
+              disabled={pendingSourceId === null || isDeletingSource}
             >
               Log In To Dashboard
             </Button>

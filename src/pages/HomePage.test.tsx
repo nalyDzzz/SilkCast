@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -49,6 +49,36 @@ async function renderHomePage() {
 }
 
 describe('HomePage', () => {
+  beforeAll(() => {
+    if (!HTMLElement.prototype.hasPointerCapture) {
+      Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', {
+        configurable: true,
+        value: () => false,
+      });
+    }
+
+    if (!HTMLElement.prototype.setPointerCapture) {
+      Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
+        configurable: true,
+        value: () => {},
+      });
+    }
+
+    if (!HTMLElement.prototype.releasePointerCapture) {
+      Object.defineProperty(HTMLElement.prototype, 'releasePointerCapture', {
+        configurable: true,
+        value: () => {},
+      });
+    }
+
+    if (!HTMLElement.prototype.scrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: () => {},
+      });
+    }
+  });
+
   beforeEach(() => {
     resetStore();
     vi.clearAllMocks();
@@ -95,6 +125,81 @@ describe('HomePage', () => {
     expect(
       screen.getByRole('button', { name: 'Delete Selected Source' })
     ).toBeDisabled();
+  });
+
+  it('keeps source selection as draft until login is clicked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      {
+        id: 1,
+        source_type: 'm3u',
+        name: 'M3U',
+        config: {},
+        created_at: 1000,
+      },
+      {
+        id: 2,
+        source_type: 'xtream',
+        name: 'Xtream',
+        config: {},
+        created_at: 2000,
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: /Xtream/i }));
+
+    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBeNull();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Log In To Dashboard' })
+    );
+
+    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
+    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+      '2'
+    );
+  });
+
+  it('persists an auto-selected xtream source when logging in', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      {
+        id: '2' as unknown as number,
+        source_type: 'xtream',
+        name: 'Xtream',
+        config: {},
+        created_at: 2000,
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const loginButton = await screen.findByRole('button', {
+      name: 'Log In To Dashboard',
+    });
+    await user.click(loginButton);
+
+    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
+    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+      '2'
+    );
   });
 
   it('renders import form inputs', async () => {

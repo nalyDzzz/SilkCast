@@ -298,6 +298,32 @@ describe('appStore', () => {
         '2'
       );
     });
+
+    it('does not persist fallback auto-selection across repeated loads', async () => {
+      const api = await getSourcesApi();
+      api.listRegisteredSources.mockResolvedValue([
+        {
+          id: 7,
+          source_type: 'xtream',
+          name: 'Provider',
+          config: {},
+          created_at: 1000,
+        },
+      ]);
+
+      window.localStorage.removeItem('opentv:lastSelectedSourceId');
+
+      await useAppStore.getState().loadSources();
+      expect(useAppStore.getState().selectedSourceId).toBe(7);
+      expect(useAppStore.getState().hasPersistedSourceSelection).toBe(false);
+      expect(
+        window.localStorage.getItem('opentv:lastSelectedSourceId')
+      ).toBeNull();
+
+      await useAppStore.getState().loadSources();
+      expect(useAppStore.getState().selectedSourceId).toBe(7);
+      expect(useAppStore.getState().hasPersistedSourceSelection).toBe(false);
+    });
   });
 
   describe('loadGroups', () => {

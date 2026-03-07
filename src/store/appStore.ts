@@ -229,8 +229,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
           ? normalizedInMemorySelection
           : sourceList[0].id;
 
-      writeLastSelectedSourceId(selectedSourceId);
-
       return {
         sources: sourceList,
         selectedSourceId,
