@@ -8,7 +8,7 @@ import {
   PlaybackStatus,
   SeriesEpisodeRecord,
 } from '@/components/app/types';
-import { LiveChannelRow } from '@/components/live/LiveChannelRow';
+import { VirtualizedLiveChannelList } from '@/components/live/VirtualizedLiveChannelList';
 import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
 import { MovieCard } from '@/components/movies/MovieCard';
 import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
@@ -508,22 +508,13 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         <div className="min-h-0 flex-1">
           {mediaKind === 'live' ? (
             <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
-              <div className="h-full overflow-y-auto pr-1">
-                <div className="flex flex-col gap-2">
-                  {items.map((item) => (
-                    <LiveChannelRow
-                      key={item.id}
-                      channel={item}
-                      isActive={activeItemId === item.id}
-                      isPlaying={playingItemId === item.id}
-                      onPlay={(nextItem) => void handlePlayItem(nextItem)}
-                      onToggleFavorite={(nextItem) =>
-                        void handleToggleFavorite(nextItem)
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
+              <VirtualizedLiveChannelList
+                channels={items}
+                activeChannelId={activeItemId}
+                playingChannelId={playingItemId}
+                onPlay={(nextItem) => void handlePlayItem(nextItem)}
+                onToggleFavorite={(nextItem) => void handleToggleFavorite(nextItem)}
+              />
             </div>
           ) : isViewingSeriesEpisodes && selectedSeriesItem ? (
             <SeriesEpisodeList
