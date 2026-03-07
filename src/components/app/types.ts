@@ -24,6 +24,14 @@ export type ChannelRecord = {
   is_favorite: boolean;
 };
 
+export type SeriesEpisodeRecord = {
+  episode_id: string;
+  season_number: number;
+  episode_number: number;
+  title: string;
+  stream_url: string;
+};
+
 export type RecentChannelRecord = {
   channel: ChannelRecord;
   played_at: number;

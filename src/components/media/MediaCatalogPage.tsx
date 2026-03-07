@@ -6,8 +6,10 @@ import {
   ChannelRecord,
   GroupRecord,
   PlaybackStatus,
+  SeriesEpisodeRecord,
 } from '@/components/app/types';
 import { LiveChannelRow } from '@/components/live/LiveChannelRow';
+import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
 import { MovieCard } from '@/components/movies/MovieCard';
 import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -25,6 +27,7 @@ import {
   setChannelFavoriteState,
 } from '@/lib/api/channelsApi';
 import { subscribeBackendEvents } from '@/lib/api/eventsApi';
+import { listSeriesEpisodes } from '@/lib/api/seriesApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
 
@@ -76,6 +79,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const location = useLocation();
   const {
     activeChannel,
+    sources,
     selectedSourceId,
     settings,
     loadSources,
@@ -87,6 +91,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   } = useAppStore(
     useShallow((state) => ({
       activeChannel: state.activeChannel,
+      sources: state.sources,
       selectedSourceId: state.selectedSourceId,
       settings: state.settings,
       loadSources: state.loadSources,
@@ -117,10 +122,35 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   );
   const [refreshVersion, setRefreshVersion] = useState(0);
   const requestVersionRef = useRef(0);
+  const seriesRequestVersionRef = useRef(0);
+  const [selectedSeriesItem, setSelectedSeriesItem] =
+    useState<ChannelRecord | null>(null);
+  const [seriesEpisodes, setSeriesEpisodes] = useState<SeriesEpisodeRecord[]>(
+    []
+  );
+  const [seriesEpisodesLoading, setSeriesEpisodesLoading] = useState(false);
+  const [seriesEpisodesError, setSeriesEpisodesError] = useState<string | null>(
+    null
+  );
 
   const selectedGroupName = useMemo(
     () => (selectedGroup === copy.allGroupsValue ? null : selectedGroup),
     [copy.allGroupsValue, selectedGroup]
+  );
+  const selectedSource = useMemo(
+    () => sources.find((source) => source.id === selectedSourceId) ?? null,
+    [selectedSourceId, sources]
+  );
+  const supportsSeriesEpisodeList = useMemo(
+    () => mediaKind === 'series' && selectedSource?.source_type === 'xtream',
+    [mediaKind, selectedSource?.source_type]
+  );
+  const isViewingSeriesEpisodes = useMemo(
+    () =>
+      mediaKind === 'series' &&
+      supportsSeriesEpisodeList &&
+      selectedSeriesItem !== null,
+    [mediaKind, selectedSeriesItem, supportsSeriesEpisodeList]
   );
   const activeItemId = useMemo(
     () => (activeChannel?.media_kind === mediaKind ? activeChannel.id : null),
@@ -246,6 +276,14 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   }, [query]);
 
   useEffect(() => {
+    seriesRequestVersionRef.current += 1;
+    setSelectedSeriesItem(null);
+    setSeriesEpisodes([]);
+    setSeriesEpisodesLoading(false);
+    setSeriesEpisodesError(null);
+  }, [mediaKind, selectedSourceId]);
+
+  useEffect(() => {
     if (selectedSourceId === null) {
       setItems([]);
       return;
@@ -354,6 +392,62 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     });
   }, []);
 
+  const handleOpenSeries = useCallback(
+    async (item: ChannelRecord) => {
+      if (!supportsSeriesEpisodeList) {
+        await handlePlayItem(item);
+        return;
+      }
+
+      const requestVersion = seriesRequestVersionRef.current + 1;
+      seriesRequestVersionRef.current = requestVersion;
+
+      setSelectedSeriesItem(item);
+      setSeriesEpisodes([]);
+      setSeriesEpisodesError(null);
+      setSeriesEpisodesLoading(true);
+
+      try {
+        const episodes = await listSeriesEpisodes(item.id);
+        if (seriesRequestVersionRef.current === requestVersion) {
+          setSeriesEpisodes(episodes);
+        }
+      } catch (err) {
+        if (seriesRequestVersionRef.current === requestVersion) {
+          setSeriesEpisodesError(String(err));
+        }
+      } finally {
+        if (seriesRequestVersionRef.current === requestVersion) {
+          setSeriesEpisodesLoading(false);
+        }
+      }
+    },
+    [handlePlayItem, supportsSeriesEpisodeList]
+  );
+
+  const handlePlaySeriesEpisode = useCallback(
+    (episode: SeriesEpisodeRecord) => {
+      if (!selectedSeriesItem) {
+        return;
+      }
+
+      void handlePlayItem({
+        ...selectedSeriesItem,
+        name: `${selectedSeriesItem.name} - ${episode.title}`,
+        stream_url: episode.stream_url,
+      });
+    },
+    [handlePlayItem, selectedSeriesItem]
+  );
+
+  const handleBackToSeriesCatalog = useCallback(() => {
+    seriesRequestVersionRef.current += 1;
+    setSelectedSeriesItem(null);
+    setSeriesEpisodes([]);
+    setSeriesEpisodesLoading(false);
+    setSeriesEpisodesError(null);
+  }, []);
+
   return (
     <main className="box-border h-full overflow-hidden p-4 md:p-6">
       <section className="flex h-full min-h-0 flex-col gap-4">
@@ -431,6 +525,16 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
                 </div>
               </div>
             </div>
+          ) : isViewingSeriesEpisodes && selectedSeriesItem ? (
+            <SeriesEpisodeList
+              series={selectedSeriesItem}
+              episodes={seriesEpisodes}
+              loading={seriesEpisodesLoading}
+              error={seriesEpisodesError}
+              playingSeriesId={playingItemId}
+              onBack={handleBackToSeriesCatalog}
+              onPlayEpisode={handlePlaySeriesEpisode}
+            />
           ) : (
             <VirtualizedMovieGrid
               items={items}
@@ -441,7 +545,11 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
                   isPlaying={playingItemId === item.id}
                   isLastPlayed={lastPlayedItemId === item.id}
                   isPosterBroken={Boolean(brokenPosterIds[item.id])}
-                  onPlay={(nextItem) => void handlePlayItem(nextItem)}
+                  onPlay={(nextItem) =>
+                    mediaKind === 'series'
+                      ? void handleOpenSeries(nextItem)
+                      : void handlePlayItem(nextItem)
+                  }
                   onToggleFavorite={(nextItem) =>
                     void handleToggleFavorite(nextItem)
                   }
@@ -452,7 +560,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
           )}
         </div>
 
-        {!loading && items.length === 0 ? (
+        {!loading && !isViewingSeriesEpisodes && items.length === 0 ? (
           <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             No {copy.pluralLabel} matched these filters for the selected source.
           </p>

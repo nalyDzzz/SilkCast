@@ -1,5 +1,6 @@
 use crate::foundation::ChannelInsertRecord;
 use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -73,6 +74,23 @@ pub fn normalize_server_url(raw: &str) -> Result<String, String> {
 pub fn import_xtream_channels(config: &XtreamConfig) -> Result<Vec<ChannelInsertRecord>, String> {
     let client = XtreamClient::new(config.clone())?;
     client.import_catalog()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeriesEpisodeRecord {
+    pub episode_id: String,
+    pub season_number: i64,
+    pub episode_number: i64,
+    pub title: String,
+    pub stream_url: String,
+}
+
+pub fn list_xtream_series_episodes(
+    config: &XtreamConfig,
+    series_id: &str,
+) -> Result<Vec<SeriesEpisodeRecord>, String> {
+    let client = XtreamClient::new(config.clone())?;
+    client.fetch_series_episodes(series_id)
 }
 
 struct XtreamClient {
@@ -281,6 +299,102 @@ impl XtreamClient {
         Ok(channels)
     }
 
+    fn fetch_series_episodes(&self, series_id: &str) -> Result<Vec<SeriesEpisodeRecord>, String> {
+        let normalized_series_id = series_id.trim();
+        if normalized_series_id.is_empty() {
+            return Err("series episode lookup requires a valid series ID".to_string());
+        }
+
+        let payload = self.request_json(
+            Some("get_series_info"),
+            &[("series_id", normalized_series_id.to_string())],
+        )?;
+        let episodes_payload = payload
+            .get("episodes")
+            .ok_or_else(|| "Xtream response missing `episodes` payload".to_string())?;
+
+        let mut episodes = Vec::new();
+        match episodes_payload {
+            Value::Object(seasons) => {
+                for (season_key, season_items) in seasons {
+                    let season_hint = season_key.parse::<i64>().ok();
+                    self.collect_series_episodes(season_items, season_hint, &mut episodes);
+                }
+            }
+            Value::Array(_) => {
+                self.collect_series_episodes(episodes_payload, None, &mut episodes);
+            }
+            _ => {
+                return Err("Xtream `episodes` payload was not an array or object".to_string());
+            }
+        }
+
+        if episodes.is_empty() {
+            return Err("Xtream returned no playable episodes for this series.".to_string());
+        }
+
+        episodes.sort_by(|left, right| {
+            left.season_number
+                .cmp(&right.season_number)
+                .then_with(|| left.episode_number.cmp(&right.episode_number))
+                .then_with(|| left.title.cmp(&right.title))
+        });
+
+        Ok(episodes)
+    }
+
+    fn collect_series_episodes(
+        &self,
+        value: &Value,
+        season_hint: Option<i64>,
+        output: &mut Vec<SeriesEpisodeRecord>,
+    ) {
+        let Some(items) = value.as_array() else {
+            return;
+        };
+
+        for (index, item) in items.iter().enumerate() {
+            let fallback_episode_number = index as i64 + 1;
+            if let Some(episode) =
+                self.parse_series_episode(item, season_hint, fallback_episode_number)
+            {
+                output.push(episode);
+            }
+        }
+    }
+
+    fn parse_series_episode(
+        &self,
+        item: &Value,
+        season_hint: Option<i64>,
+        fallback_episode_number: i64,
+    ) -> Option<SeriesEpisodeRecord> {
+        let episode_id = first_string(item, &["id", "episode_id", "stream_id"])?;
+        let nested_info = item.get("info");
+        let extension = first_string(item, &["container_extension"])
+            .or_else(|| first_string_from(nested_info, &["container_extension"]))
+            .unwrap_or_else(|| "mp4".to_string());
+        let season_number = first_i64(item, &["season", "season_num", "season_number"])
+            .or(season_hint)
+            .filter(|value| *value > 0)
+            .unwrap_or(1);
+        let episode_number = first_i64(item, &["episode_num", "episode_number", "number", "sort"])
+            .filter(|value| *value > 0)
+            .unwrap_or(fallback_episode_number);
+
+        let title = first_string(item, &["title", "name"])
+            .or_else(|| first_string_from(nested_info, &["title", "movie_title", "name"]))
+            .unwrap_or_else(|| format!("Episode {episode_number}"));
+
+        Some(SeriesEpisodeRecord {
+            episode_id: episode_id.clone(),
+            season_number,
+            episode_number,
+            title,
+            stream_url: self.build_stream_url("series", &episode_id, &extension),
+        })
+    }
+
     fn build_stream_url(&self, media_path: &str, item_id: &str, extension: &str) -> String {
         format!(
             "{}/{}/{}/{}/{}.{}",
@@ -354,11 +468,38 @@ fn first_string(object: &Value, keys: &[&str]) -> Option<String> {
         })
 }
 
+fn first_string_from(value: Option<&Value>, keys: &[&str]) -> Option<String> {
+    let object = value?.as_object()?;
+    keys.iter()
+        .find_map(|key| value_to_string(object.get(*key)))
+        .and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+}
+
+fn first_i64(object: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| value_to_i64(object.get(*key)))
+}
+
 fn value_to_string(value: Option<&Value>) -> Option<String> {
     match value? {
         Value::String(text) => Some(text.to_string()),
         Value::Number(number) => Some(number.to_string()),
         Value::Bool(flag) => Some(if *flag { "true" } else { "false" }.to_string()),
+        _ => None,
+    }
+}
+
+fn value_to_i64(value: Option<&Value>) -> Option<i64> {
+    match value? {
+        Value::Number(number) => number.as_i64(),
+        Value::String(text) => text.trim().parse::<i64>().ok(),
+        Value::Bool(flag) => Some(if *flag { 1 } else { 0 }),
         _ => None,
     }
 }
@@ -504,14 +645,45 @@ mod tests {
         );
     }
 
+    #[test]
+    fn list_xtream_series_episodes_fetches_episode_records() {
+        let server_url = spawn_xtream_test_server_with_limit(1);
+        let config = XtreamConfig {
+            server_url,
+            username: "alice".to_string(),
+            password: "secret".to_string(),
+        };
+
+        let episodes =
+            list_xtream_series_episodes(&config, "999").expect("episode lookup should succeed");
+        assert_eq!(episodes.len(), 2);
+        assert_eq!(episodes[0].season_number, 1);
+        assert_eq!(episodes[0].episode_number, 1);
+        assert_eq!(episodes[0].title, "Pilot");
+        assert_eq!(
+            episodes[0].stream_url,
+            format!("{}/series/alice/secret/5551.mp4", config.server_url)
+        );
+        assert_eq!(episodes[1].season_number, 1);
+        assert_eq!(episodes[1].episode_number, 2);
+        assert_eq!(
+            episodes[1].stream_url,
+            format!("{}/series/alice/secret/5552.mkv", config.server_url)
+        );
+    }
+
     fn spawn_xtream_test_server() -> String {
+        spawn_xtream_test_server_with_limit(7)
+    }
+
+    fn spawn_xtream_test_server_with_limit(request_limit: usize) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
         let addr = listener
             .local_addr()
             .expect("listener should have local addr");
 
         thread::spawn(move || {
-            for _ in 0..7 {
+            for _ in 0..request_limit {
                 let (mut stream, _) = listener.accept().expect("request should arrive");
                 let mut buffer = [0u8; 4096];
                 let bytes_read = stream
@@ -585,6 +757,26 @@ mod tests {
     "cover": "https://img.example/show.png"
   }
 ]"#
+                    }
+                    "get_series_info" => {
+                        r#"{
+  "episodes": {
+    "1": [
+      {
+        "id": "5551",
+        "episode_num": "1",
+        "title": "Pilot",
+        "container_extension": "mp4"
+      },
+      {
+        "id": "5552",
+        "episode_num": "2",
+        "title": "Second",
+        "container_extension": "mkv"
+      }
+    ]
+  }
+}"#
                     }
                     _ => "[]",
                 };

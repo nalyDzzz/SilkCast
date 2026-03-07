@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import type { ReactNode } from 'react';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { SeriesPage } from './SeriesPage';
 import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
 import { listSourceChannels } from '../lib/api/channelsApi';
 import { subscribeBackendEvents } from '../lib/api/eventsApi';
+import { listSeriesEpisodes } from '../lib/api/seriesApi';
 import { listSourceGroups } from '../lib/api/sourcesApi';
 
 vi.mock('../lib/api/channelsApi', () => ({
@@ -20,6 +24,51 @@ vi.mock('../lib/api/sourcesApi', () => ({
 vi.mock('../lib/api/eventsApi', () => ({
   subscribeBackendEvents: vi.fn(() => Promise.resolve(() => {})),
 }));
+
+vi.mock('../lib/api/seriesApi', () => ({
+  listSeriesEpisodes: vi.fn(() => Promise.resolve([])),
+}));
+
+vi.mock('../components/movies/VirtualizedMovieGrid', () => ({
+  VirtualizedMovieGrid: ({
+    items,
+    getItemKey,
+    renderItem,
+  }: {
+    items: unknown[];
+    getItemKey: (item: unknown) => string | number;
+    renderItem: (item: unknown) => ReactNode;
+  }) => (
+    <div data-testid="virtualized-grid">
+      {items.map((item) => (
+        <div key={String(getItemKey(item))}>{renderItem(item)}</div>
+      ))}
+    </div>
+  ),
+}));
+
+const DEFAULT_SERIES = {
+  id: 901,
+  source_id: 77,
+  name: 'OpenTV Show',
+  group_name: 'Drama',
+  logo: null,
+  tvg_id: '901',
+  tvg_name: 'OpenTV Show',
+  stream_url: 'https://provider.example/series/alice/secret/901.mp4',
+  media_kind: 'series' as const,
+  is_favorite: false,
+};
+
+const DEFAULT_EPISODES = [
+  {
+    episode_id: '5551',
+    season_number: 1,
+    episode_number: 1,
+    title: 'Pilot',
+    stream_url: 'https://provider.example/series/alice/secret/5551.mp4',
+  },
+];
 
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
@@ -106,5 +155,115 @@ describe('SeriesPage', () => {
         'No series matched these filters for the selected source.'
       )
     ).toBeInTheDocument();
+  });
+
+  it('opens the episode list instead of playing immediately for xtream sources', async () => {
+    const user = userEvent.setup();
+    const playChannelRecord = vi.fn(() => Promise.resolve());
+
+    vi.mocked(listSourceChannels).mockResolvedValueOnce([DEFAULT_SERIES]);
+    vi.mocked(listSeriesEpisodes).mockResolvedValueOnce(DEFAULT_EPISODES);
+
+    resetStore({
+      sources: [
+        {
+          id: 77,
+          source_type: 'xtream',
+          name: 'Xtream Source',
+          config: {},
+          created_at: 1000,
+        },
+      ],
+      playChannelRecord,
+    });
+
+    renderWithRouter(<SeriesPage />, {
+      initialEntries: ['/dashboard/series'],
+    });
+
+    await user.click(await screen.findByText('OpenTV Show'));
+
+    await waitFor(() => {
+      expect(listSeriesEpisodes).toHaveBeenCalledWith(901);
+      expect(playChannelRecord).not.toHaveBeenCalled();
+    });
+    expect(await screen.findByText('Pilot')).toBeInTheDocument();
+    expect(screen.getByText('Episodes')).toBeInTheDocument();
+  });
+
+  it('plays a selected episode from the episode list', async () => {
+    const user = userEvent.setup();
+    const playChannelRecord = vi.fn(() => Promise.resolve());
+
+    vi.mocked(listSourceChannels).mockResolvedValueOnce([DEFAULT_SERIES]);
+    vi.mocked(listSeriesEpisodes).mockResolvedValueOnce(DEFAULT_EPISODES);
+
+    resetStore({
+      sources: [
+        {
+          id: 77,
+          source_type: 'xtream',
+          name: 'Xtream Source',
+          config: {},
+          created_at: 1000,
+        },
+      ],
+      settings: { ...DEFAULT_SETTINGS, preferred_player: 'web' },
+      playChannelRecord,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard/series']}>
+        <Routes>
+          <Route path="/dashboard/series" element={<SeriesPage />} />
+          <Route path="/dashboard/player" element={<p>Player Screen</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByText('OpenTV Show'));
+    await user.click(await screen.findByRole('button', { name: 'Play Pilot' }));
+
+    await waitFor(() => {
+      expect(playChannelRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 901,
+          stream_url: 'https://provider.example/series/alice/secret/5551.mp4',
+          name: 'OpenTV Show - Pilot',
+        })
+      );
+    });
+    expect(await screen.findByText('Player Screen')).toBeInTheDocument();
+  });
+
+  it('keeps direct playback behavior for non-xtream series sources', async () => {
+    const user = userEvent.setup();
+    const playChannelRecord = vi.fn(() => Promise.resolve());
+
+    vi.mocked(listSourceChannels).mockResolvedValueOnce([DEFAULT_SERIES]);
+
+    resetStore({
+      sources: [
+        {
+          id: 77,
+          source_type: 'm3u',
+          name: 'M3U Source',
+          config: {},
+          created_at: 1000,
+        },
+      ],
+      playChannelRecord,
+    });
+
+    renderWithRouter(<SeriesPage />, {
+      initialEntries: ['/dashboard/series'],
+    });
+
+    await user.click(await screen.findByText('OpenTV Show'));
+
+    await waitFor(() => {
+      expect(playChannelRecord).toHaveBeenCalledWith(DEFAULT_SERIES);
+      expect(listSeriesEpisodes).not.toHaveBeenCalled();
+    });
   });
 });

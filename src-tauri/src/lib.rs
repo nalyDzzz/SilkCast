@@ -20,7 +20,9 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
 use tauri::{Manager, State};
-use xtream::{import_xtream_channels, XtreamConfig};
+use xtream::{
+    import_xtream_channels, list_xtream_series_episodes, SeriesEpisodeRecord, XtreamConfig,
+};
 
 #[derive(Debug, Serialize)]
 struct SourceImportResult {
@@ -213,6 +215,47 @@ fn list_source_channels(
         query.as_deref(),
         favorites_only,
     )
+}
+
+#[tauri::command]
+fn list_series_episodes(
+    channel_id: i64,
+    state: State<SharedState>,
+) -> Result<Vec<SeriesEpisodeRecord>, String> {
+    list_series_episodes_core(&state, channel_id)
+}
+
+fn list_series_episodes_core(
+    state: &SharedState,
+    channel_id: i64,
+) -> Result<Vec<SeriesEpisodeRecord>, String> {
+    let channel = get_channel_by_id(&state.context.db_path, channel_id)?
+        .ok_or_else(|| format!("channel {channel_id} not found"))?;
+
+    if channel.media_kind != "series" {
+        return Err(format!("channel {channel_id} is not a series catalog item"));
+    }
+
+    let source = get_source_by_id(&state.context.db_path, channel.source_id)?
+        .ok_or_else(|| format!("source {} not found", channel.source_id))?;
+
+    if source.source_type != "xtream" {
+        return Err("Episode lookup is currently supported only for Xtream sources.".to_string());
+    }
+
+    let series_id = channel
+        .tvg_id
+        .clone()
+        .or_else(|| extract_series_id_from_stream_url(&channel.stream_url))
+        .ok_or_else(|| {
+            format!(
+                "series catalog item {} does not include a resolvable series ID",
+                channel.id
+            )
+        })?;
+
+    let xtream_config = XtreamConfig::from_value(&source.config)?;
+    list_xtream_series_episodes(&xtream_config, &series_id)
 }
 
 #[tauri::command]
@@ -776,6 +819,18 @@ fn refresh_registered_source_core(
     })
 }
 
+fn extract_series_id_from_stream_url(stream_url: &str) -> Option<String> {
+    let without_query = stream_url.split(['?', '#']).next().unwrap_or(stream_url);
+    let last_segment = without_query.rsplit('/').next()?;
+    let candidate = last_segment.split('.').next().unwrap_or("").trim();
+
+    if candidate.is_empty() {
+        None
+    } else {
+        Some(candidate.to_string())
+    }
+}
+
 fn normalize_recent_limit(limit: Option<u32>) -> usize {
     limit.unwrap_or(20).clamp(1, 100) as usize
 }
@@ -991,6 +1046,7 @@ pub fn run() {
             delete_registered_source,
             list_source_groups,
             list_source_channels,
+            list_series_episodes,
             set_channel_favorite_state,
             list_recently_played,
             play_channel,
@@ -1204,6 +1260,122 @@ https://stream.example/sports.m3u8
         let wrong_type_err = refresh_m3u_source_core(&state, non_m3u_source_id)
             .expect_err("non-m3u refresh should fail");
         assert!(wrong_type_err.contains("only for m3u"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn extract_series_id_from_stream_url_reads_last_path_segment_without_extension() {
+        assert_eq!(
+            extract_series_id_from_stream_url("https://iptv.example/series/u/p/12345.mp4"),
+            Some("12345".to_string())
+        );
+        assert_eq!(
+            extract_series_id_from_stream_url(
+                "https://iptv.example/series/u/p/67890.mkv?token=abc#fragment"
+            ),
+            Some("67890".to_string())
+        );
+        assert_eq!(
+            extract_series_id_from_stream_url("https://iptv.example/series/u/p/"),
+            None
+        );
+    }
+
+    #[test]
+    fn list_series_episodes_core_rejects_non_series_channel() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let source_id = create_source(
+            &context.db_path,
+            "xtream",
+            "Xtream Source",
+            &json!({
+                "server_url": "https://provider.example",
+                "username": "alice",
+                "password": "secret"
+            }),
+        )
+        .expect("failed to create source");
+
+        let inserted = replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[crate::foundation::ChannelInsertRecord {
+                name: "Sample Movie".to_string(),
+                group_name: Some("Movies".to_string()),
+                logo: None,
+                tvg_id: Some("202".to_string()),
+                tvg_name: Some("Sample Movie".to_string()),
+                stream_url: "https://provider.example/movie/alice/secret/202.mp4".to_string(),
+                media_kind: "movie".to_string(),
+            }],
+        )
+        .expect("failed to insert channel");
+        assert_eq!(inserted, 1);
+
+        let channel =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to fetch channel")
+                .into_iter()
+                .next()
+                .expect("expected inserted channel");
+
+        let state = SharedState::new(context.clone(), false);
+        let err = list_series_episodes_core(&state, channel.id)
+            .expect_err("non-series channel should be rejected");
+        assert!(err.contains("is not a series catalog item"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn list_series_episodes_core_rejects_non_xtream_source() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "M3U Source",
+            &json!({
+                "location": "https://provider.example/playlist.m3u"
+            }),
+        )
+        .expect("failed to create source");
+
+        let inserted = replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[crate::foundation::ChannelInsertRecord {
+                name: "Sample Series".to_string(),
+                group_name: Some("Series".to_string()),
+                logo: None,
+                tvg_id: Some("999".to_string()),
+                tvg_name: Some("Sample Series".to_string()),
+                stream_url: "https://provider.example/series/alice/secret/999.mp4".to_string(),
+                media_kind: "series".to_string(),
+            }],
+        )
+        .expect("failed to insert channel");
+        assert_eq!(inserted, 1);
+
+        let channel =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to fetch channel")
+                .into_iter()
+                .next()
+                .expect("expected inserted channel");
+
+        let state = SharedState::new(context.clone(), false);
+        let err = list_series_episodes_core(&state, channel.id)
+            .expect_err("non-xtream source should be rejected");
+        assert!(err.contains("only for Xtream sources"));
 
         let _ = fs::remove_dir_all(root);
     }
