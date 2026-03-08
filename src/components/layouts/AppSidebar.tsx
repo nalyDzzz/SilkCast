@@ -8,6 +8,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import {
+  Clock,
   Film,
   Home,
   LogOut,
@@ -42,6 +43,11 @@ const data = {
       title: 'Series',
       href: '/dashboard/series',
       icon: TvMinimal,
+    },
+    {
+      title: 'Recents',
+      href: '/dashboard/recents',
+      icon: Clock,
     },
   ],
 };

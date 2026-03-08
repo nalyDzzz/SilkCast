@@ -4,6 +4,7 @@ import { HomePage } from '@/pages/HomePage';
 import { LivePage } from '@/pages/LivePage';
 import { MoviesPage } from '@/pages/MoviesPage';
 import { PlayerPage } from '@/pages/PlayerPage';
+import { RecentsPage } from '@/pages/RecentsPage';
 import { RouteErrorPage } from '@/pages/RouteErrorPage';
 import { SeriesPage } from '@/pages/SeriesPage';
 import { SettingsPage } from '@/pages/SettingsPage.tsx';
@@ -38,6 +39,10 @@ export const appRouter = createHashRouter([
       {
         path: 'series',
         element: <SeriesPage />,
+      },
+      {
+        path: 'recents',
+        element: <RecentsPage />,
       },
       {
         path: 'settings',
