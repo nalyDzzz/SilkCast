@@ -14,9 +14,14 @@ import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
 
 const LAST_SELECTED_SOURCE_KEY = 'opentv:lastSelectedSourceId';
+const THEME_PREFERENCE_KEY = 'opentv:theme';
 
-const isValidSourceId = (value: number) =>
-  Number.isInteger(value) && value > 0;
+export type AppTheme = 'light' | 'dark';
+
+const isValidSourceId = (value: number) => Number.isInteger(value) && value > 0;
+
+const isAppTheme = (value: unknown): value is AppTheme =>
+  value === 'light' || value === 'dark';
 
 const normalizeSourceId = (value: unknown): number | null => {
   if (typeof value === 'number') {
@@ -78,7 +83,35 @@ const writeLastSelectedSourceId = (sourceId: number | null) => {
   );
 };
 
+const readStoredThemePreference = (): AppTheme => {
+  if (typeof window === 'undefined') {
+    return 'light';
+  }
+
+  const storedTheme = window.localStorage.getItem(THEME_PREFERENCE_KEY);
+  if (isAppTheme(storedTheme)) {
+    return storedTheme;
+  }
+
+  if (typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  }
+
+  return 'light';
+};
+
+const writeThemePreference = (theme: AppTheme) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(THEME_PREFERENCE_KEY, theme);
+};
+
 const initialSelectedSourceId = readLastSelectedSourceId();
+const initialTheme = readStoredThemePreference();
 
 type AppState = {
   sources: SourceRecord[];
@@ -91,6 +124,7 @@ type AppState = {
   activeChannel: ChannelRecord | null;
   playback: PlaybackStatus | null;
   settings: Phase1Settings;
+  theme: AppTheme;
   m3uName: string;
   m3uLocation: string;
   searchQuery: string;
@@ -109,6 +143,7 @@ type AppActions = {
   setSelectedGroup: (groupName: string) => void;
   setActiveChannel: (channel: ChannelRecord | null) => void;
   setSettings: (updater: (current: Phase1Settings) => Phase1Settings) => void;
+  setTheme: (theme: AppTheme) => void;
   setPlayback: (playback: PlaybackStatus) => void;
   setError: (error: string | null) => void;
   clearSourceLists: () => void;
@@ -163,6 +198,7 @@ const initialState: AppState = {
   activeChannel: null,
   playback: null,
   settings: DEFAULT_SETTINGS,
+  theme: initialTheme,
   m3uName: '',
   m3uLocation: '',
   searchQuery: '',
@@ -191,6 +227,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setActiveChannel: (channel) => set({ activeChannel: channel }),
   setSettings: (updater) =>
     set((state) => ({ settings: updater(state.settings) })),
+  setTheme: (theme) => {
+    writeThemePreference(theme);
+    set({ theme });
+  },
   setPlayback: (playback) => set({ playback }),
   setError: (error) => set({ error }),
   clearSourceLists: () => set({ groups: [], channels: [] }),

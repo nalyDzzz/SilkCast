@@ -89,6 +89,7 @@ function resetStore() {
     activeChannel: null,
     playback: null,
     settings: DEFAULT_SETTINGS,
+    theme: 'light',
     m3uName: '',
     m3uLocation: '',
     searchQuery: '',
@@ -118,6 +119,7 @@ describe('appStore', () => {
       expect(state.activeChannel).toBeNull();
       expect(state.playback).toBeNull();
       expect(state.settings).toEqual(DEFAULT_SETTINGS);
+      expect(state.theme).toBe('light');
       expect(state.searchQuery).toBe('');
       expect(state.favoritesOnly).toBe(false);
       expect(state.error).toBeNull();
@@ -163,6 +165,12 @@ describe('appStore', () => {
       useAppStore.getState().setError('err');
       useAppStore.getState().setError(null);
       expect(useAppStore.getState().error).toBeNull();
+    });
+    it('setTheme updates theme and persists to localStorage', () => {
+      useAppStore.getState().setTheme('dark');
+
+      expect(useAppStore.getState().theme).toBe('dark');
+      expect(window.localStorage.getItem('opentv:theme')).toBe('dark');
     });
 
     it('clearSourceLists clears groups and channels', () => {
@@ -291,9 +299,9 @@ describe('appStore', () => {
       const state = useAppStore.getState();
       expect(state.selectedSourceId).toBe(2);
       expect(state.hasPersistedSourceSelection).toBe(true);
-      expect(state.sources.find((source) => source.name === 'Xtream Source')?.id).toBe(
-        2
-      );
+      expect(
+        state.sources.find((source) => source.name === 'Xtream Source')?.id
+      ).toBe(2);
       expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
         '2'
       );

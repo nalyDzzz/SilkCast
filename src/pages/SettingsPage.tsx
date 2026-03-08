@@ -1,28 +1,31 @@
-import { FormEvent, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { Phase1Settings } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { FormEvent, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { Phase1Settings } from '@/components/app/types';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldLabel } from '@/components/ui/field';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { useAppStore } from "@/store/appStore";
+} from '@/components/ui/select';
+import { type AppTheme, useAppStore } from '@/store/appStore';
 
 export function SettingsPage() {
-  const { settings, error, setSettings, saveSettings } = useAppStore(
-    useShallow((state) => ({
-      settings: state.settings,
-      error: state.error,
-      setSettings: state.setSettings,
-      saveSettings: state.saveSettings,
-    }))
-  );
+  const { settings, theme, error, setSettings, setTheme, saveSettings } =
+    useAppStore(
+      useShallow((state) => ({
+        settings: state.settings,
+        theme: state.theme,
+        error: state.error,
+        setSettings: state.setSettings,
+        setTheme: state.setTheme,
+        saveSettings: state.saveSettings,
+      }))
+    );
   const [draftSettings, setDraftSettings] = useState<Phase1Settings>(settings);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -36,7 +39,7 @@ export function SettingsPage() {
     await saveSettings();
 
     if (useAppStore.getState().error === null) {
-      setSaveMessage("Settings saved.");
+      setSaveMessage('Settings saved.');
     }
     setIsSaving(false);
   };
@@ -58,9 +61,17 @@ export function SettingsPage() {
             <CardTitle>Playback</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={(event) => void handleSaveSettings(event)} className="space-y-4">
-              <Field orientation="horizontal" className="items-center justify-between rounded-md border px-3 py-2">
-                <FieldLabel htmlFor="hardware-decode">Hardware decode</FieldLabel>
+            <form
+              onSubmit={(event) => void handleSaveSettings(event)}
+              className="space-y-4"
+            >
+              <Field
+                orientation="horizontal"
+                className="items-center justify-between rounded-md border px-3 py-2"
+              >
+                <FieldLabel htmlFor="hardware-decode">
+                  Hardware decode
+                </FieldLabel>
                 <Checkbox
                   id="hardware-decode"
                   checked={draftSettings.hardware_decode}
@@ -80,7 +91,8 @@ export function SettingsPage() {
                   onValueChange={(value) =>
                     setDraftSettings((current) => ({
                       ...current,
-                      startup_behavior: value as Phase1Settings["startup_behavior"],
+                      startup_behavior:
+                        value as Phase1Settings['startup_behavior'],
                     }))
                   }
                 >
@@ -89,7 +101,9 @@ export function SettingsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="home">Home view</SelectItem>
-                    <SelectItem value="resume_last">Resume last channel</SelectItem>
+                    <SelectItem value="resume_last">
+                      Resume last channel
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -101,7 +115,8 @@ export function SettingsPage() {
                   onValueChange={(value) =>
                     setDraftSettings((current) => ({
                       ...current,
-                      preferred_player: value as Phase1Settings["preferred_player"],
+                      preferred_player:
+                        value as Phase1Settings['preferred_player'],
                     }))
                   }
                 >
@@ -126,13 +141,39 @@ export function SettingsPage() {
 
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="submit" disabled={isSaving}>
-                  {isSaving ? "Saving..." : "Save Settings"}
+                  {isSaving ? 'Saving...' : 'Save Settings'}
                 </Button>
                 {saveMessage ? (
                   <p className="text-sm text-emerald-700">{saveMessage}</p>
                 ) : null}
               </div>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Appearance</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Field>
+              <FieldLabel>Theme</FieldLabel>
+              <Select
+                value={theme}
+                onValueChange={(value) => setTheme(value as AppTheme)}
+              >
+                <SelectTrigger aria-label="Theme">
+                  <SelectValue placeholder="Select theme" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <p className="text-sm text-muted-foreground">
+              Theme changes apply immediately and are saved on this device.
+            </p>
           </CardContent>
         </Card>
 

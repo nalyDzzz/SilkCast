@@ -1,9 +1,9 @@
-import { beforeEach, describe, it, expect } from "vitest";
-import { screen } from "@testing-library/react";
-import { renderWithRouter } from "../test/renderWithRouter";
-import { SettingsPage } from "./SettingsPage";
-import { useAppStore } from "../store/appStore";
-import { ALL_GROUPS, DEFAULT_SETTINGS } from "../components/app/types";
+import { beforeEach, describe, it, expect } from 'vitest';
+import { act, screen } from '@testing-library/react';
+import { renderWithRouter } from '../test/renderWithRouter';
+import { SettingsPage } from './SettingsPage';
+import { useAppStore } from '../store/appStore';
+import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
 
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
@@ -17,9 +17,10 @@ function resetStore(overrides: Record<string, unknown> = {}) {
     activeChannel: null,
     playback: null,
     settings: DEFAULT_SETTINGS,
-    m3uName: "",
-    m3uLocation: "",
-    searchQuery: "",
+    theme: 'light',
+    m3uName: '',
+    m3uLocation: '',
+    searchQuery: '',
     favoritesOnly: false,
     error: null,
     loading: false,
@@ -28,22 +29,36 @@ function resetStore(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("SettingsPage", () => {
+describe('SettingsPage', () => {
   beforeEach(() => resetStore());
 
-  it("renders the heading", () => {
+  it('renders the heading', () => {
     renderWithRouter(<SettingsPage />);
     expect(
-      screen.getByRole("heading", { name: "Settings" })
+      screen.getByRole('heading', { name: 'Settings' })
     ).toBeInTheDocument();
   });
 
-  it("renders playback settings controls", () => {
+  it('renders playback settings controls', () => {
     renderWithRouter(<SettingsPage />);
-    expect(screen.getByText("Playback")).toBeInTheDocument();
-    expect(screen.getByText("Default Player")).toBeInTheDocument();
+    expect(screen.getByText('Playback')).toBeInTheDocument();
+    expect(screen.getByText('Default Player')).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Save Settings" })
+      screen.getByRole('button', { name: 'Save Settings' })
     ).toBeInTheDocument();
+  });
+
+  it('reflects theme changes in appearance controls', () => {
+    renderWithRouter(<SettingsPage />);
+
+    const themeSelect = screen.getByRole('combobox', { name: 'Theme' });
+    expect(screen.getByText('Appearance')).toBeInTheDocument();
+    expect(themeSelect).toHaveTextContent('Light');
+
+    act(() => {
+      useAppStore.getState().setTheme('dark');
+    });
+
+    expect(themeSelect).toHaveTextContent('Dark');
   });
 });
