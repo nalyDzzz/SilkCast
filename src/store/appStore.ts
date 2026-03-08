@@ -168,6 +168,13 @@ type AppActions = {
     username: string,
     password: string
   ) => Promise<void>;
+  updateSource: (
+    sourceId: number,
+    name: string,
+    config: Record<string, unknown>,
+    mediaKind?: 'live' | 'movie' | 'series' | null
+  ) => Promise<void>;
+
   refreshSource: (
     sourceId: number,
     mediaKind?: 'live' | 'movie' | 'series' | null
@@ -399,6 +406,41 @@ export const useAppStore = create<AppStore>((set, get) => ({
         get().loadGroups(result.source_id),
         get().loadChannels(result.source_id),
       ]);
+    } catch (err) {
+      set({ error: String(err) });
+    }
+  },
+
+  updateSource: async (sourceId, name, config, mediaKind = null) => {
+    set({ error: null, importMessage: null });
+
+    try {
+      const source = get().sources.find((item) => item.id === sourceId) ?? null;
+      if (!source) {
+        throw new Error(`source ${sourceId} not found in local state`);
+      }
+
+      const result = await sourcesApi.updateRegisteredSource(
+        sourceId,
+        name,
+        config
+      );
+
+      await get().loadSources();
+
+      if (sourceId === get().selectedSourceId) {
+        await Promise.all([
+          get().loadGroups(sourceId, mediaKind),
+          get().loadChannels(sourceId, mediaKind),
+        ]);
+      }
+
+      set({
+        importMessage:
+          source.source_type === 'xtream'
+            ? `Updated source and imported ${result.imported_channels} catalog items.`
+            : `Updated source and imported ${result.imported_channels} channels.`,
+      });
     } catch (err) {
       set({ error: String(err) });
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { HomePage } from './HomePage';
@@ -8,14 +8,19 @@ import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
 import * as sourcesApi from '../lib/api/sourcesApi';
 
-// Mock the API so loadSources doesn't hit Tauri
 vi.mock('../lib/api/sourcesApi', () => ({
   listRegisteredSources: vi.fn(() => Promise.resolve([])),
   listSourceGroups: vi.fn(() => Promise.resolve([])),
   addM3uSource: vi.fn(),
   addXtreamSource: vi.fn(),
+  updateRegisteredSource: vi.fn(),
   refreshRegisteredSource: vi.fn(),
   deleteRegisteredSource: vi.fn(),
+}));
+
+vi.mock('../lib/api/channelsApi', () => ({
+  listSourceChannels: vi.fn(() => Promise.resolve([])),
+  setChannelFavoriteState: vi.fn(() => Promise.resolve(undefined)),
 }));
 
 function resetStore(overrides: Record<string, unknown> = {}) {
@@ -46,6 +51,15 @@ async function renderHomePage() {
   await waitFor(() => {
     expect(sourcesApi.listRegisteredSources).toHaveBeenCalledTimes(1);
   });
+}
+
+function getSourceRow(sourceName: string) {
+  const label = screen.getByText(sourceName);
+  const row = label.closest('[role="listitem"]');
+  if (!row) {
+    throw new Error(`source row not found for ${sourceName}`);
+  }
+  return row;
 }
 
 describe('HomePage', () => {
@@ -84,6 +98,10 @@ describe('HomePage', () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([]);
+    vi.mocked(sourcesApi.updateRegisteredSource).mockResolvedValue({
+      source_id: 1,
+      imported_channels: 0,
+    });
   });
 
   it('renders the OpenTV heading', async () => {
@@ -111,95 +129,6 @@ describe('HomePage', () => {
   it("shows 'No sources imported yet.' when no sources", async () => {
     await renderHomePage();
     expect(screen.getByText('No sources imported yet.')).toBeInTheDocument();
-  });
-
-  it('disables Log In button when no source is selected', async () => {
-    await renderHomePage();
-    expect(
-      screen.getByRole('button', { name: 'Log In To Dashboard' })
-    ).toBeDisabled();
-  });
-
-  it('disables delete button when no source is selected', async () => {
-    await renderHomePage();
-    expect(
-      screen.getByRole('button', { name: 'Delete Selected Source' })
-    ).toBeDisabled();
-  });
-
-  it('keeps source selection as draft until login is clicked', async () => {
-    const user = userEvent.setup();
-    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
-      {
-        id: 1,
-        source_type: 'm3u',
-        name: 'M3U',
-        config: {},
-        created_at: 1000,
-      },
-      {
-        id: 2,
-        source_type: 'xtream',
-        name: 'Xtream',
-        config: {},
-        created_at: 2000,
-      },
-    ]);
-
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await user.click(await screen.findByRole('combobox'));
-    await user.click(screen.getByRole('option', { name: /Xtream/i }));
-
-    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBeNull();
-
-    await user.click(
-      screen.getByRole('button', { name: 'Log In To Dashboard' })
-    );
-
-    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
-    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
-      '2'
-    );
-  });
-
-  it('persists an auto-selected xtream source when logging in', async () => {
-    const user = userEvent.setup();
-    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
-      {
-        id: '2' as unknown as number,
-        source_type: 'xtream',
-        name: 'Xtream',
-        config: {},
-        created_at: 2000,
-      },
-    ]);
-
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const loginButton = await screen.findByRole('button', {
-      name: 'Log In To Dashboard',
-    });
-    await user.click(loginButton);
-
-    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
-    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
-      '2'
-    );
   });
 
   it('renders import form inputs', async () => {
@@ -265,44 +194,99 @@ describe('HomePage', () => {
     ).toBeInTheDocument();
   });
 
-  it('lets you type into xtream inputs', async () => {
+  it('clicking a source row logs in and opens dashboard', async () => {
     const user = userEvent.setup();
-    await renderHomePage();
 
-    await user.click(screen.getByRole('button', { name: 'Xtream Provider' }));
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      {
+        id: 1,
+        source_type: 'm3u',
+        name: 'M3U',
+        config: {},
+        created_at: 1000,
+      },
+      {
+        id: 2,
+        source_type: 'xtream',
+        name: 'Xtream',
+        config: {},
+        created_at: 2000,
+      },
+    ]);
 
-    const sourceNameInput = screen.getByPlaceholderText('Source name');
-    const usernameInput = screen.getByPlaceholderText('Username');
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/dashboard" element={<p>Dashboard Route</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
 
-    await user.type(sourceNameInput, 'Provider One');
-    await user.type(usernameInput, 'alice');
+    await screen.findByText('Xtream');
+    const xtreamRow = getSourceRow('Xtream');
+    await user.click(xtreamRow);
 
-    expect(sourceNameInput).toHaveValue('Provider One');
-    expect(usernameInput).toHaveValue('alice');
+    expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
+    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+      '2'
+    );
   });
 
-  it('deletes the selected playlist after confirmation', async () => {
+  it('renders row action buttons for each source', async () => {
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      {
+        id: 1,
+        source_type: 'm3u',
+        name: 'Sports',
+        config: { location: 'https://example.com/sports.m3u' },
+        created_at: 1000,
+      },
+    ]);
+
+    await renderHomePage();
+
+    const row = getSourceRow('Sports');
+    expect(
+      within(row).getByRole('button', { name: 'Edit' })
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole('button', { name: 'Refresh' })
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole('button', { name: 'Delete' })
+    ).toBeInTheDocument();
+  });
+
+  it('deletes a source from its row action after confirmation', async () => {
     const user = userEvent.setup();
-    const source = {
+    const sports = {
       id: 1,
       source_type: 'm3u',
       name: 'Sports',
-      config: {},
+      config: { location: 'https://example.com/sports.m3u' },
       created_at: 1000,
     };
+    const movies = {
+      id: 2,
+      source_type: 'm3u',
+      name: 'Movies',
+      config: { location: 'https://example.com/movies.m3u' },
+      created_at: 900,
+    };
 
-    resetStore({ sources: [source], selectedSourceId: source.id });
+    resetStore({ selectedSourceId: movies.id, sources: [sports, movies] });
     vi.mocked(sourcesApi.listRegisteredSources)
-      .mockResolvedValueOnce([source])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([sports, movies])
+      .mockResolvedValueOnce([movies]);
     vi.mocked(sourcesApi.deleteRegisteredSource).mockResolvedValue(undefined);
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     await renderHomePage();
-    await user.click(
-      screen.getByRole('button', { name: 'Delete Selected Source' })
-    );
+
+    const row = getSourceRow('Sports');
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
 
     expect(confirmSpy).toHaveBeenCalledWith(
       'Delete "Sports"? This removes the source and its imported catalog.'
@@ -319,7 +303,113 @@ describe('HomePage', () => {
     confirmSpy.mockRestore();
   });
 
-  it('auto-navigates to dashboard for remembered xtream source ids returned as strings', async () => {
+  it('refreshes a source from its row action', async () => {
+    const user = userEvent.setup();
+    const news = {
+      id: 1,
+      source_type: 'm3u',
+      name: 'News',
+      config: { location: 'https://example.com/news.m3u' },
+      created_at: 1000,
+    };
+    const movies = {
+      id: 2,
+      source_type: 'm3u',
+      name: 'Movies',
+      config: { location: 'https://example.com/movies.m3u' },
+      created_at: 900,
+    };
+
+    resetStore({ selectedSourceId: news.id, sources: [news, movies] });
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
+      news,
+      movies,
+    ]);
+    vi.mocked(sourcesApi.refreshRegisteredSource).mockResolvedValue({
+      source_id: movies.id,
+      imported_channels: 8,
+    });
+
+    await renderHomePage();
+
+    const row = getSourceRow('Movies');
+    await user.click(within(row).getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() => {
+      expect(sourcesApi.refreshRegisteredSource).toHaveBeenCalledWith(2);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Refreshed 8 channels.')).toBeInTheDocument();
+    });
+  });
+
+  it('edits a source from its row action', async () => {
+    const user = userEvent.setup();
+    const live = {
+      id: 1,
+      source_type: 'm3u',
+      name: 'Live',
+      config: { location: 'https://example.com/live.m3u' },
+      created_at: 1000,
+    };
+    const movies = {
+      id: 2,
+      source_type: 'm3u',
+      name: 'Movies',
+      config: { location: 'https://example.com/movies.m3u' },
+      created_at: 900,
+    };
+
+    resetStore({ selectedSourceId: live.id, sources: [live, movies] });
+    vi.mocked(sourcesApi.listRegisteredSources)
+      .mockResolvedValueOnce([live, movies])
+      .mockResolvedValueOnce([
+        live,
+        {
+          ...movies,
+          name: 'Movies HD',
+          config: { location: 'https://example.com/movies-hd.m3u' },
+        },
+      ]);
+    vi.mocked(sourcesApi.updateRegisteredSource).mockResolvedValue({
+      source_id: movies.id,
+      imported_channels: 15,
+    });
+
+    await renderHomePage();
+
+    const row = getSourceRow('Movies');
+    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+
+    const nameInput = screen.getByDisplayValue('Movies');
+    const locationInput = screen.getByDisplayValue(
+      'https://example.com/movies.m3u'
+    );
+
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Movies HD');
+    await user.clear(locationInput);
+    await user.type(locationInput, 'https://example.com/movies-hd.m3u');
+
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(sourcesApi.updateRegisteredSource).toHaveBeenCalledWith(
+        2,
+        'Movies HD',
+        { location: 'https://example.com/movies-hd.m3u' }
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Updated source and imported 15 channels.')
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('auto-navigates to dashboard for remembered source ids returned as strings', async () => {
     window.localStorage.setItem('opentv:lastSelectedSourceId', '2');
     vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
       {

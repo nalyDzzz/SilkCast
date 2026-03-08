@@ -8,8 +8,8 @@ use foundation::{
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
     install_crash_hook, list_channels_for_source, list_groups_for_source, list_recent_channels,
     list_sources, load_phase1_settings, record_recent_play, replace_channels_for_source,
-    save_phase1_settings, set_channel_favorite, set_setting, ChannelRecord, GroupRecord,
-    Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
+    save_phase1_settings, set_channel_favorite, set_setting, update_source, ChannelRecord,
+    GroupRecord, Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
 };
 use m3u::{load_m3u_location, parse_m3u_channels};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
@@ -114,6 +114,32 @@ fn add_xtream_source(
         "INFO",
         &format!(
             "registered xtream source {source_id}:{name} with {} catalog items",
+            result.imported_channels
+        ),
+    )?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+fn update_registered_source(
+    source_id: i64,
+    name: String,
+    config: Value,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<SourceImportResult, String> {
+    let result = update_registered_source_core(&state, source_id, &name, &config)?;
+
+    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
+
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!(
+            "updated source {source_id}:{name} with {} catalog items",
             result.imported_channels
         ),
     )?;
@@ -791,6 +817,75 @@ fn create_and_import_xtream_source(
     })
 }
 
+fn normalize_source_update_config(source_type: &str, config: &Value) -> Result<Value, String> {
+    match source_type {
+        "m3u" => {
+            let location = config
+                .get("location")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "m3u source config missing `location`".to_string())?
+                .trim()
+                .to_string();
+            if location.is_empty() {
+                return Err("m3u source config missing `location`".to_string());
+            }
+            Ok(json!({ "location": location }))
+        }
+        "xtream" => {
+            let xtream_config = XtreamConfig::from_value(config)?;
+            Ok(json!({
+                "server_url": xtream_config.server_url,
+                "username": xtream_config.username,
+                "password": xtream_config.password
+            }))
+        }
+        _ => Err(format!("unsupported source type: {source_type}")),
+    }
+}
+
+fn update_registered_source_core(
+    state: &SharedState,
+    source_id: i64,
+    name: &str,
+    config: &Value,
+) -> Result<SourceImportResult, String> {
+    let source = get_source_by_id(&state.context.db_path, source_id)?
+        .ok_or_else(|| format!("source {source_id} not found"))?;
+    let normalized_name = name.trim();
+    if normalized_name.is_empty() {
+        return Err("source name is required".to_string());
+    }
+
+    let normalized_config = normalize_source_update_config(&source.source_type, config)?;
+    state.source_kind_supported(&source.source_type, &normalized_config)?;
+
+    update_source(
+        &state.context.db_path,
+        source_id,
+        normalized_name,
+        &normalized_config,
+    )?;
+
+    let imported_channels =
+        match import_source_catalog(state, &source.source_type, source_id, &normalized_config) {
+            Ok(count) => count,
+            Err(err) => {
+                let _ = update_source(
+                    &state.context.db_path,
+                    source_id,
+                    &source.name,
+                    &source.config,
+                );
+                return Err(err);
+            }
+        };
+
+    Ok(SourceImportResult {
+        source_id,
+        imported_channels,
+    })
+}
+
 fn refresh_m3u_source_core(
     state: &SharedState,
     source_id: i64,
@@ -1101,6 +1196,7 @@ pub fn run() {
             list_registered_sources,
             add_m3u_source,
             add_xtream_source,
+            update_registered_source,
             refresh_m3u_source,
             refresh_registered_source,
             delete_registered_source,

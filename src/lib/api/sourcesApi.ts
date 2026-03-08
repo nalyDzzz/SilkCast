@@ -37,6 +37,18 @@ export function addXtreamSource(
   });
 }
 
+export function updateRegisteredSource(
+  sourceId: number,
+  name: string,
+  config: Record<string, unknown>
+) {
+  return tauriInvoke<SourceImportResult>('update_registered_source', {
+    sourceId,
+    name,
+    config,
+  });
+}
+
 export function refreshRegisteredSource(sourceId: number) {
   return tauriInvoke<SourceImportResult>('refresh_registered_source', {
     sourceId,
