@@ -40,7 +40,7 @@ This document explains the system at a high level: components, boundaries, data 
                                                                | - Playback (libmpv)    |
                                                                +-----------+------------+
                                                                            |
-                                                                           | Native embed (HWND)
+                                                                           | Native embed (Win32/X11 when available)
                                                                            v
                                                                   +-------------------+
                                                                   |   libmpv Player   |
@@ -110,7 +110,7 @@ OpenTV/
 Responsibilities:
 
 - Create and manage a single `mpv_handle`
-- Embed mpv output into a native child surface (**HWND** on Windows)
+- Embed mpv output into a native child surface (**HWND** on Windows, X11 window id on Linux)
 - Playback commands:
     - play / stop / pause
     - seek (when available)
@@ -119,10 +119,11 @@ Responsibilities:
 - Emit playback events:
     - state changes: `loading`, `playing`, `paused`, `stopped`, `error`
     - optional stats: fps, dropped frames, codec (nice for debugging)
-- Embedded surface lifecycle (Windows):
+- Embedded surface lifecycle (Windows; Linux X11 uses parent window id directly):
     - `playback_start_embedded_surface_mode(bounds)`
     - `playback_update_embedded_surface_bounds(bounds)`
     - `playback_stop_embedded_surface_mode()`
+- Wayland/Hyprland note: native embedding is not available via window handle transfer; fallback is MPV pop-out.
 
 **Rule:** mpv runs native; React never talks to mpv directly, only through backend commands/events.
 

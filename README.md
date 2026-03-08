@@ -1,6 +1,6 @@
 # OpenTV
 
-**OpenTV** is a modern, open-source IPTV player for Windows.
+**OpenTV** is a modern, open-source IPTV player for desktop (Windows and Linux).
 
 It focuses on fast, GPU-accelerated playback, a clean desktop-first experience, and transparent, privacy-respecting design.
 
@@ -12,7 +12,7 @@ It focuses on fast, GPU-accelerated playback, a clean desktop-first experience, 
 ## ✨ Features
 
 ### Available / In Progress
-- Windows-first desktop application
+- Desktop application (Windows + Linux)
 - Hardware-accelerated playback via **libmpv**
 - M3U playlist import (file + URL)
 - Channel groups, search, favorites, recents
@@ -28,13 +28,18 @@ It focuses on fast, GPU-accelerated playback, a clean desktop-first experience, 
 - Multi-view layouts
 - Plugin system
 
+### Linux / Hyprland Status
+- In-app web playback works on Linux.
+- MPV pop-out playback works on Wayland compositors (including Hyprland).
+- Embedded MPV-in-window currently relies on X11 window handles; on Wayland we fall back to MPV pop-out for startup resume.
+
 See the full roadmap in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 
 ## 🧭 Why OpenTV?
 
-Most IPTV apps on Windows are:
+Most IPTV apps in this space are:
 
 - outdated
 - closed-source
@@ -72,11 +77,20 @@ Architecture details live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### Prerequisites
 
-- Windows 10 or newer
 - Node.js (LTS)
 - Rust toolchain
+- Tauri prerequisites for your OS
+- mpv with libmpv available on your library path
+
+#### Windows
+
+- Windows 10 or newer
 - mpv development libraries for Windows
-- Tauri prerequisites
+
+#### Linux (X11 + Wayland/Hyprland)
+
+- GTK/WebKit dependencies required by Tauri
+- libmpv (`libmpv.so.2` or `libmpv.so`)
 
 ### Clone
 
@@ -113,7 +127,7 @@ Ways to help:
 - UI polish
 - documentation
 - testing on real playlists
-- Windows packaging
+- desktop packaging (Windows/Linux)
 - EPG heuristics
 
 Check GitHub Issues labeled:

@@ -1,6 +1,6 @@
 # OpenTV — Project Roadmap
 
-OpenTV is a modern, open-source IPTV player for Windows.
+OpenTV is a modern, open-source IPTV player for desktop (Windows and Linux).
 
 It focuses on:
 
@@ -16,7 +16,7 @@ This document outlines the high-level development phases and release milestones.
 
 ## Guiding Principles
 
-- **Windows-first.** Cross-platform later.
+- **Desktop parity for Windows + Linux.** macOS later.
 - **Playback quality > feature count.**
 - **Desktop UX first, TV mode later.**
 - **No bundled providers or scraping.**
@@ -30,7 +30,7 @@ This document outlines the high-level development phases and release milestones.
 > Goal: stable playback core + architecture that won’t need rewriting.
 
 - Tauri + React desktop shell
-- Embedded libmpv rendering into native window
+- Embedded libmpv rendering into native windows where handles are available
 - SQLite persistence layer
 - Unified source abstraction:
     - M3U
@@ -38,6 +38,7 @@ This document outlines the high-level development phases and release milestones.
 - Event bus between backend and UI
 - Logging + debug mode
 - Crash diagnostics
+- Wayland/Hyprland-safe playback fallback (MPV pop-out when embedding is unavailable)
 
 ---
 
@@ -166,7 +167,7 @@ This document outlines the high-level development phases and release milestones.
 
 These are intentionally not scheduled yet:
 
-- Linux / macOS ports
+- macOS port
 - Server-mode backend
 - Mobile companion app
 - Cloud profile sync

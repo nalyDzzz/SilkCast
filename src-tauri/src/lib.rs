@@ -494,7 +494,12 @@ fn playback_open_external_window(
 }
 
 fn spawn_mpv_popout_process(url: &str) -> Result<Child, String> {
-    spawn_mpv_popout_process_with_candidates(url, &["mpv.exe", "mpv"])
+    #[cfg(windows)]
+    const MPV_CANDIDATES: &[&str] = &["mpv.exe", "mpv"];
+    #[cfg(not(windows))]
+    const MPV_CANDIDATES: &[&str] = &["mpv", "mpv.exe"];
+
+    spawn_mpv_popout_process_with_candidates(url, MPV_CANDIDATES)
 }
 
 fn monitor_external_mpv_process(
@@ -889,7 +894,7 @@ fn resolve_main_window_id(app: &tauri::AppHandle) -> Result<u64, String> {
         RawWindowHandle::Xlib(h) => Ok(u64::from(h.window)),
         RawWindowHandle::Xcb(h) => Ok(u64::from(h.window.get())),
         RawWindowHandle::Wayland(_) => Err(
-            "wayland window handles are not supported for mpv embedding; run with X11/XWayland (e.g. set `GDK_BACKEND=x11`)".to_string(),
+            "wayland window handles are not supported for mpv embedding; OpenTV can fall back to MPV pop-out mode on Wayland/Hyprland".to_string(),
         ),
         _ => Err("unsupported window handle type for mpv embedding".to_string()),
     }
@@ -938,7 +943,13 @@ pub fn run() {
                             let app_handle = app.handle().clone();
                             let resolved_window_id = resolve_main_window_id(&app_handle);
 
+                            let channel_name = last_channel.channel.name.clone();
+                            let channel_id = last_channel.channel.id;
+                            let stream_url = last_channel.channel.stream_url.clone();
+                            let mut resumed = false;
+
                             if let Ok(mut playback) = state.playback.lock() {
+                                let mut attached = false;
                                 match resolved_window_id {
                                     Ok(window_id) => {
                                         if let Err(err) = playback.attach_window(window_id) {
@@ -949,6 +960,8 @@ pub fn run() {
                                                     "startup autoplay could not attach window {window_id}: {err}"
                                                 ),
                                             );
+                                        } else {
+                                            attached = true;
                                         }
                                     }
                                     Err(err) => {
@@ -962,37 +975,41 @@ pub fn run() {
                                     }
                                 }
 
-                                if let Err(err) = playback.load_url(&last_channel.channel.stream_url)
-                                {
-                                    let _ = append_log(
-                                        &state.context.log_path,
-                                        "WARN",
-                                        &format!(
-                                            "startup autoplay failed for channel {}: {err}",
-                                            last_channel.channel.name
-                                        ),
-                                    );
-                                } else {
-                                    if let Err(err) =
-                                        record_recent_play(&state.context.db_path, last_channel.channel.id)
-                                    {
+                                if attached {
+                                    if let Err(err) = playback.load_url(&stream_url) {
                                         let _ = append_log(
                                             &state.context.log_path,
                                             "WARN",
                                             &format!(
-                                                "startup autoplay recent record failed for channel {}: {err}",
-                                                last_channel.channel.id
+                                                "startup autoplay failed for channel {}: {err}",
+                                                channel_name
                                             ),
                                         );
+                                    } else {
+                                        if let Err(err) =
+                                            record_recent_play(&state.context.db_path, channel_id)
+                                        {
+                                            let _ = append_log(
+                                                &state.context.log_path,
+                                                "WARN",
+                                                &format!(
+                                                    "startup autoplay recent record failed for channel {}: {err}",
+                                                    channel_id
+                                                ),
+                                            );
+                                        }
+                                        let _ = append_log(
+                                            &state.context.log_path,
+                                            "INFO",
+                                            &format!(
+                                                "startup autoplay resumed channel {} ({})",
+                                                channel_name, channel_id
+                                            ),
+                                        );
+                                        resumed = true;
                                     }
-                                    let _ = append_log(
-                                        &state.context.log_path,
-                                        "INFO",
-                                        &format!(
-                                            "startup autoplay resumed channel {} ({})",
-                                            last_channel.channel.name, last_channel.channel.id
-                                        ),
-                                    );
+                                } else {
+                                    let _ = playback.stop();
                                 }
                             } else {
                                 let _ = append_log(
@@ -1000,6 +1017,49 @@ pub fn run() {
                                     "WARN",
                                     "startup autoplay skipped because playback state lock is poisoned",
                                 );
+                            }
+
+                            if !resumed {
+                                match spawn_mpv_popout_process(&stream_url) {
+                                    Ok(child) => {
+                                        monitor_external_mpv_process(
+                                            child,
+                                            app_handle.clone(),
+                                            stream_url.clone(),
+                                            state.context.log_path.clone(),
+                                        );
+                                        if let Err(err) =
+                                            record_recent_play(&state.context.db_path, channel_id)
+                                        {
+                                            let _ = append_log(
+                                                &state.context.log_path,
+                                                "WARN",
+                                                &format!(
+                                                    "startup autoplay recent record failed for channel {}: {err}",
+                                                    channel_id
+                                                ),
+                                            );
+                                        }
+                                        let _ = append_log(
+                                            &state.context.log_path,
+                                            "INFO",
+                                            &format!(
+                                                "startup autoplay resumed channel {} ({}) in MPV pop-out mode",
+                                                channel_name, channel_id
+                                            ),
+                                        );
+                                    }
+                                    Err(err) => {
+                                        let _ = append_log(
+                                            &state.context.log_path,
+                                            "WARN",
+                                            &format!(
+                                                "startup autoplay fallback pop-out failed for channel {}: {err}",
+                                                channel_name
+                                            ),
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
