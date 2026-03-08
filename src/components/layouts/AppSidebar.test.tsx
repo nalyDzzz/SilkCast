@@ -62,10 +62,25 @@ describe('AppSidebar', () => {
     vi.clearAllMocks();
   });
 
+  it('renders the recents navigation item', () => {
+    const logout = vi.fn();
+
+    resetStore({
+      selectedSourceId: 7,
+      refreshSource: vi.fn().mockResolvedValue(undefined),
+      logout,
+    });
+
+    renderSidebar('/dashboard/live');
+
+    expect(screen.getByRole('link', { name: /Recents/i })).toBeInTheDocument();
+  });
+
   it.each([
     ['/dashboard/live', 'live'],
     ['/dashboard/movies', 'movie'],
     ['/dashboard/series', 'series'],
+    ['/dashboard/recents', 'live'],
   ] as const)(
     'refreshes source with %s media filter',
     async (path, expectedMediaKind) => {

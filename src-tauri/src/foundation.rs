@@ -669,7 +669,7 @@ pub fn record_recent_play(db_path: &Path, channel_id: i64) -> Result<(), String>
                         r2.played_at > r.played_at
                         OR (r2.played_at = r.played_at AND r2.id > r.id)
                       )
-                ) > ?1
+                ) >= ?1
             )",
             params![RECENTS_PER_MEDIA_KIND],
         )
