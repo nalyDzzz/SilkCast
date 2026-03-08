@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 
 type LiveChannelRowProps = {
   channel: ChannelRecord;
+  epgNowTitle?: string | null;
   isActive: boolean;
   isPlaying: boolean;
   onPlay: (channel: ChannelRecord) => void;
@@ -21,6 +22,7 @@ type LiveChannelRowProps = {
 
 export const LiveChannelRow = memo(function LiveChannelRow({
   channel,
+  epgNowTitle,
   isActive,
   isPlaying,
   onPlay,
@@ -60,6 +62,11 @@ export const LiveChannelRow = memo(function LiveChannelRow({
         <ItemDescription className="truncate">
           {channel.group_name || 'Ungrouped'}
         </ItemDescription>
+        {epgNowTitle ? (
+          <ItemDescription className="truncate text-emerald-700 text-xs">
+            Playing: {epgNowTitle}
+          </ItemDescription>
+        ) : null}
       </ItemContent>
 
       <ItemActions className="ml-auto">

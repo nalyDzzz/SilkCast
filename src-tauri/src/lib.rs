@@ -6,10 +6,12 @@ mod xtream;
 use foundation::{
     append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
-    install_crash_hook, list_channels_for_source, list_groups_for_source, list_recent_channels,
-    list_sources, load_phase1_settings, record_recent_play, replace_channels_for_source,
+    install_crash_hook, list_channels_for_source, list_groups_for_source,
+    list_live_epg_for_channel, list_recent_channels, list_sources, load_phase1_settings,
+    record_recent_play, replace_channels_for_source, replace_live_epg_for_channel,
     save_phase1_settings, set_channel_favorite, set_setting, ChannelRecord, GroupRecord,
     Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
+    StoredLiveEpgEntryRecord,
 };
 use m3u::{load_m3u_location, parse_m3u_channels};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
@@ -21,13 +23,22 @@ use std::process::{Child, Command};
 use std::thread;
 use tauri::{Manager, State};
 use xtream::{
-    import_xtream_channels, list_xtream_series_episodes, SeriesEpisodeRecord, XtreamConfig,
+    import_xtream_channels, list_xtream_live_epg, list_xtream_series_episodes, LiveEpgEntryRecord,
+    SeriesEpisodeRecord, XtreamConfig,
 };
 
 #[derive(Debug, Serialize)]
 struct SourceImportResult {
     source_id: i64,
     imported_channels: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceEpgRefreshResult {
+    source_id: i64,
+    refreshed_channels: usize,
+    channels_with_listings: usize,
+    failed_channels: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +179,41 @@ fn refresh_registered_source(
 }
 
 #[tauri::command]
+fn refresh_source_epg(
+    source_id: i64,
+    limit: Option<u32>,
+    app: tauri::AppHandle,
+    state: State<SharedState>,
+) -> Result<SourceEpgRefreshResult, String> {
+    let result = refresh_source_epg_core(&state, source_id, limit)?;
+
+    emit_backend_event(
+        &app,
+        "epg_updated",
+        json!({
+            "source_id": result.source_id,
+            "refreshed_channels": result.refreshed_channels,
+            "channels_with_listings": result.channels_with_listings,
+            "failed_channels": result.failed_channels,
+        }),
+    )?;
+
+    append_log(
+        &state.context.log_path,
+        "INFO",
+        &format!(
+            "refreshed source epg {} (channels={}, with_listings={}, failed={})",
+            result.source_id,
+            result.refreshed_channels,
+            result.channels_with_listings,
+            result.failed_channels
+        ),
+    )?;
+
+    Ok(result)
+}
+
+#[tauri::command]
 fn delete_registered_source(
     source_id: i64,
     app: tauri::AppHandle,
@@ -256,6 +302,112 @@ fn list_series_episodes_core(
 
     let xtream_config = XtreamConfig::from_value(&source.config)?;
     list_xtream_series_episodes(&xtream_config, &series_id)
+}
+
+#[tauri::command]
+fn list_channel_epg(
+    channel_id: i64,
+    limit: Option<u32>,
+    state: State<SharedState>,
+) -> Result<Vec<LiveEpgEntryRecord>, String> {
+    list_channel_epg_core(&state, channel_id, limit)
+}
+
+fn list_channel_epg_core(
+    state: &SharedState,
+    channel_id: i64,
+    limit: Option<u32>,
+) -> Result<Vec<LiveEpgEntryRecord>, String> {
+    let channel = get_channel_by_id(&state.context.db_path, channel_id)?
+        .ok_or_else(|| format!("channel {channel_id} not found"))?;
+
+    if channel.media_kind != "live" {
+        return Ok(Vec::new());
+    }
+
+    let source = get_source_by_id(&state.context.db_path, channel.source_id)?
+        .ok_or_else(|| format!("source {} not found", channel.source_id))?;
+
+    if source.source_type != "xtream" {
+        return Ok(Vec::new());
+    }
+
+    let normalized_limit = normalize_epg_limit(limit);
+    let stored_entries =
+        list_live_epg_for_channel(&state.context.db_path, channel.id, normalized_limit)?;
+
+    Ok(stored_entries
+        .into_iter()
+        .map(stored_live_epg_to_api_record)
+        .collect())
+}
+
+#[tauri::command]
+fn refresh_channel_epg(
+    channel_id: i64,
+    limit: Option<u32>,
+    state: State<SharedState>,
+) -> Result<Vec<LiveEpgEntryRecord>, String> {
+    refresh_channel_epg_core(&state, channel_id, limit)
+}
+
+fn refresh_channel_epg_core(
+    state: &SharedState,
+    channel_id: i64,
+    limit: Option<u32>,
+) -> Result<Vec<LiveEpgEntryRecord>, String> {
+    let channel = get_channel_by_id(&state.context.db_path, channel_id)?
+        .ok_or_else(|| format!("channel {channel_id} not found"))?;
+
+    if channel.media_kind != "live" {
+        return Ok(Vec::new());
+    }
+
+    let source = get_source_by_id(&state.context.db_path, channel.source_id)?
+        .ok_or_else(|| format!("source {} not found", channel.source_id))?;
+
+    if source.source_type != "xtream" {
+        return Ok(Vec::new());
+    }
+
+    let Some(stream_id) = extract_live_stream_id(&channel) else {
+        replace_live_epg_for_channel(&state.context.db_path, channel.id, &[])?;
+        return Ok(Vec::new());
+    };
+
+    let normalized_limit = normalize_epg_limit(limit);
+    let xtream_config = XtreamConfig::from_value(&source.config)?;
+    let entries = list_xtream_live_epg(&xtream_config, &stream_id, normalized_limit)?;
+
+    let stored_entries = entries
+        .iter()
+        .map(api_live_epg_to_stored_record)
+        .collect::<Vec<_>>();
+    replace_live_epg_for_channel(&state.context.db_path, channel.id, &stored_entries)?;
+
+    Ok(entries)
+}
+
+fn api_live_epg_to_stored_record(entry: &LiveEpgEntryRecord) -> StoredLiveEpgEntryRecord {
+    StoredLiveEpgEntryRecord {
+        title: entry.title.clone(),
+        description: entry.description.clone(),
+        start: entry.start.clone(),
+        end: entry.end.clone(),
+        start_timestamp: entry.start_timestamp,
+        end_timestamp: entry.end_timestamp,
+    }
+}
+
+fn stored_live_epg_to_api_record(entry: StoredLiveEpgEntryRecord) -> LiveEpgEntryRecord {
+    LiveEpgEntryRecord {
+        title: entry.title,
+        description: entry.description,
+        start: entry.start,
+        end: entry.end,
+        start_timestamp: entry.start_timestamp,
+        end_timestamp: entry.end_timestamp,
+    }
 }
 
 #[tauri::command]
@@ -824,7 +976,77 @@ fn refresh_registered_source_core(
     })
 }
 
+fn refresh_source_epg_core(
+    state: &SharedState,
+    source_id: i64,
+    limit: Option<u32>,
+) -> Result<SourceEpgRefreshResult, String> {
+    let source = get_source_by_id(&state.context.db_path, source_id)?
+        .ok_or_else(|| format!("source {source_id} not found"))?;
+
+    if source.source_type != "xtream" {
+        return Err("EPG refresh is currently supported only for Xtream sources.".to_string());
+    }
+
+    let live_channels = list_channels_for_source(
+        &state.context.db_path,
+        source_id,
+        Some("live"),
+        None,
+        None,
+        false,
+    )?;
+
+    let mut refreshed_channels = 0usize;
+    let mut channels_with_listings = 0usize;
+    let mut failed_channels = 0usize;
+
+    for channel in live_channels {
+        match refresh_channel_epg_core(state, channel.id, limit) {
+            Ok(entries) => {
+                refreshed_channels += 1;
+                if !entries.is_empty() {
+                    channels_with_listings += 1;
+                }
+            }
+            Err(err) => {
+                failed_channels += 1;
+                let _ = append_log(
+                    &state.context.log_path,
+                    "WARN",
+                    &format!(
+                        "epg refresh failed for channel {} ({}): {err}",
+                        channel.id, channel.name
+                    ),
+                );
+            }
+        }
+    }
+
+    Ok(SourceEpgRefreshResult {
+        source_id,
+        refreshed_channels,
+        channels_with_listings,
+        failed_channels,
+    })
+}
+
 fn extract_series_id_from_stream_url(stream_url: &str) -> Option<String> {
+    extract_stream_key_from_url(stream_url)
+}
+
+fn extract_live_stream_id(channel: &ChannelRecord) -> Option<String> {
+    extract_stream_key_from_url(&channel.stream_url)
+        .and_then(|value| normalize_xtream_stream_id(&value))
+        .or_else(|| {
+            channel
+                .tvg_id
+                .as_deref()
+                .and_then(normalize_xtream_stream_id)
+        })
+}
+
+fn extract_stream_key_from_url(stream_url: &str) -> Option<String> {
     let without_query = stream_url.split(['?', '#']).next().unwrap_or(stream_url);
     let last_segment = without_query.rsplit('/').next()?;
     let candidate = last_segment.split('.').next().unwrap_or("").trim();
@@ -834,6 +1056,19 @@ fn extract_series_id_from_stream_url(stream_url: &str) -> Option<String> {
     } else {
         Some(candidate.to_string())
     }
+}
+
+fn normalize_xtream_stream_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(trimmed.to_string())
+}
+
+fn normalize_epg_limit(limit: Option<u32>) -> usize {
+    limit.unwrap_or(2).clamp(1, 20) as usize
 }
 
 fn normalize_recent_limit(limit: Option<u32>) -> usize {
@@ -1103,10 +1338,13 @@ pub fn run() {
             add_xtream_source,
             refresh_m3u_source,
             refresh_registered_source,
+            refresh_source_epg,
             delete_registered_source,
             list_source_groups,
             list_source_channels,
             list_series_episodes,
+            list_channel_epg,
+            refresh_channel_epg,
             set_channel_favorite_state,
             list_recently_played,
             play_channel,
@@ -1438,6 +1676,127 @@ https://stream.example/sports.m3u8
         assert!(err.contains("only for Xtream sources"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn list_channel_epg_core_reads_persisted_epg_for_xtream_source() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let source_id = create_source(
+            &context.db_path,
+            "xtream",
+            "Xtream Source",
+            &json!({
+                "server_url": "https://provider.example",
+                "username": "alice",
+                "password": "secret"
+            }),
+        )
+        .expect("failed to create source");
+
+        let inserted = replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[crate::foundation::ChannelInsertRecord {
+                name: "Live Sample".to_string(),
+                group_name: Some("News".to_string()),
+                logo: None,
+                tvg_id: Some("101".to_string()),
+                tvg_name: Some("Live Sample".to_string()),
+                stream_url: "https://provider.example/live/101.m3u8".to_string(),
+                media_kind: "live".to_string(),
+            }],
+        )
+        .expect("failed to insert channel");
+        assert_eq!(inserted, 1);
+
+        let channel =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to fetch channel")
+                .into_iter()
+                .next()
+                .expect("expected inserted channel");
+
+        replace_live_epg_for_channel(
+            &context.db_path,
+            channel.id,
+            &[StoredLiveEpgEntryRecord {
+                title: "Morning News".to_string(),
+                description: Some("Headlines".to_string()),
+                start: Some("2026-03-07 06:00:00".to_string()),
+                end: Some("2026-03-07 07:00:00".to_string()),
+                start_timestamp: Some(1700000000),
+                end_timestamp: Some(1700003600),
+            }],
+        )
+        .expect("failed to persist channel epg");
+
+        let state = SharedState::new(context.clone(), false);
+        let epg_entries =
+            list_channel_epg_core(&state, channel.id, Some(2)).expect("epg lookup should work");
+        assert_eq!(epg_entries.len(), 1);
+        assert_eq!(epg_entries[0].title, "Morning News");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn list_channel_epg_core_returns_empty_for_non_xtream_source() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        let source_id = create_source(
+            &context.db_path,
+            "m3u",
+            "M3U Source",
+            &json!({
+                "location": "https://provider.example/playlist.m3u"
+            }),
+        )
+        .expect("failed to create source");
+
+        let inserted = replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[crate::foundation::ChannelInsertRecord {
+                name: "Live Sample".to_string(),
+                group_name: Some("News".to_string()),
+                logo: None,
+                tvg_id: Some("101".to_string()),
+                tvg_name: Some("Live Sample".to_string()),
+                stream_url: "https://provider.example/live/101.m3u8".to_string(),
+                media_kind: "live".to_string(),
+            }],
+        )
+        .expect("failed to insert channel");
+        assert_eq!(inserted, 1);
+
+        let channel =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to fetch channel")
+                .into_iter()
+                .next()
+                .expect("expected inserted channel");
+
+        let state = SharedState::new(context.clone(), false);
+        let epg_entries = list_channel_epg_core(&state, channel.id, None)
+            .expect("non-xtream source should return empty epg");
+        assert!(epg_entries.is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn normalize_epg_limit_clamps_values() {
+        assert_eq!(normalize_epg_limit(None), 2);
+        assert_eq!(normalize_epg_limit(Some(0)), 1);
+        assert_eq!(normalize_epg_limit(Some(1)), 1);
+        assert_eq!(normalize_epg_limit(Some(99)), 20);
     }
 
     #[test]

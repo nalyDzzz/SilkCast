@@ -1,4 +1,8 @@
 use crate::foundation::ChannelInsertRecord;
+use base64::engine::general_purpose::{
+    STANDARD as BASE64_STANDARD, STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD,
+};
+use base64::Engine as _;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -83,6 +87,25 @@ pub struct SeriesEpisodeRecord {
     pub episode_number: i64,
     pub title: String,
     pub stream_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveEpgEntryRecord {
+    pub title: String,
+    pub description: Option<String>,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub start_timestamp: Option<i64>,
+    pub end_timestamp: Option<i64>,
+}
+
+pub fn list_xtream_live_epg(
+    config: &XtreamConfig,
+    stream_id: &str,
+    limit: usize,
+) -> Result<Vec<LiveEpgEntryRecord>, String> {
+    let client = XtreamClient::new(config.clone())?;
+    client.fetch_live_epg(stream_id, limit)
 }
 
 pub fn list_xtream_series_episodes(
@@ -297,6 +320,50 @@ impl XtreamClient {
         }
 
         Ok(channels)
+    }
+
+    fn fetch_live_epg(
+        &self,
+        stream_id: &str,
+        limit: usize,
+    ) -> Result<Vec<LiveEpgEntryRecord>, String> {
+        let normalized_stream_id = stream_id.trim();
+        if normalized_stream_id.is_empty() {
+            return Err("live epg lookup requires a valid stream ID".to_string());
+        }
+
+        let normalized_limit = limit.clamp(1, 50);
+
+        let short_epg_result =
+            self.fetch_live_epg_for_action("get_short_epg", normalized_stream_id, normalized_limit);
+        match short_epg_result {
+            Ok(records) if !records.is_empty() => return Ok(records),
+            Ok(_) => {}
+            Err(_) => {}
+        }
+
+        self.fetch_live_epg_for_action(
+            "get_simple_data_table",
+            normalized_stream_id,
+            normalized_limit,
+        )
+    }
+
+    fn fetch_live_epg_for_action(
+        &self,
+        action: &str,
+        stream_id: &str,
+        limit: usize,
+    ) -> Result<Vec<LiveEpgEntryRecord>, String> {
+        let mut extra_pairs = vec![("stream_id", stream_id.to_string())];
+        if action == "get_short_epg" {
+            extra_pairs.push(("limit", limit.to_string()));
+        }
+
+        let payload = self.request_json(Some(action), &extra_pairs)?;
+        let records = parse_live_epg_entries(&payload);
+
+        Ok(records.into_iter().take(limit).collect())
     }
 
     fn fetch_series_episodes(&self, series_id: &str) -> Result<Vec<SeriesEpisodeRecord>, String> {
@@ -516,6 +583,112 @@ fn value_is_truthy(value: Option<&Value>) -> bool {
     }
 }
 
+fn parse_live_epg_entries(payload: &Value) -> Vec<LiveEpgEntryRecord> {
+    let entries_payload = payload
+        .get("epg_listings")
+        .or_else(|| payload.get("epg_list"))
+        .or_else(|| payload.get("listings"))
+        .unwrap_or(payload);
+
+    let Some(entries) = entries_payload.as_array() else {
+        return Vec::new();
+    };
+
+    entries
+        .iter()
+        .filter_map(parse_single_live_epg_entry)
+        .collect()
+}
+
+fn parse_single_live_epg_entry(item: &Value) -> Option<LiveEpgEntryRecord> {
+    let title = first_string(item, &["title", "name", "program_title"])
+        .map(|value| decode_possible_base64_text(&value))
+        .filter(|value| !value.trim().is_empty())?;
+
+    let description = first_string(item, &["description", "descr", "program_description"])
+        .map(|value| decode_possible_base64_text(&value))
+        .filter(|value| !value.trim().is_empty());
+
+    let start = first_string(
+        item,
+        &[
+            "start",
+            "start_time",
+            "start_datetime",
+            "start_utc",
+            "start_timestamp",
+        ],
+    );
+    let end = first_string(
+        item,
+        &["end", "stop", "end_time", "end_datetime", "stop_timestamp"],
+    );
+
+    let start_timestamp = first_i64(item, &["start_timestamp", "start_ts", "start"]);
+    let end_timestamp = first_i64(
+        item,
+        &["stop_timestamp", "end_timestamp", "end_ts", "stop", "end"],
+    );
+
+    Some(LiveEpgEntryRecord {
+        title,
+        description,
+        start,
+        end,
+        start_timestamp,
+        end_timestamp,
+    })
+}
+
+fn decode_possible_base64_text(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !looks_like_base64_text(trimmed) {
+        return trimmed.to_string();
+    }
+
+    let decoded_bytes = BASE64_STANDARD
+        .decode(trimmed)
+        .or_else(|_| BASE64_STANDARD_NO_PAD.decode(trimmed));
+
+    match decoded_bytes {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(decoded) => {
+                let normalized = decoded.trim();
+                if decoded_text_is_reasonable(normalized) {
+                    normalized.to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            }
+            Err(_) => trimmed.to_string(),
+        },
+        Err(_) => trimmed.to_string(),
+    }
+}
+
+fn looks_like_base64_text(raw: &str) -> bool {
+    if raw.len() < 8 {
+        return false;
+    }
+
+    raw.chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=' | '-' | '_'))
+}
+
+fn decoded_text_is_reasonable(raw: &str) -> bool {
+    if raw.is_empty() {
+        return false;
+    }
+
+    let total_chars = raw.chars().count();
+    if total_chars == 0 {
+        return false;
+    }
+
+    let readable_chars = raw.chars().filter(|ch| !ch.is_control()).count();
+    readable_chars * 10 >= total_chars * 9
+}
+
 fn resolve_group_name(item: &Value, categories: &HashMap<String, String>) -> Option<String> {
     let category_id = first_string(item, &["category_id"]).or_else(|| {
         item.get("category_ids")
@@ -672,6 +845,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn list_xtream_live_epg_fetches_now_and_next_entries() {
+        let server_url = spawn_xtream_test_server_with_limit(1);
+        let config = XtreamConfig {
+            server_url,
+            username: "alice".to_string(),
+            password: "secret".to_string(),
+        };
+
+        let entries =
+            list_xtream_live_epg(&config, "101", 2).expect("live epg lookup should succeed");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].title, "Morning News");
+        assert_eq!(
+            entries[0].description.as_deref(),
+            Some("Headlines from around the world")
+        );
+        assert_eq!(entries[0].start_timestamp, Some(1700000000));
+        assert_eq!(entries[1].title, "Noon Update");
+    }
+
     fn spawn_xtream_test_server() -> String {
         spawn_xtream_test_server_with_limit(7)
     }
@@ -776,6 +970,33 @@ mod tests {
       }
     ]
   }
+}"#
+                    }
+                    "get_short_epg" => {
+                        r#"{
+  "epg_listings": [
+    {
+      "title": "TW9ybmluZyBOZXdz",
+      "description": "SGVhZGxpbmVzIGZyb20gYXJvdW5kIHRoZSB3b3JsZA==",
+      "start": "2026-03-07 06:00:00",
+      "end": "2026-03-07 07:00:00",
+      "start_timestamp": 1700000000,
+      "stop_timestamp": 1700003600
+    },
+    {
+      "title": "Tm9vbiBVcGRhdGU=",
+      "description": "TGF0ZSBicmVha2luZyB1cGRhdGVz",
+      "start": "2026-03-07 07:00:00",
+      "end": "2026-03-07 08:00:00",
+      "start_timestamp": 1700003600,
+      "stop_timestamp": 1700007200
+    }
+  ]
+}"#
+                    }
+                    "get_simple_data_table" => {
+                        r#"{
+  "epg_listings": []
 }"#
                     }
                     _ => "[]",

@@ -105,6 +105,16 @@ pub struct RecentChannelRecord {
     pub played_at: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct StoredLiveEpgEntryRecord {
+    pub title: String,
+    pub description: Option<String>,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub start_timestamp: Option<i64>,
+    pub end_timestamp: Option<i64>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Phase1Settings {
     pub hardware_decode: bool,
@@ -219,6 +229,24 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
 
             CREATE INDEX IF NOT EXISTS idx_recents_played_at
               ON recents(played_at DESC);
+
+            CREATE TABLE IF NOT EXISTS live_epg_entries (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              channel_id INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              description TEXT,
+              start_at TEXT,
+              end_at TEXT,
+              start_timestamp INTEGER,
+              end_timestamp INTEGER,
+              fetched_at INTEGER NOT NULL,
+              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel
+              ON live_epg_entries(channel_id);
+            CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel_start
+              ON live_epg_entries(channel_id, start_timestamp);
             "#,
         )
         .map_err(|e| format!("db migration failed: {e}"))?;
@@ -687,6 +715,123 @@ pub fn list_recent_channels(
     Ok(recent_channels)
 }
 
+pub fn replace_live_epg_for_channel(
+    db_path: &Path,
+    channel_id: i64,
+    entries: &[StoredLiveEpgEntryRecord],
+) -> Result<(), String> {
+    let mut connection = open_connection(db_path)?;
+    let tx = connection
+        .transaction()
+        .map_err(|e| format!("transaction start failed: {e}"))?;
+
+    tx.execute(
+        "DELETE FROM live_epg_entries WHERE channel_id = ?1",
+        params![channel_id],
+    )
+    .map_err(|e| format!("delete live epg entries failed: {e}"))?;
+
+    if !entries.is_empty() {
+        let fetched_at = unix_ts();
+        let mut statement = tx
+            .prepare(
+                r#"
+                INSERT INTO live_epg_entries(
+                  channel_id,
+                  title,
+                  description,
+                  start_at,
+                  end_at,
+                  start_timestamp,
+                  end_timestamp,
+                  fetched_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+            )
+            .map_err(|e| format!("prepare insert live epg failed: {e}"))?;
+
+        for entry in entries {
+            statement
+                .execute(params![
+                    channel_id,
+                    entry.title,
+                    entry.description,
+                    entry.start,
+                    entry.end,
+                    entry.start_timestamp,
+                    entry.end_timestamp,
+                    fetched_at,
+                ])
+                .map_err(|e| format!("insert live epg entry failed: {e}"))?;
+        }
+
+        drop(statement);
+    }
+
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+
+    Ok(())
+}
+
+pub fn list_live_epg_for_channel(
+    db_path: &Path,
+    channel_id: i64,
+    limit: usize,
+) -> Result<Vec<StoredLiveEpgEntryRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              title,
+              description,
+              start_at,
+              end_at,
+              start_timestamp,
+              end_timestamp
+            FROM live_epg_entries
+            WHERE channel_id = ?1
+            ORDER BY
+              CASE WHEN start_timestamp IS NULL THEN 1 ELSE 0 END,
+              start_timestamp ASC,
+              id ASC
+            LIMIT ?2
+            "#,
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![channel_id, limit as i64])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    let mut entries = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        entries.push(StoredLiveEpgEntryRecord {
+            title: row
+                .get(0)
+                .map_err(|e| format!("decode title failed: {e}"))?,
+            description: row
+                .get(1)
+                .map_err(|e| format!("decode description failed: {e}"))?,
+            start: row
+                .get(2)
+                .map_err(|e| format!("decode start_at failed: {e}"))?,
+            end: row
+                .get(3)
+                .map_err(|e| format!("decode end_at failed: {e}"))?,
+            start_timestamp: row
+                .get(4)
+                .map_err(|e| format!("decode start_timestamp failed: {e}"))?,
+            end_timestamp: row
+                .get(5)
+                .map_err(|e| format!("decode end_timestamp failed: {e}"))?,
+        });
+    }
+
+    Ok(entries)
+}
+
 pub fn append_log(log_path: &Path, level: &str, message: &str) -> Result<(), String> {
     let line = format!("[{}] [{}] {}\n", unix_ts(), level, message);
     append_line(log_path, &line)
@@ -1141,6 +1286,71 @@ mod tests {
                 .expect("failed to filter favorites");
         assert_eq!(favorites.len(), 1);
         assert_eq!(favorites[0].id, all[0].id);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn live_epg_roundtrip_replaces_per_channel_entries() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = make_source_with_channels(&context.db_path);
+        let channels =
+            list_channels_for_source(&context.db_path, source_id, Some("live"), None, None, false)
+                .expect("failed to list channels");
+        let live_channel = channels
+            .into_iter()
+            .next()
+            .expect("expected at least one live channel");
+
+        replace_live_epg_for_channel(
+            &context.db_path,
+            live_channel.id,
+            &[
+                StoredLiveEpgEntryRecord {
+                    title: "Morning News".to_string(),
+                    description: Some("Headlines".to_string()),
+                    start: Some("2026-03-07 06:00:00".to_string()),
+                    end: Some("2026-03-07 07:00:00".to_string()),
+                    start_timestamp: Some(1700000000),
+                    end_timestamp: Some(1700003600),
+                },
+                StoredLiveEpgEntryRecord {
+                    title: "Noon Update".to_string(),
+                    description: None,
+                    start: Some("2026-03-07 07:00:00".to_string()),
+                    end: Some("2026-03-07 08:00:00".to_string()),
+                    start_timestamp: Some(1700003600),
+                    end_timestamp: Some(1700007200),
+                },
+            ],
+        )
+        .expect("failed to store initial live epg entries");
+
+        let first_read = list_live_epg_for_channel(&context.db_path, live_channel.id, 10)
+            .expect("failed to read live epg entries");
+        assert_eq!(first_read.len(), 2);
+        assert_eq!(first_read[0].title, "Morning News");
+
+        replace_live_epg_for_channel(
+            &context.db_path,
+            live_channel.id,
+            &[StoredLiveEpgEntryRecord {
+                title: "Evening Show".to_string(),
+                description: Some("Prime time".to_string()),
+                start: Some("2026-03-07 20:00:00".to_string()),
+                end: Some("2026-03-07 21:00:00".to_string()),
+                start_timestamp: Some(1700050000),
+                end_timestamp: Some(1700053600),
+            }],
+        )
+        .expect("failed to replace live epg entries");
+
+        let second_read = list_live_epg_for_channel(&context.db_path, live_channel.id, 10)
+            .expect("failed to read replaced live epg entries");
+        assert_eq!(second_read.len(), 1);
+        assert_eq!(second_read[0].title, "Evening Show");
 
         let _ = fs::remove_dir_all(root);
     }

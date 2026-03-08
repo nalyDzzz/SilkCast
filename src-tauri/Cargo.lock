@@ -2453,6 +2453,7 @@ dependencies = [
 name = "opentv"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "libloading 0.8.9",
  "raw-window-handle",
  "reqwest 0.12.28",
