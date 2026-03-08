@@ -128,6 +128,12 @@ describe('SeriesPage', () => {
   });
 
   it('loads series groups and channels for the selected source', async () => {
+    const loadRecents = vi.fn(() => Promise.resolve());
+
+    resetStore({
+      loadRecents,
+    });
+
     renderWithRouter(<SeriesPage />, {
       initialEntries: ['/dashboard/series'],
     });
@@ -141,6 +147,7 @@ describe('SeriesPage', () => {
         query: null,
         favoritesOnly: false,
       });
+      expect(loadRecents).not.toHaveBeenCalled();
       expect(subscribeBackendEvents).toHaveBeenCalledTimes(1);
     });
   });

@@ -404,7 +404,7 @@ describe('appStore', () => {
   });
 
   describe('loadRecents', () => {
-    it('fetches recent channels', async () => {
+    it('fetches enough recents to cover all media kinds', async () => {
       const api = await getRecentsApi();
       const recents = [
         {
@@ -426,7 +426,30 @@ describe('appStore', () => {
       api.listRecentlyPlayed.mockResolvedValue(recents);
 
       await useAppStore.getState().loadRecents();
+      expect(api.listRecentlyPlayed).toHaveBeenCalledWith(60);
       expect(useAppStore.getState().recentChannels).toEqual(recents);
+    });
+  });
+
+
+  describe('refreshEverything', () => {
+    it('refreshes startup payload with enough recents for all media kinds', async () => {
+      const sourcesApi = await getSourcesApi();
+      const playbackApi = await getPlaybackApi();
+      const settingsApi = await getSettingsApi();
+      const recentsApi = await getRecentsApi();
+
+      sourcesApi.listRegisteredSources.mockResolvedValue([]);
+      playbackApi.getPlaybackState.mockResolvedValue(null);
+      settingsApi.getPhase1Settings.mockResolvedValue(DEFAULT_SETTINGS);
+      recentsApi.listRecentlyPlayed.mockResolvedValue([]);
+
+      await useAppStore.getState().refreshEverything();
+
+      expect(recentsApi.listRecentlyPlayed).toHaveBeenCalledWith(60);
+      expect(sourcesApi.listRegisteredSources).toHaveBeenCalledTimes(1);
+      expect(playbackApi.getPlaybackState).toHaveBeenCalledTimes(1);
+      expect(settingsApi.getPhase1Settings).toHaveBeenCalledTimes(1);
     });
   });
 

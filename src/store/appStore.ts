@@ -306,7 +306,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   loadRecents: async () => {
-    const recentChannels = await recentsApi.listRecentlyPlayed(20);
+    const RECENTS_PER_TYPE = 20;
+    const totalLimit = RECENTS_PER_TYPE * 3;
+    const recentChannels = await recentsApi.listRecentlyPlayed(totalLimit);
     set({ recentChannels });
   },
 

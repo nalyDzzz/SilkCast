@@ -79,6 +79,12 @@ describe('MoviesPage', () => {
   });
 
   it('loads movie groups and channels for the selected source', async () => {
+    const loadRecents = vi.fn(() => Promise.resolve());
+
+    resetStore({
+      loadRecents,
+    });
+
     renderWithRouter(<MoviesPage />, {
       initialEntries: ['/dashboard/movies'],
     });
@@ -92,6 +98,7 @@ describe('MoviesPage', () => {
         query: null,
         favoritesOnly: false,
       });
+      expect(loadRecents).not.toHaveBeenCalled();
       expect(subscribeBackendEvents).toHaveBeenCalledTimes(1);
     });
   });

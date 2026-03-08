@@ -643,6 +643,8 @@ pub fn set_channel_favorite(db_path: &Path, channel_id: i64, favorite: bool) -> 
 
 pub fn record_recent_play(db_path: &Path, channel_id: i64) -> Result<(), String> {
     let connection = open_connection(db_path)?;
+    const RECENTS_PER_MEDIA_KIND: i64 = 20;
+
     connection
         .execute(
             "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
@@ -652,8 +654,24 @@ pub fn record_recent_play(db_path: &Path, channel_id: i64) -> Result<(), String>
 
     connection
         .execute(
-            "DELETE FROM recents WHERE id NOT IN (SELECT id FROM recents ORDER BY played_at DESC LIMIT 1000)",
-            [],
+            "\
+            DELETE FROM recents
+            WHERE id IN (
+                SELECT r.id
+                FROM recents r
+                INNER JOIN channels c ON c.id = r.channel_id
+                WHERE (
+                    SELECT COUNT(*)
+                    FROM recents r2
+                    INNER JOIN channels c2 ON c2.id = r2.channel_id
+                    WHERE c2.media_kind = c.media_kind
+                      AND (
+                        r2.played_at > r.played_at
+                        OR (r2.played_at = r.played_at AND r2.id > r.id)
+                      )
+                ) > ?1
+            )",
+            params![RECENTS_PER_MEDIA_KIND],
         )
         .map_err(|e| format!("prune recents failed: {e}"))?;
 
@@ -1265,6 +1283,67 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+
+    #[test]
+    fn record_recent_play_keeps_last_20_per_media_kind() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = make_source_with_channels(&context.db_path);
+        let channels =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("failed to list channels");
+
+        let live_channel = channels
+            .iter()
+            .find(|channel| channel.media_kind == "live")
+            .expect("missing live channel");
+        let movie_channel = channels
+            .iter()
+            .find(|channel| channel.media_kind == "movie")
+            .expect("missing movie channel");
+        let series_channel = channels
+            .iter()
+            .find(|channel| channel.media_kind == "series")
+            .expect("missing series channel");
+
+        for _ in 0..25 {
+            record_recent_play(&context.db_path, live_channel.id).expect("record recent live failed");
+            record_recent_play(&context.db_path, movie_channel.id)
+                .expect("record recent movie failed");
+            record_recent_play(&context.db_path, series_channel.id)
+                .expect("record recent series failed");
+        }
+
+        let connection = open_connection(&context.db_path).expect("failed to open db connection");
+        let live_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM recents r INNER JOIN channels c ON c.id = r.channel_id WHERE c.media_kind = 'live'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to count live recents");
+        let movie_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM recents r INNER JOIN channels c ON c.id = r.channel_id WHERE c.media_kind = 'movie'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to count movie recents");
+        let series_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM recents r INNER JOIN channels c ON c.id = r.channel_id WHERE c.media_kind = 'series'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("failed to count series recents");
+        assert_eq!(live_count, 20);
+        assert_eq!(movie_count, 20);
+        assert_eq!(series_count, 20);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn delete_source_cascades_channels_favorites_and_recents() {
         let root = make_temp_root();
@@ -1347,3 +1426,5 @@ mod tests {
         assert!(err.contains("unsupported source type"));
     }
 }
+
+
