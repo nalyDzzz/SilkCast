@@ -5,6 +5,7 @@ import { getVirtualListRange } from '@/components/live/virtualList';
 
 type VirtualizedLiveChannelListProps = {
   channels: ChannelRecord[];
+  epgNowByChannelId?: Record<number, string>;
   activeChannelId: number | null;
   playingChannelId: number | null;
   onPlay: (channel: ChannelRecord) => void;
@@ -17,6 +18,7 @@ const ROW_GAP_PX = 8;
 
 export function VirtualizedLiveChannelList({
   channels,
+  epgNowByChannelId,
   activeChannelId,
   playingChannelId,
   onPlay,
@@ -102,6 +104,7 @@ export function VirtualizedLiveChannelList({
           >
             <LiveChannelRow
               channel={channel}
+              epgNowTitle={epgNowByChannelId?.[channel.id] ?? null}
               isActive={activeChannelId === channel.id}
               isPlaying={playingChannelId === channel.id}
               onPlay={onPlay}

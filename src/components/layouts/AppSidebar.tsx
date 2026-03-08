@@ -20,7 +20,8 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAppStore } from '@/store/appStore.ts';
 import { useShallow } from 'zustand/react/shallow';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { refreshSourceEpg } from '@/lib/api/epgApi';
 
 const data = {
   navMain: [
@@ -55,15 +56,29 @@ const data = {
 export function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingSource, setIsRefreshingSource] = useState(false);
+  const [isRefreshingEpg, setIsRefreshingEpg] = useState(false);
 
-  const { logout, refreshSource, selectedSourceId } = useAppStore(
+  const { logout, refreshSource, selectedSourceId, sources } = useAppStore(
     useShallow((state) => ({
       logout: state.logout,
       refreshSource: state.refreshSource,
       selectedSourceId: state.selectedSourceId,
+      sources: state.sources,
     }))
   );
+
+  const selectedSource = useMemo(
+    () => sources.find((source) => source.id === selectedSourceId) ?? null,
+    [selectedSourceId, sources]
+  );
+
+  const isLiveRoute = location.pathname.startsWith('/dashboard/live');
+  const canRefreshEpg =
+    selectedSourceId !== null &&
+    selectedSource?.source_type === 'xtream' &&
+    isLiveRoute &&
+    !isRefreshingEpg;
 
   const handleLogout = () => {
     logout();
@@ -71,7 +86,7 @@ export function AppSidebar() {
   };
 
   const handleRefreshSource = async () => {
-    if (selectedSourceId === null || isRefreshing) {
+    if (selectedSourceId === null || isRefreshingSource) {
       return;
     }
 
@@ -81,11 +96,24 @@ export function AppSidebar() {
         ? 'series'
         : 'live';
 
-    setIsRefreshing(true);
+    setIsRefreshingSource(true);
     try {
       await refreshSource(selectedSourceId, mediaKind);
     } finally {
-      setIsRefreshing(false);
+      setIsRefreshingSource(false);
+    }
+  };
+
+  const handleRefreshEpg = async () => {
+    if (!canRefreshEpg || selectedSourceId === null) {
+      return;
+    }
+
+    setIsRefreshingEpg(true);
+    try {
+      await refreshSourceEpg(selectedSourceId, 2);
+    } finally {
+      setIsRefreshingEpg(false);
     }
   };
 
@@ -122,13 +150,27 @@ export function AppSidebar() {
             <SidebarMenuItem>
               <SidebarMenuButton
                 className="cursor-pointer"
-                disabled={selectedSourceId === null || isRefreshing}
+                disabled={!canRefreshEpg}
+                onClick={() => void handleRefreshEpg()}
+              >
+                <RefreshCw
+                  className={isRefreshingEpg ? 'animate-spin' : undefined}
+                />
+                <span>{isRefreshingEpg ? 'Refreshing EPG...' : 'Refresh EPG'}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="cursor-pointer"
+                disabled={selectedSourceId === null || isRefreshingSource}
                 onClick={() => void handleRefreshSource()}
               >
                 <RefreshCw
-                  className={isRefreshing ? 'animate-spin' : undefined}
+                  className={isRefreshingSource ? 'animate-spin' : undefined}
                 />
-                <span>{isRefreshing ? 'Refreshing...' : 'Refresh Source'}</span>
+                <span>
+                  {isRefreshingSource ? 'Refreshing...' : 'Refresh Source'}
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>

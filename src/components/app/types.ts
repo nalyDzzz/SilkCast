@@ -32,6 +32,15 @@ export type SeriesEpisodeRecord = {
   stream_url: string;
 };
 
+export type LiveEpgEntryRecord = {
+  title: string;
+  description: string | null;
+  start: string | null;
+  end: string | null;
+  start_timestamp: number | null;
+  end_timestamp: number | null;
+};
+
 export type RecentChannelRecord = {
   channel: ChannelRecord;
   played_at: number;
@@ -67,6 +76,13 @@ export type SourceImportResult = {
   imported_channels: number;
 };
 
+export type SourceEpgRefreshResult = {
+  source_id: number;
+  refreshed_channels: number;
+  channels_with_listings: number;
+  failed_channels: number;
+};
+
 export const ALL_GROUPS = '__all__';
 
 export const DEFAULT_SETTINGS: Phase1Settings = {
@@ -75,3 +91,4 @@ export const DEFAULT_SETTINGS: Phase1Settings = {
   startup_behavior: 'home',
   preferred_player: 'web',
 };
+

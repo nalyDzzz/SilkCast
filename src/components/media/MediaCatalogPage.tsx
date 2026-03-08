@@ -26,6 +26,7 @@ import {
   listSourceChannels,
   setChannelFavoriteState,
 } from '@/lib/api/channelsApi';
+import { listChannelEpg } from '@/lib/api/epgApi';
 import { subscribeBackendEvents } from '@/lib/api/eventsApi';
 import { listSeriesEpisodes } from '@/lib/api/seriesApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
@@ -72,6 +73,10 @@ const MEDIA_COPY: Record<MediaCatalogKind, MediaCatalogCopy> = {
 type MediaCatalogPageProps = {
   mediaKind: MediaCatalogKind;
 };
+
+
+const LIVE_EPG_LIMIT = 2;
+const LIVE_EPG_REFRESH_CONCURRENCY = 8;
 
 export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const copy = MEDIA_COPY[mediaKind];
@@ -132,6 +137,11 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const [seriesEpisodesError, setSeriesEpisodesError] = useState<string | null>(
     null
   );
+  const [liveNowByChannelId, setLiveNowByChannelId] = useState<
+    Record<number, string>
+  >({});
+  const [epgRefreshVersion, setEpgRefreshVersion] = useState(0);
+  const liveNowRequestVersionRef = useRef(0);
 
   const selectedGroupName = useMemo(
     () => (selectedGroup === copy.allGroupsValue ? null : selectedGroup),
@@ -229,6 +239,18 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         return;
       }
 
+      if (backendEvent.event === 'epg_updated') {
+        const payloadSourceId = backendEvent.payload['source_id'];
+        if (
+          typeof payloadSourceId === 'number' &&
+          selectedSourceId !== null &&
+          payloadSourceId === selectedSourceId
+        ) {
+          setEpgRefreshVersion((current) => current + 1);
+        }
+        return;
+      }
+
       if (backendEvent.event !== 'external_playback_closed') {
         return;
       }
@@ -262,6 +284,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     loadSettings,
     loadSources,
     mediaKind,
+    selectedSourceId,
     setPlayback,
   ]);
 
@@ -281,6 +304,11 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     setSeriesEpisodes([]);
     setSeriesEpisodesLoading(false);
     setSeriesEpisodesError(null);
+  }, [mediaKind, selectedSourceId]);
+
+  useEffect(() => {
+    liveNowRequestVersionRef.current += 1;
+    setLiveNowByChannelId({});
   }, [mediaKind, selectedSourceId]);
 
   useEffect(() => {
@@ -348,6 +376,64 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     [favoritesOnly]
   );
 
+  const loadLiveNowLines = useCallback(async () => {
+    if (mediaKind !== 'live' || selectedSource?.source_type !== 'xtream') {
+      setLiveNowByChannelId({});
+      return;
+    }
+
+    if (items.length === 0) {
+      setLiveNowByChannelId({});
+      return;
+    }
+
+    const requestVersion = liveNowRequestVersionRef.current + 1;
+    liveNowRequestVersionRef.current = requestVersion;
+
+    const nextMap: Record<number, string> = {};
+
+    for (
+      let index = 0;
+      index < items.length;
+      index += LIVE_EPG_REFRESH_CONCURRENCY
+    ) {
+      const chunk = items.slice(index, index + LIVE_EPG_REFRESH_CONCURRENCY);
+      const chunkResults = await Promise.all(
+        chunk.map(async (channel) => {
+          try {
+            const entries = await listChannelEpg(channel.id, LIVE_EPG_LIMIT);
+            return {
+              channelId: channel.id,
+              title: entries[0]?.title ?? null,
+            };
+          } catch {
+            return {
+              channelId: channel.id,
+              title: null,
+            };
+          }
+        })
+      );
+
+      if (liveNowRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+
+      for (const result of chunkResults) {
+        if (result.title) {
+          nextMap[result.channelId] = result.title;
+        }
+      }
+    }
+
+    if (liveNowRequestVersionRef.current === requestVersion) {
+      setLiveNowByChannelId(nextMap);
+    }
+  }, [items, mediaKind, selectedSource?.source_type]);
+
+  useEffect(() => {
+    void loadLiveNowLines();
+  }, [epgRefreshVersion, loadLiveNowLines]);
   const handlePlayItem = useCallback(
     async (item: ChannelRecord) => {
       try {
@@ -363,6 +449,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
             ? `Now playing "${item.name}" in MPV pop-out.`
             : `Now playing "${item.name}" in the in-app player.`
         );
+
         if (settings.preferred_player === 'web') {
           navigate('/dashboard/player', {
             state: {
@@ -510,10 +597,13 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
             <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
               <VirtualizedLiveChannelList
                 channels={items}
+                epgNowByChannelId={liveNowByChannelId}
                 activeChannelId={activeItemId}
                 playingChannelId={playingItemId}
                 onPlay={(nextItem) => void handlePlayItem(nextItem)}
-                onToggleFavorite={(nextItem) => void handleToggleFavorite(nextItem)}
+                onToggleFavorite={(nextItem) =>
+                  void handleToggleFavorite(nextItem)
+                }
               />
             </div>
           ) : isViewingSeriesEpisodes && selectedSeriesItem ? (
