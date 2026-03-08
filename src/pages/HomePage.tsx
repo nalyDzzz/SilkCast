@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
+import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { SourceRecord } from '@/components/app/types';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -11,16 +13,19 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAppStore } from '@/store/appStore';
 
 type ImportSourceType = 'm3u' | 'xtream';
+
+type SourceEditDraft = {
+  sourceId: number;
+  sourceType: ImportSourceType;
+  name: string;
+  location: string;
+  serverUrl: string;
+  username: string;
+  password: string;
+};
 
 const INITIAL_XTREAM_DRAFT = {
   name: '',
@@ -30,6 +35,36 @@ const INITIAL_XTREAM_DRAFT = {
 };
 
 type XtreamDraftField = keyof typeof INITIAL_XTREAM_DRAFT;
+
+const SOURCE_TYPE_LABEL: Record<ImportSourceType, string> = {
+  m3u: 'M3U playlist',
+  xtream: 'Xtream provider',
+};
+
+const readConfigString = (source: SourceRecord, key: string) => {
+  const value = source.config[key];
+  return typeof value === 'string' ? value : '';
+};
+
+const toImportSourceType = (sourceType: string): ImportSourceType =>
+  sourceType === 'xtream' ? 'xtream' : 'm3u';
+
+const buildSourceEditDraft = (source: SourceRecord): SourceEditDraft => {
+  const sourceType = toImportSourceType(source.source_type);
+
+  return {
+    sourceId: source.id,
+    sourceType,
+    name: source.name,
+    location: sourceType === 'm3u' ? readConfigString(source, 'location') : '',
+    serverUrl:
+      sourceType === 'xtream' ? readConfigString(source, 'server_url') : '',
+    username:
+      sourceType === 'xtream' ? readConfigString(source, 'username') : '',
+    password:
+      sourceType === 'xtream' ? readConfigString(source, 'password') : '',
+  };
+};
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -50,6 +85,8 @@ export function HomePage() {
     loadSources,
     addM3uSource,
     addXtreamSource,
+    updateSource,
+    refreshSource,
     deleteSource,
   } = useAppStore(
     useShallow((state) => ({
@@ -68,16 +105,19 @@ export function HomePage() {
       loadSources: state.loadSources,
       addM3uSource: state.addM3uSource,
       addXtreamSource: state.addXtreamSource,
+      updateSource: state.updateSource,
+      refreshSource: state.refreshSource,
       deleteSource: state.deleteSource,
     }))
   );
+
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [pendingRefreshId, setPendingRefreshId] = useState<number | null>(null);
+  const [pendingUpdateId, setPendingUpdateId] = useState<number | null>(null);
   const [importSourceType, setImportSourceType] =
     useState<ImportSourceType>('m3u');
   const [xtreamDraft, setXtreamDraft] = useState(INITIAL_XTREAM_DRAFT);
-  const [pendingSourceId, setPendingSourceId] = useState<number | null>(
-    selectedSourceId
-  );
+  const [editDraft, setEditDraft] = useState<SourceEditDraft | null>(null);
 
   useEffect(() => {
     void loadSources().catch((err) => setError(String(err)));
@@ -95,24 +135,13 @@ export function HomePage() {
   }, [hasPersistedSourceSelection, navigate, selectedSourceId, sources]);
 
   useEffect(() => {
-    setPendingSourceId((currentPendingSourceId) => {
-      const currentPendingSourceIsValid =
-        currentPendingSourceId !== null &&
-        sources.some((source) => source.id === currentPendingSourceId);
-      if (currentPendingSourceIsValid) {
-        return currentPendingSourceId;
-      }
-
-      const selectedSourceIsValid =
-        selectedSourceId !== null &&
-        sources.some((source) => source.id === selectedSourceId);
-      if (selectedSourceIsValid) {
-        return selectedSourceId;
-      }
-
-      return sources.length > 0 ? sources[0].id : null;
-    });
-  }, [selectedSourceId, sources]);
+    if (
+      editDraft !== null &&
+      !sources.some((source) => source.id === editDraft.sourceId)
+    ) {
+      setEditDraft(null);
+    }
+  }, [editDraft, sources]);
 
   const handleImportSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -133,13 +162,11 @@ export function HomePage() {
     await addM3uSource(m3uName, m3uLocation);
   };
 
-  const selectedSource =
-    pendingSourceId === null
-      ? null
-      : (sources.find((source) => source.id === pendingSourceId) ?? null);
   const isDeletingSource = pendingDeleteId !== null;
-  const isDeletingSelectedSource =
-    pendingDeleteId !== null && pendingDeleteId === pendingSourceId;
+  const isRefreshingSource = pendingRefreshId !== null;
+  const isUpdatingSource = pendingUpdateId !== null;
+  const isSourceActionPending =
+    isDeletingSource || isRefreshingSource || isUpdatingSource;
 
   const updateXtreamDraft = (field: XtreamDraftField, value: string) => {
     setXtreamDraft((current) => ({
@@ -148,35 +175,103 @@ export function HomePage() {
     }));
   };
 
-  const handleDeleteSelected = async () => {
-    if (!selectedSource) {
+  const updateEditDraftField = (
+    field: keyof Omit<SourceEditDraft, 'sourceId' | 'sourceType'>,
+    value: string
+  ) => {
+    setEditDraft((current) =>
+      current
+        ? {
+            ...current,
+            [field]: value,
+          }
+        : current
+    );
+  };
+
+  const handleOpenSource = (sourceId: number) => {
+    if (isSourceActionPending) {
+      return;
+    }
+
+    setSelectedSourceId(sourceId);
+    navigate('/dashboard');
+  };
+
+  const handleEditSource = (source: SourceRecord) => {
+    if (isSourceActionPending) {
+      return;
+    }
+
+    setEditDraft(buildSourceEditDraft(source));
+  };
+
+  const handleRefreshSource = async (source: SourceRecord) => {
+    if (isSourceActionPending) {
+      return;
+    }
+
+    setPendingRefreshId(source.id);
+    try {
+      await refreshSource(source.id);
+    } finally {
+      setPendingRefreshId(null);
+    }
+  };
+
+  const handleDeleteSource = async (source: SourceRecord) => {
+    if (isSourceActionPending) {
       return;
     }
 
     const confirmed = window.confirm(
-      `Delete "${selectedSource.name}"? This removes the source and its imported catalog.`
+      `Delete "${source.name}"? This removes the source and its imported catalog.`
     );
 
     if (!confirmed) {
       return;
     }
 
-    setPendingDeleteId(selectedSource.id);
+    setPendingDeleteId(source.id);
 
     try {
-      await deleteSource(selectedSource);
+      await deleteSource(source);
+      setEditDraft((current) =>
+        current?.sourceId === source.id ? null : current
+      );
     } finally {
       setPendingDeleteId(null);
     }
   };
 
-  const handleOpenDashboard = () => {
-    if (pendingSourceId === null) {
+  const handleSaveEditSource = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (editDraft === null || isSourceActionPending) {
       return;
     }
 
-    setSelectedSourceId(pendingSourceId);
-    navigate('/dashboard');
+    const config =
+      editDraft.sourceType === 'xtream'
+        ? {
+            server_url: editDraft.serverUrl,
+            username: editDraft.username,
+            password: editDraft.password,
+          }
+        : {
+            location: editDraft.location,
+          };
+
+    setPendingUpdateId(editDraft.sourceId);
+
+    try {
+      await updateSource(editDraft.sourceId, editDraft.name, config);
+      if (useAppStore.getState().error === null) {
+        setEditDraft(null);
+      }
+    } finally {
+      setPendingUpdateId(null);
+    }
   };
 
   return (
@@ -194,57 +289,202 @@ export function HomePage() {
           <CardHeader>
             <CardTitle>Select Source</CardTitle>
             <CardDescription>
-              Choose an imported source to continue or remove it.
+              Click a source to load it. Use the buttons on each row to edit,
+              refresh, or delete.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Select
-              value={pendingSourceId?.toString() ?? ''}
-              onValueChange={(value) => {
-                const parsed = Number(value);
-                setPendingSourceId(
-                  Number.isInteger(parsed) && parsed > 0 ? parsed : null
-                );
-              }}
-            >
-              <SelectTrigger className="w-full" disabled={isDeletingSource}>
-                <SelectValue placeholder="Select a source" />
-              </SelectTrigger>
-              <SelectContent>
-                {sources.map((source) => (
-                  <SelectItem key={source.id} value={source.id.toString()}>
-                    {source.name} (
-                    {source.source_type === 'xtream' ? 'Xtream' : 'M3U'})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             {sources.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No sources imported yet.
               </p>
+            ) : (
+              <div
+                className="flex flex-col gap-2"
+                role="list"
+                aria-label="Imported sources"
+              >
+                {sources.map((source) => {
+                  const sourceType = toImportSourceType(source.source_type);
+                  const isDeleting = pendingDeleteId === source.id;
+                  const isRefreshing = pendingRefreshId === source.id;
+                  const isUpdating = pendingUpdateId === source.id;
+                  const isEditing = editDraft?.sourceId === source.id;
+
+                  return (
+                    <div
+                      key={source.id}
+                      role="listitem"
+                      tabIndex={isSourceActionPending ? -1 : 0}
+                      onClick={() => handleOpenSource(source.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleOpenSource(source.id);
+                        }
+                      }}
+                      className="flex cursor-pointer flex-col gap-3 rounded-lg border border-border p-3 transition-colors outline-none hover:border-primary focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/35 sm:flex-row sm:items-center"
+                    >
+                      <div className="flex flex-1 px-2 py-1">
+                        <span className="flex flex-col items-start">
+                          <span className="font-medium">{source.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {SOURCE_TYPE_LABEL[sourceType]}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant={isEditing ? 'secondary' : 'outline'}
+                          aria-label="Edit"
+                          title="Edit"
+                          onKeyDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleEditSource(source);
+                          }}
+                          disabled={isSourceActionPending}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="outline"
+                          aria-label="Refresh"
+                          title="Refresh"
+                          onKeyDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleRefreshSource(source);
+                          }}
+                          disabled={isSourceActionPending}
+                        >
+                          <RefreshCw
+                            className={
+                              isRefreshing ? 'animate-spin' : undefined
+                            }
+                          />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="destructive"
+                          aria-label="Delete"
+                          title="Delete"
+                          onKeyDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteSource(source);
+                          }}
+                          disabled={isSourceActionPending}
+                        >
+                          <Trash2
+                            className={
+                              isDeleting || isUpdating
+                                ? 'opacity-70'
+                                : undefined
+                            }
+                          />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {editDraft ? (
+              <form
+                onSubmit={(event) => void handleSaveEditSource(event)}
+                className="space-y-3 rounded-lg border bg-muted/20 p-4"
+              >
+                <p className="text-sm font-medium">Edit source details</p>
+                <Input
+                  value={editDraft.name}
+                  onChange={(event) =>
+                    updateEditDraftField('name', event.currentTarget.value)
+                  }
+                  placeholder="Source name"
+                  required
+                />
+
+                {editDraft.sourceType === 'xtream' ? (
+                  <>
+                    <Input
+                      value={editDraft.serverUrl}
+                      onChange={(event) =>
+                        updateEditDraftField(
+                          'serverUrl',
+                          event.currentTarget.value
+                        )
+                      }
+                      placeholder="https://provider.example:8080"
+                      required
+                    />
+                    <Input
+                      value={editDraft.username}
+                      onChange={(event) =>
+                        updateEditDraftField(
+                          'username',
+                          event.currentTarget.value
+                        )
+                      }
+                      placeholder="Username"
+                      required
+                    />
+                    <Input
+                      type="password"
+                      value={editDraft.password}
+                      onChange={(event) =>
+                        updateEditDraftField(
+                          'password',
+                          event.currentTarget.value
+                        )
+                      }
+                      placeholder="Password"
+                      required
+                    />
+                  </>
+                ) : (
+                  <Input
+                    value={editDraft.location}
+                    onChange={(event) =>
+                      updateEditDraftField(
+                        'location',
+                        event.currentTarget.value
+                      )
+                    }
+                    placeholder="https://... or /path/to/file.m3u"
+                    required
+                  />
+                )}
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    type="submit"
+                    disabled={loading || isSourceActionPending}
+                    className="w-full sm:w-auto"
+                  >
+                    {pendingUpdateId === editDraft.sourceId
+                      ? 'Saving...'
+                      : 'Save Changes'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full sm:w-auto"
+                    onClick={() => setEditDraft(null)}
+                    disabled={isSourceActionPending}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
             ) : null}
           </CardContent>
-          <CardFooter className="flex-col gap-3 sm:flex-row">
-            <Button
-              className="w-full sm:flex-1"
-              onClick={handleOpenDashboard}
-              disabled={pendingSourceId === null || isDeletingSource}
-            >
-              Log In To Dashboard
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className="w-full sm:flex-1"
-              onClick={() => void handleDeleteSelected()}
-              disabled={selectedSource === null || loading || isDeletingSource}
-            >
-              {isDeletingSelectedSource
-                ? 'Deleting...'
-                : 'Delete Selected Source'}
-            </Button>
-          </CardFooter>
         </Card>
 
         <Card>
@@ -333,7 +573,7 @@ export function HomePage() {
                 </>
               )}
 
-              <Button type="submit" disabled={loading || isDeletingSource}>
+              <Button type="submit" disabled={loading || isSourceActionPending}>
                 {loading
                   ? 'Importing...'
                   : importSourceType === 'xtream'

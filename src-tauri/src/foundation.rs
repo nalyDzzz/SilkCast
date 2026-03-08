@@ -332,6 +332,29 @@ pub fn create_source(
     Ok(connection.last_insert_rowid())
 }
 
+pub fn update_source(
+    db_path: &Path,
+    source_id: i64,
+    name: &str,
+    config: &Value,
+) -> Result<(), String> {
+    let connection = open_connection(db_path)?;
+    let config_json =
+        serde_json::to_string(config).map_err(|e| format!("encode config failed: {e}"))?;
+    let updated_rows = connection
+        .execute(
+            "UPDATE sources SET name = ?1, config_json = ?2 WHERE id = ?3",
+            params![name, config_json, source_id],
+        )
+        .map_err(|e| format!("update source failed: {e}"))?;
+
+    if updated_rows == 0 {
+        return Err(format!("source {source_id} not found"));
+    }
+
+    Ok(())
+}
+
 pub fn delete_source(db_path: &Path, source_id: i64) -> Result<(), String> {
     let connection = open_connection(db_path)?;
     connection
@@ -973,6 +996,44 @@ mod tests {
         assert_eq!(sources[0].id, id);
         assert_eq!(sources[0].source_type, "m3u");
         assert_eq!(sources[0].name, "Test Playlist");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn source_update_roundtrip() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        let id = create_source(
+            &context.db_path,
+            "m3u",
+            "Original Playlist",
+            &json!({ "location": "https://example.com/original.m3u" }),
+        )
+        .expect("failed to insert source");
+
+        update_source(
+            &context.db_path,
+            id,
+            "Updated Playlist",
+            &json!({ "location": "https://example.com/updated.m3u" }),
+        )
+        .expect("failed to update source");
+
+        let source = get_source_by_id(&context.db_path, id)
+            .expect("failed to load source")
+            .expect("source should exist");
+        assert_eq!(source.name, "Updated Playlist");
+        assert_eq!(
+            source
+                .config
+                .get("location")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            "https://example.com/updated.m3u"
+        );
 
         let _ = fs::remove_dir_all(root);
     }
