@@ -1,14 +1,13 @@
-# OpenTV (SilkCast)
+# SilkCast
 
-OpenTV is a desktop IPTV client built with Tauri (Rust backend) and React (TypeScript frontend).  
-The app currently uses the product name **SilkCast** in the UI and package metadata.
+SilkCast is a desktop IPTV client built with Tauri (Rust backend) and React (TypeScript frontend).  
 
 > This project is a client only.  
 > No channels, providers, or playlists are bundled.
 
 ## Status
 
-OpenTV is in active development.
+SilkCast is in active development.
 Core source import, catalog browsing, playback, recents, and settings are implemented.
 
 ## Features Available Today
@@ -69,8 +68,8 @@ sudo apt-get install -y \
 ## Getting Started (Development)
 
 ```bash
-git clone https://github.com/nalyDzzz/OpenTV.git
-cd OpenTV
+git clone https://github.com/nalyDzzz/SilkCast.git
+cd SilkCast
 npm install
 npm run tauri dev
 ```
@@ -137,7 +136,7 @@ The backend creates:
 
 ## Legal
 
-OpenTV/SilkCast is a media client only.
+SilkCast is a media client only.
 
 - No IPTV providers or playlists are bundled
 - No scraping modules are included
