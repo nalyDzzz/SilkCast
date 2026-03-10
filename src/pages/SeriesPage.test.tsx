@@ -50,11 +50,11 @@ vi.mock('../components/movies/VirtualizedMovieGrid', () => ({
 const DEFAULT_SERIES = {
   id: 901,
   source_id: 77,
-  name: 'OpenTV Show',
+  name: 'SilkCast Show',
   group_name: 'Drama',
   logo: null,
   tvg_id: '901',
-  tvg_name: 'OpenTV Show',
+  tvg_name: 'SilkCast Show',
   stream_url: 'https://provider.example/series/alice/secret/901.mp4',
   media_kind: 'series' as const,
   is_favorite: false,
@@ -188,7 +188,7 @@ describe('SeriesPage', () => {
       initialEntries: ['/dashboard/series'],
     });
 
-    await user.click(await screen.findByText('OpenTV Show'));
+    await user.click(await screen.findByText('SilkCast Show'));
 
     await waitFor(() => {
       expect(listSeriesEpisodes).toHaveBeenCalledWith(901);
@@ -228,7 +228,7 @@ describe('SeriesPage', () => {
       </MemoryRouter>
     );
 
-    await user.click(await screen.findByText('OpenTV Show'));
+    await user.click(await screen.findByText('SilkCast Show'));
     await user.click(await screen.findByRole('button', { name: 'Play Pilot' }));
 
     await waitFor(() => {
@@ -236,7 +236,7 @@ describe('SeriesPage', () => {
         expect.objectContaining({
           id: 901,
           stream_url: 'https://provider.example/series/alice/secret/5551.mp4',
-          name: 'OpenTV Show - Pilot',
+          name: 'SilkCast Show - Pilot',
         })
       );
     });
@@ -266,7 +266,7 @@ describe('SeriesPage', () => {
       initialEntries: ['/dashboard/series'],
     });
 
-    await user.click(await screen.findByText('OpenTV Show'));
+    await user.click(await screen.findByText('SilkCast Show'));
 
     await waitFor(() => {
       expect(playChannelRecord).toHaveBeenCalledWith(DEFAULT_SERIES);

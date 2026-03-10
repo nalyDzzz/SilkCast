@@ -278,7 +278,7 @@ export function HomePage() {
     <main className="min-h-screen p-4 md:p-8">
       <section className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <header className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">OpenTV</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">SilkCast</h1>
           <p className="text-muted-foreground">
             Import an M3U playlist or connect an Xtream provider, then open the
             dashboard with the source you want to watch.

@@ -1,10 +1,10 @@
-# OpenTV
+# SilkCast
 
-**OpenTV** is a modern, open-source IPTV player for desktop (Windows and Linux).
+**SilkCast** is a modern, open-source IPTV player for desktop (Windows and Linux).
 
 It focuses on fast, GPU-accelerated playback, a clean desktop-first experience, and transparent, privacy-respecting design.
 
-> OpenTV is a client only.  
+> SilkCast is a client only.  
 > It does not include any channels, providers, or scraping tools.
 
 ---
@@ -37,7 +37,7 @@ See the full roadmap in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 
-## 🧭 Why OpenTV?
+## 🧭 Why SilkCast?
 
 Most IPTV apps in this space are:
 
@@ -48,7 +48,7 @@ Most IPTV apps in this space are:
 - missing DVR or EPG
 - unclear about networking or privacy
 
-OpenTV aims to be:
+SilkCast aims to be:
 
 - 🔓 open-source
 - ⚡ fast
@@ -95,8 +95,8 @@ Architecture details live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 ### Clone
 
 ```
-git clone https://github.com/your-org/opentv.git
-cd opentv
+git clone https://github.com/your-org/silkcast.git
+cd silkcast
 ```
 
 ### Run in dev mode
@@ -143,7 +143,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
 
 ## ⚖ Legal / Ethics
 
-OpenTV is a **media client only**.
+SilkCast is a **media client only**.
 
 - No IPTV providers or playlists are bundled.
 - No scraping modules are included.
@@ -172,6 +172,6 @@ Coming soon.
 
 ## 📌 Status
 
-OpenTV is in early development.
+SilkCast is in early development.
 
 Stars, feedback, and contributors are very welcome ⭐

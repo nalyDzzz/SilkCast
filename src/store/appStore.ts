@@ -13,8 +13,8 @@ import * as recentsApi from '../lib/api/recentsApi';
 import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
 
-const LAST_SELECTED_SOURCE_KEY = 'opentv:lastSelectedSourceId';
-const THEME_PREFERENCE_KEY = 'opentv:theme';
+const LAST_SELECTED_SOURCE_KEY = 'silkcast:lastSelectedSourceId';
+const THEME_PREFERENCE_KEY = 'silkcast:theme';
 
 export type AppTheme = 'light' | 'dark';
 

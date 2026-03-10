@@ -12,7 +12,7 @@ pub fn load_m3u_location(location: &str) -> Result<String, String> {
         let client = reqwest::blocking::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
             .user_agent(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) OpenTV/0.1",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) SilkCast/0.1",
             )
             .build()
             .map_err(|err| format!("failed to build HTTP client for m3u URL: {err}"))?;
@@ -413,7 +413,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("opentv-m3u-test-{ts}"));
+        let dir = std::env::temp_dir().join(format!("silkcast-m3u-test-{ts}"));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
     }

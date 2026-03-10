@@ -104,9 +104,9 @@ describe('HomePage', () => {
     });
   });
 
-  it('renders the OpenTV heading', async () => {
+  it('renders the SilkCast heading', async () => {
     await renderHomePage();
-    expect(screen.getByRole('heading', { name: 'OpenTV' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'SilkCast' })).toBeInTheDocument();
   });
 
   it('renders the import description text', async () => {
@@ -228,7 +228,7 @@ describe('HomePage', () => {
     await user.click(xtreamRow);
 
     expect(await screen.findByText('Dashboard Route')).toBeInTheDocument();
-    expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+    expect(window.localStorage.getItem('silkcast:lastSelectedSourceId')).toBe(
       '2'
     );
   });
@@ -410,7 +410,7 @@ describe('HomePage', () => {
   });
 
   it('auto-navigates to dashboard for remembered source ids returned as strings', async () => {
-    window.localStorage.setItem('opentv:lastSelectedSourceId', '2');
+    window.localStorage.setItem('silkcast:lastSelectedSourceId', '2');
     vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
       {
         id: 1,
@@ -443,7 +443,7 @@ describe('HomePage', () => {
   });
 
   it('does not auto-navigate when remembered source is no longer available', async () => {
-    window.localStorage.setItem('opentv:lastSelectedSourceId', '99');
+    window.localStorage.setItem('silkcast:lastSelectedSourceId', '99');
     vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([
       {
         id: 1,

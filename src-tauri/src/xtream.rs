@@ -11,7 +11,7 @@ use std::time::Duration;
 use url::Url;
 
 const XTREAM_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) OpenTV/0.2";
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) SilkCast/0.2";
 const XTREAM_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const XTREAM_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 
@@ -830,7 +830,7 @@ mod tests {
             .find(|channel| channel.media_kind == "series")
             .expect("series show should exist");
         assert_eq!(episode.group_name.as_deref(), Some("Series"));
-        assert_eq!(episode.name, "OpenTV Show");
+        assert_eq!(episode.name, "SilkCast Show");
         assert_eq!(
             episode.stream_url,
             format!("{}/series/alice/secret/999.mp4", config.server_url)
@@ -965,7 +965,7 @@ mod tests {
                         r#"[
   {
     "series_id": 999,
-    "name": "OpenTV Show",
+    "name": "SilkCast Show",
     "category_id": "30",
     "cover": "https://img.example/show.png"
   }

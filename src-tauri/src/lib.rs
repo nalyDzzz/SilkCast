@@ -1383,7 +1383,7 @@ fn spawn_mpv_popout_process_with_candidates(
         "--osc=yes",
         "--input-default-bindings=yes",
         "--input-vo-keyboard=yes",
-        "--title=OpenTV Pop-out",
+        "--title=SilkCast Pop-out",
         "--",
         url,
     ];
@@ -1426,7 +1426,7 @@ fn resolve_main_window_id(app: &tauri::AppHandle) -> Result<u64, String> {
         RawWindowHandle::Xlib(h) => Ok(u64::from(h.window)),
         RawWindowHandle::Xcb(h) => Ok(u64::from(h.window.get())),
         RawWindowHandle::Wayland(_) => Err(
-            "wayland window handles are not supported for mpv embedding; OpenTV can fall back to MPV pop-out mode on Wayland/Hyprland".to_string(),
+            "wayland window handles are not supported for mpv embedding; SilkCast can fall back to MPV pop-out mode on Wayland/Hyprland".to_string(),
         ),
         _ => Err("unsupported window handle type for mpv embedding".to_string()),
     }
@@ -1681,7 +1681,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("opentv-lib-test-{ts}"));
+        let dir = std::env::temp_dir().join(format!("silkcast-lib-test-{ts}"));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
     }

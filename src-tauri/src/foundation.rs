@@ -169,8 +169,8 @@ pub fn ensure_foundation_dirs(base_dir: &Path) -> Result<AppContext, String> {
     fs::create_dir_all(&crash_dir).map_err(|e| format!("failed to create crash dir: {e}"))?;
 
     Ok(AppContext {
-        db_path: db_dir.join("opentv.db"),
-        log_path: logs_dir.join("opentv.log"),
+        db_path: db_dir.join("silkcast.db"),
+        log_path: logs_dir.join("silkcast.log"),
         crash_dir,
     })
 }
@@ -882,7 +882,7 @@ pub fn init_log_file(log_path: &Path) -> Result<(), String> {
     if !log_path.exists() {
         File::create(log_path).map_err(|e| format!("log file create failed: {e}"))?;
     }
-    append_log(log_path, "INFO", "OpenTV foundation logger initialized")?;
+    append_log(log_path, "INFO", "SilkCast foundation logger initialized")?;
     Ok(())
 }
 
@@ -1075,7 +1075,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("opentv-foundation-test-{ts}"));
+        let dir = std::env::temp_dir().join(format!("silkcast-foundation-test-{ts}"));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
     }

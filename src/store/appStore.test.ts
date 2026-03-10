@@ -170,7 +170,7 @@ describe('appStore', () => {
       useAppStore.getState().setTheme('dark');
 
       expect(useAppStore.getState().theme).toBe('dark');
-      expect(window.localStorage.getItem('opentv:theme')).toBe('dark');
+      expect(window.localStorage.getItem('silkcast:theme')).toBe('dark');
     });
 
     it('clearSourceLists clears groups and channels', () => {
@@ -202,7 +202,7 @@ describe('appStore', () => {
     it('updates selectedSourceId and persists to localStorage', () => {
       useAppStore.getState().setSelectedSourceId(42);
       expect(useAppStore.getState().selectedSourceId).toBe(42);
-      expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+      expect(window.localStorage.getItem('silkcast:lastSelectedSourceId')).toBe(
         '42'
       );
     });
@@ -212,7 +212,7 @@ describe('appStore', () => {
       useAppStore.getState().setSelectedSourceId(null);
       expect(useAppStore.getState().selectedSourceId).toBeNull();
       expect(
-        window.localStorage.getItem('opentv:lastSelectedSourceId')
+        window.localStorage.getItem('silkcast:lastSelectedSourceId')
       ).toBeNull();
     });
 
@@ -220,7 +220,7 @@ describe('appStore', () => {
       useAppStore.getState().setSelectedSourceId(Number.NaN);
       expect(useAppStore.getState().selectedSourceId).toBeNull();
       expect(
-        window.localStorage.getItem('opentv:lastSelectedSourceId')
+        window.localStorage.getItem('silkcast:lastSelectedSourceId')
       ).toBeNull();
     });
   });
@@ -292,7 +292,7 @@ describe('appStore', () => {
         },
       ]);
 
-      window.localStorage.setItem('opentv:lastSelectedSourceId', '2');
+      window.localStorage.setItem('silkcast:lastSelectedSourceId', '2');
 
       await useAppStore.getState().loadSources();
 
@@ -302,7 +302,7 @@ describe('appStore', () => {
       expect(
         state.sources.find((source) => source.name === 'Xtream Source')?.id
       ).toBe(2);
-      expect(window.localStorage.getItem('opentv:lastSelectedSourceId')).toBe(
+      expect(window.localStorage.getItem('silkcast:lastSelectedSourceId')).toBe(
         '2'
       );
     });
@@ -319,13 +319,13 @@ describe('appStore', () => {
         },
       ]);
 
-      window.localStorage.removeItem('opentv:lastSelectedSourceId');
+      window.localStorage.removeItem('silkcast:lastSelectedSourceId');
 
       await useAppStore.getState().loadSources();
       expect(useAppStore.getState().selectedSourceId).toBe(7);
       expect(useAppStore.getState().hasPersistedSourceSelection).toBe(false);
       expect(
-        window.localStorage.getItem('opentv:lastSelectedSourceId')
+        window.localStorage.getItem('silkcast:lastSelectedSourceId')
       ).toBeNull();
 
       await useAppStore.getState().loadSources();
@@ -939,7 +939,7 @@ describe('appStore', () => {
         channels: [],
       });
 
-      window.localStorage.setItem('opentv:lastSelectedSourceId', '5');
+      window.localStorage.setItem('silkcast:lastSelectedSourceId', '5');
       useAppStore.getState().logout();
 
       const state = useAppStore.getState();
@@ -950,7 +950,7 @@ describe('appStore', () => {
       expect(state.groups).toEqual([]);
       expect(state.channels).toEqual([]);
       expect(
-        window.localStorage.getItem('opentv:lastSelectedSourceId')
+        window.localStorage.getItem('silkcast:lastSelectedSourceId')
       ).toBeNull();
     });
   });
