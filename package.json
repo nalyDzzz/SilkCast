@@ -6,6 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:desktop": "npm run tauri build",
+    "prepare:mpv-runtime": "node scripts/prepare-mpv-runtime.mjs",
+    "prepare:mpv-runtime:strict": "node scripts/prepare-mpv-runtime.mjs --strict",
+    "build:windows:exe": "npm run prepare:mpv-runtime && npm run tauri build -- --bundles nsis",
+    "build:windows:installers": "npm run prepare:mpv-runtime && npm run tauri build -- --bundles nsis,msi",
+    "build:windows:installers:strict": "npm run prepare:mpv-runtime:strict && npm run tauri build -- --bundles nsis,msi",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 #[cfg(any(windows, target_os = "linux"))]
 use std::ffi::{c_char, CString};
+#[cfg(any(windows, target_os = "linux"))]
+use std::path::PathBuf;
 #[cfg(windows)]
 mod windows_surface;
 #[cfg(windows)]
@@ -711,25 +713,53 @@ fn display_symbol(symbol: &[u8]) -> String {
 
 #[cfg(any(windows, target_os = "linux"))]
 fn load_mpv_library() -> Result<libloading::Library, String> {
-    #[cfg(target_os = "linux")]
-    const MPV_LIBRARY_CANDIDATES: &[&str] = &["libmpv.so.2", "libmpv.so"];
-    #[cfg(windows)]
-    const MPV_LIBRARY_CANDIDATES: &[&str] = &["mpv-2.dll", "libmpv-2.dll", "mpv.dll"];
-
+    let candidates = mpv_library_candidates();
     let mut errors: Vec<String> = Vec::new();
-    for candidate in MPV_LIBRARY_CANDIDATES {
+    for candidate in &candidates {
         let loaded = unsafe { libloading::Library::new(candidate) };
         match loaded {
             Ok(library) => return Ok(library),
-            Err(err) => errors.push(format!("{candidate}: {err}")),
+            Err(err) => errors.push(format!("{}: {err}", candidate.to_string_lossy())),
         }
     }
 
+    let tried = candidates
+        .iter()
+        .map(|candidate| candidate.to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
     Err(format!(
-        "could not load libmpv (tried: {}): {}",
-        MPV_LIBRARY_CANDIDATES.join(", "),
+        "could not load libmpv (tried: {tried}): {}",
         errors.join(" | ")
     ))
+}
+
+#[cfg(any(windows, target_os = "linux"))]
+fn mpv_library_candidates() -> Vec<PathBuf> {
+    #[cfg(target_os = "linux")]
+    const MPV_LIBRARY_NAMES: &[&str] = &["libmpv.so.2", "libmpv.so"];
+    #[cfg(windows)]
+    const MPV_LIBRARY_NAMES: &[&str] = &["mpv-2.dll", "libmpv-2.dll", "mpv.dll"];
+
+    let mut candidates: Vec<PathBuf> = MPV_LIBRARY_NAMES.iter().map(PathBuf::from).collect();
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            #[cfg(windows)]
+            let bundled_runtime_dir = exe_dir.join("resources").join("mpv").join("windows");
+            #[cfg(target_os = "linux")]
+            let bundled_runtime_dir = exe_dir.join("resources").join("mpv").join("linux");
+
+            for name in MPV_LIBRARY_NAMES {
+                candidates.push(exe_dir.join(name));
+                candidates.push(exe_dir.join("resources").join(name));
+                candidates.push(bundled_runtime_dir.join(name));
+            }
+        }
+    }
+
+    candidates
 }
 
 #[cfg(test)]

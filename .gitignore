@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Windows runtime DLLs used for release packaging.
+src-tauri/resources/mpv/windows/*.dll

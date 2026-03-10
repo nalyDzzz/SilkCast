@@ -40,6 +40,7 @@ Core source import, catalog browsing, playback, recents, and settings are implem
 - `src/` - React app, pages, UI components, store, and API clients
 - `src-tauri/` - Rust backend commands, playback engine, source import/parsing, storage
 - `.github/workflows/tests.yml` - CI test job for Windows and Linux
+- `.github/workflows/release.yml` - tagged Windows installer release workflow
 
 ## Requirements
 
@@ -82,11 +83,43 @@ For full desktop behavior, use `npm run tauri dev` instead of only `npm run dev`
 - `npm run tauri dev` - Run the full desktop app in development
 - `npm run build` - Build frontend assets
 - `npm run tauri build` - Build desktop bundles
+- `npm run prepare:mpv-runtime` - Validate/copy Windows MPV runtime DLLs into bundle resources
+- `npm run build:windows:exe` - Build NSIS installer (`.exe`)
+- `npm run build:windows:installers` - Build NSIS + MSI installers
+- `npm run build:windows:installers:strict` - Same as above but fail if required MPV DLLs are missing
 - `npm run test` - Run Vitest in watch mode
 - `npm run test:run` - Run frontend tests once
 - `npm run test:rust` - Run Rust tests
 - `npm run test:all` - Run frontend and Rust tests
 - `npm run test:coverage` - Run frontend tests with coverage
+
+## Building Windows Installers
+
+1. Place MPV runtime DLLs in a folder (must include one of `mpv-2.dll`, `libmpv-2.dll`, or `mpv.dll`).
+2. Set `MPV_DLL_DIR` to that folder.
+3. Build installers.
+
+```powershell
+$env:MPV_DLL_DIR="C:\path\to\mpv\bin"
+npm ci
+npm run build:windows:installers
+```
+
+Artifacts are produced in:
+
+- `src-tauri/target/release/bundle/nsis/*.exe`
+- `src-tauri/target/release/bundle/msi/*.msi`
+
+## Release Tags (GitHub)
+
+Push a tag that starts with `v` (for example `v0.1.0`) to trigger the release workflow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds Windows installers and uploads them to a draft GitHub Release.
 
 ## Data and Logs
 
