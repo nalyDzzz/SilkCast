@@ -1,9 +1,9 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   estimateMovieCardRowHeight,
-  getVirtualMovieRange,
   resolveMovieGridColumns,
-} from "./virtualGrid";
+} from './virtualGrid';
 
 type VirtualizedMovieGridProps<TItem> = {
   items: TItem[];
@@ -12,43 +12,30 @@ type VirtualizedMovieGridProps<TItem> = {
   className?: string;
 };
 
+function initialViewportWidth() {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+  return Math.max(window.innerWidth, 640);
+}
+
+function initialViewportHeight() {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+  return Math.max(window.innerHeight, 500);
+}
+
 export function VirtualizedMovieGrid<TItem>({
   items,
   getItemKey,
   renderItem,
-  className = "",
+  className = '',
 }: VirtualizedMovieGridProps<TItem>) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(0);
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) {
-      return;
-    }
-
-    const updateMeasurements = () => {
-      setViewportHeight(element.clientHeight);
-      setContainerWidth(element.clientWidth);
-    };
-
-    const onScroll = () => {
-      setScrollTop(element.scrollTop);
-    };
-
-    updateMeasurements();
-    element.addEventListener("scroll", onScroll, { passive: true });
-
-    const resizeObserver = new ResizeObserver(updateMeasurements);
-    resizeObserver.observe(element);
-
-    return () => {
-      element.removeEventListener("scroll", onScroll);
-      resizeObserver.disconnect();
-    };
-  }, []);
+  const [containerWidth, setContainerWidth] = useState(() =>
+    initialViewportWidth()
+  );
 
   const columns = useMemo(
     () => resolveMovieGridColumns(containerWidth),
@@ -58,38 +45,76 @@ export function VirtualizedMovieGrid<TItem>({
     () => estimateMovieCardRowHeight(containerWidth, columns),
     [columns, containerWidth]
   );
-
-  const range = useMemo(
-    () =>
-      getVirtualMovieRange({
-        itemCount: items.length,
-        columns,
-        rowHeight,
-        scrollTop,
-        viewportHeight,
-      }),
-    [columns, items.length, rowHeight, scrollTop, viewportHeight]
+  const totalRows = useMemo(
+    () => Math.ceil(items.length / Math.max(columns, 1)),
+    [columns, items.length]
   );
 
-  const visibleItems = useMemo(
-    () => items.slice(range.startIndex, range.endIndex),
-    [items, range.endIndex, range.startIndex]
-  );
+  const rowVirtualizer = useVirtualizer({
+    count: totalRows,
+    getScrollElement: () => containerRef.current,
+    initialRect: {
+      width: initialViewportWidth(),
+      height: initialViewportHeight(),
+    },
+    estimateSize: () => rowHeight,
+    overscan: 2,
+    onChange: (instance) => {
+      const nextWidth = instance.scrollRect?.width ?? 0;
+      setContainerWidth((currentWidth) =>
+        Math.abs(currentWidth - nextWidth) < 1 ? currentWidth : nextWidth
+      );
+    },
+  });
+
+  useEffect(() => {
+    rowVirtualizer.measure();
+  }, [columns, rowHeight, rowVirtualizer]);
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
   return (
-    <div ref={containerRef} className={`h-full min-h-0 overflow-y-auto pr-1 ${className}`}>
-      <div style={{ height: range.topSpacerHeight }} aria-hidden="true" />
-      <section
-        className="grid gap-4"
+    <div
+      ref={containerRef}
+      className={`h-full min-h-0 overflow-y-auto pr-1 ${className}`}
+    >
+      <div
         style={{
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          height: rowVirtualizer.getTotalSize(),
+          position: 'relative',
         }}
       >
-        {visibleItems.map((item) => (
-          <div key={getItemKey(item)}>{renderItem(item)}</div>
-        ))}
-      </section>
-      <div style={{ height: range.bottomSpacerHeight }} aria-hidden="true" />
+        {virtualRows.map((virtualRow) => {
+          const rowStartIndex = virtualRow.index * columns;
+          const rowItems = items.slice(rowStartIndex, rowStartIndex + columns);
+
+          return (
+            <div
+              key={virtualRow.key}
+              ref={rowVirtualizer.measureElement}
+              data-index={virtualRow.index}
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <section
+                className="grid gap-4 pb-4"
+                style={{
+                  gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                }}
+              >
+                {rowItems.map((item) => (
+                  <div key={getItemKey(item)}>{renderItem(item)}</div>
+                ))}
+              </section>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

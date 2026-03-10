@@ -87,7 +87,7 @@ describe('VirtualizedLiveChannelList', () => {
       return;
     }
 
-    scrollContainer.scrollTop = 50000;
+    scrollContainer.scrollTop = 200000;
     fireEvent.scroll(scrollContainer);
 
     await waitFor(() => {

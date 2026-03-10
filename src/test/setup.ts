@@ -1,8 +1,22 @@
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
+Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+  configurable: true,
+  get() {
+    return this.clientWidth ?? 0;
+  },
+});
+
+Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+  configurable: true,
+  get() {
+    return this.clientHeight ?? 0;
+  },
+});
+
 // Polyfill ResizeObserver for jsdom
-global.ResizeObserver = class ResizeObserver {
+(globalThis as any).ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
   disconnect() {}

@@ -62,11 +62,12 @@ export const LiveChannelRow = memo(function LiveChannelRow({
         <ItemDescription className="truncate">
           {channel.group_name || 'Ungrouped'}
         </ItemDescription>
-        {epgNowTitle ? (
-          <ItemDescription className="truncate text-emerald-700 text-xs">
-            Playing: {epgNowTitle}
-          </ItemDescription>
-        ) : null}
+        <ItemDescription
+          className={`truncate text-xs ${epgNowTitle ? 'text-emerald-700' : 'text-transparent'}`}
+          aria-hidden={!epgNowTitle}
+        >
+          {epgNowTitle ? `Playing: ${epgNowTitle}` : '\u00a0'}
+        </ItemDescription>
       </ItemContent>
 
       <ItemActions className="ml-auto">

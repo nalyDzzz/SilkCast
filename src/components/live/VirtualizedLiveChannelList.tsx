@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChannelRecord } from '@/components/app/types';
 import { LiveChannelRow } from '@/components/live/LiveChannelRow';
-import { getVirtualListRange } from '@/components/live/virtualList';
 
 type VirtualizedLiveChannelListProps = {
   channels: ChannelRecord[];
@@ -13,8 +13,16 @@ type VirtualizedLiveChannelListProps = {
   className?: string;
 };
 
-const DEFAULT_ROW_HEIGHT_PX = 72;
+const ESTIMATED_ROW_HEIGHT_PX = 80;
 const ROW_GAP_PX = 8;
+const OVERSCAN_ROWS = 8;
+
+function initialViewportHeight() {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+  return Math.max(window.innerHeight, ESTIMATED_ROW_HEIGHT_PX * 5);
+}
 
 export function VirtualizedLiveChannelList({
   channels,
@@ -26,94 +34,61 @@ export function VirtualizedLiveChannelList({
   className = '',
 }: VirtualizedLiveChannelListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT_PX);
+  const rowVirtualizer = useVirtualizer({
+    count: channels.length,
+    getScrollElement: () => containerRef.current,
+    getItemKey: (index) => channels[index]?.id ?? index,
+    initialRect: {
+      width: 0,
+      height: initialViewportHeight(),
+    },
+    estimateSize: () => ESTIMATED_ROW_HEIGHT_PX,
+    overscan: OVERSCAN_ROWS,
+    gap: ROW_GAP_PX,
+  });
 
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) {
-      return;
-    }
-
-    const updateMeasurements = () => {
-      setViewportHeight(element.clientHeight);
-    };
-
-    const onScroll = () => {
-      setScrollTop(element.scrollTop);
-    };
-
-    updateMeasurements();
-    element.addEventListener('scroll', onScroll, { passive: true });
-
-    const resizeObserver = new ResizeObserver(updateMeasurements);
-    resizeObserver.observe(element);
-
-    return () => {
-      element.removeEventListener('scroll', onScroll);
-      resizeObserver.disconnect();
-    };
-  }, []);
-
-  const range = useMemo(
-    () =>
-      getVirtualListRange({
-        itemCount: channels.length,
-        itemHeight: rowHeight,
-        gap: ROW_GAP_PX,
-        scrollTop,
-        viewportHeight,
-      }),
-    [channels.length, rowHeight, scrollTop, viewportHeight]
-  );
-
-  const visibleChannels = useMemo(
-    () => channels.slice(range.startIndex, range.endIndex),
-    [channels, range.endIndex, range.startIndex]
-  );
-
-  const handleMeasureRow = useCallback((element: HTMLDivElement | null) => {
-    if (!element) {
-      return;
-    }
-
-    const measuredHeight = element.getBoundingClientRect().height;
-    if (measuredHeight <= 0) {
-      return;
-    }
-
-    setRowHeight((currentHeight) =>
-      Math.abs(currentHeight - measuredHeight) < 1
-        ? currentHeight
-        : measuredHeight
-    );
-  }, []);
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
   return (
     <div
       ref={containerRef}
       className={`h-full min-h-0 overflow-y-auto pr-1 ${className}`}
     >
-      <div style={{ height: range.topSpacerHeight }} aria-hidden="true" />
-      <section className="flex flex-col gap-2">
-        {visibleChannels.map((channel, visibleIndex) => (
-          <div
-            key={channel.id}
-            ref={visibleIndex === 0 ? handleMeasureRow : undefined}
-          >
-            <LiveChannelRow
-              channel={channel}
-              epgNowTitle={epgNowByChannelId?.[channel.id] ?? null}
-              isActive={activeChannelId === channel.id}
-              isPlaying={playingChannelId === channel.id}
-              onPlay={onPlay}
-              onToggleFavorite={onToggleFavorite}
-            />
-          </div>
-        ))}
+      <section
+        className="relative"
+        style={{ height: rowVirtualizer.getTotalSize() }}
+      >
+        {virtualRows.map((virtualRow) => {
+          const channel = channels[virtualRow.index];
+          if (!channel) {
+            return null;
+          }
+
+          return (
+            <div
+              key={virtualRow.key}
+              ref={rowVirtualizer.measureElement}
+              data-index={virtualRow.index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <LiveChannelRow
+                channel={channel}
+                epgNowTitle={epgNowByChannelId?.[channel.id] ?? null}
+                isActive={activeChannelId === channel.id}
+                isPlaying={playingChannelId === channel.id}
+                onPlay={onPlay}
+                onToggleFavorite={onToggleFavorite}
+              />
+            </div>
+          );
+        })}
       </section>
-      <div style={{ height: range.bottomSpacerHeight }} aria-hidden="true" />
     </div>
   );
 }
