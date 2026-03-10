@@ -3,6 +3,7 @@ mod m3u;
 mod playback;
 mod xtream;
 
+use crate::foundation::update_source;
 use foundation::{
     append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
@@ -18,15 +19,17 @@ use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use tauri::{Manager, State};
 use xtream::{
     import_xtream_channels, list_xtream_live_epg, list_xtream_series_episodes, LiveEpgEntryRecord,
-    SeriesEpisodeRecord, XtreamConfig,
+    SeriesEpisodeRecord, XtreamConfig, XtreamEpgSession,
 };
-use crate::foundation::update_source;
 
 #[derive(Debug, Serialize)]
 struct SourceImportResult {
@@ -49,6 +52,20 @@ enum StartupResumeMode {
     ResumeWithWebDeferred,
 }
 
+const SOURCE_EPG_REFRESH_CONCURRENCY: usize = 8;
+
+#[derive(Clone)]
+struct SourceEpgRefreshJob {
+    channel_id: i64,
+    channel_name: String,
+    stream_id: String,
+}
+
+struct SourceEpgRefreshFetchOutcome {
+    channel_id: i64,
+    channel_name: String,
+    entries: Result<Vec<LiveEpgEntryRecord>, String>,
+}
 #[tauri::command]
 fn get_runtime_info(state: State<SharedState>) -> RuntimeInfo {
     RuntimeInfo {
@@ -212,32 +229,28 @@ fn refresh_source_epg(
     app: tauri::AppHandle,
     state: State<SharedState>,
 ) -> Result<SourceEpgRefreshResult, String> {
-    let result = refresh_source_epg_core(&state, source_id, limit)?;
+    validate_source_epg_refresh_request(&state.context.db_path, source_id)?;
 
-    emit_backend_event(
-        &app,
-        "epg_updated",
-        json!({
-            "source_id": result.source_id,
-            "refreshed_channels": result.refreshed_channels,
-            "channels_with_listings": result.channels_with_listings,
-            "failed_channels": result.failed_channels,
-        }),
-    )?;
+    let db_path = state.context.db_path.clone();
+    let log_path = state.context.log_path.clone();
+    let app_handle = app.clone();
 
     append_log(
-        &state.context.log_path,
+        &log_path,
         "INFO",
-        &format!(
-            "refreshed source epg {} (channels={}, with_listings={}, failed={})",
-            result.source_id,
-            result.refreshed_channels,
-            result.channels_with_listings,
-            result.failed_channels
-        ),
+        &format!("queued source epg refresh for source {source_id}"),
     )?;
 
-    Ok(result)
+    thread::spawn(move || {
+        run_source_epg_refresh_job(app_handle, db_path, log_path, source_id, limit);
+    });
+
+    Ok(SourceEpgRefreshResult {
+        source_id,
+        refreshed_channels: 0,
+        channels_with_listings: 0,
+        failed_channels: 0,
+    })
 }
 
 #[tauri::command]
@@ -1072,50 +1085,238 @@ fn refresh_registered_source_core(
     })
 }
 
-fn refresh_source_epg_core(
-    state: &SharedState,
-    source_id: i64,
-    limit: Option<u32>,
-) -> Result<SourceEpgRefreshResult, String> {
-    let source = get_source_by_id(&state.context.db_path, source_id)?
+fn validate_source_epg_refresh_request(db_path: &Path, source_id: i64) -> Result<(), String> {
+    let source = get_source_by_id(db_path, source_id)?
         .ok_or_else(|| format!("source {source_id} not found"))?;
 
     if source.source_type != "xtream" {
         return Err("EPG refresh is currently supported only for Xtream sources.".to_string());
     }
 
-    let live_channels = list_channels_for_source(
-        &state.context.db_path,
-        source_id,
-        Some("live"),
-        None,
-        None,
-        false,
-    )?;
+    XtreamConfig::from_value(&source.config)?;
+    Ok(())
+}
+
+fn run_source_epg_refresh_job<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    db_path: PathBuf,
+    log_path: PathBuf,
+    source_id: i64,
+    limit: Option<u32>,
+) {
+    match refresh_source_epg_core_with_paths(&db_path, &log_path, source_id, limit) {
+        Ok(result) => {
+            let _ = emit_backend_event(
+                &app,
+                "epg_updated",
+                json!({
+                    "source_id": result.source_id,
+                    "refreshed_channels": result.refreshed_channels,
+                    "channels_with_listings": result.channels_with_listings,
+                    "failed_channels": result.failed_channels,
+                }),
+            );
+
+            let _ = append_log(
+                &log_path,
+                "INFO",
+                &format!(
+                    "refreshed source epg {} (channels={}, with_listings={}, failed={})",
+                    result.source_id,
+                    result.refreshed_channels,
+                    result.channels_with_listings,
+                    result.failed_channels
+                ),
+            );
+        }
+        Err(err) => {
+            let _ = append_log(
+                &log_path,
+                "WARN",
+                &format!("source epg refresh failed for source {source_id}: {err}"),
+            );
+            let _ = emit_backend_event(
+                &app,
+                "epg_updated",
+                json!({
+                    "source_id": source_id,
+                    "refreshed_channels": 0,
+                    "channels_with_listings": 0,
+                    "failed_channels": 0,
+                    "error": err,
+                }),
+            );
+        }
+    }
+}
+
+fn refresh_source_epg_core_with_paths(
+    db_path: &Path,
+    log_path: &Path,
+    source_id: i64,
+    limit: Option<u32>,
+) -> Result<SourceEpgRefreshResult, String> {
+    let source = get_source_by_id(db_path, source_id)?
+        .ok_or_else(|| format!("source {source_id} not found"))?;
+
+    if source.source_type != "xtream" {
+        return Err("EPG refresh is currently supported only for Xtream sources.".to_string());
+    }
+
+    let xtream_config = XtreamConfig::from_value(&source.config)?;
+    let normalized_limit = normalize_epg_limit(limit);
+    let live_channels =
+        list_channels_for_source(db_path, source_id, Some("live"), None, None, false)?;
 
     let mut refreshed_channels = 0usize;
     let mut channels_with_listings = 0usize;
     let mut failed_channels = 0usize;
+    let mut jobs: Vec<SourceEpgRefreshJob> = Vec::new();
 
     for channel in live_channels {
-        match refresh_channel_epg_core(state, channel.id, limit) {
+        let Some(stream_id) = extract_live_stream_id(&channel) else {
+            match replace_live_epg_for_channel(db_path, channel.id, &[]) {
+                Ok(()) => {
+                    refreshed_channels += 1;
+                }
+                Err(err) => {
+                    failed_channels += 1;
+                    let _ = append_log(
+                        log_path,
+                        "WARN",
+                        &format!(
+                            "epg clear failed for channel {} ({}): {err}",
+                            channel.id, channel.name
+                        ),
+                    );
+                }
+            }
+            continue;
+        };
+
+        jobs.push(SourceEpgRefreshJob {
+            channel_id: channel.id,
+            channel_name: channel.name,
+            stream_id,
+        });
+    }
+
+    if jobs.is_empty() {
+        return Ok(SourceEpgRefreshResult {
+            source_id,
+            refreshed_channels,
+            channels_with_listings,
+            failed_channels,
+        });
+    }
+
+    XtreamEpgSession::new(xtream_config.clone())?;
+
+    let worker_count = SOURCE_EPG_REFRESH_CONCURRENCY.min(jobs.len());
+    let jobs = Arc::new(jobs);
+    let next_index = Arc::new(AtomicUsize::new(0));
+    let (tx, rx) = mpsc::channel::<SourceEpgRefreshFetchOutcome>();
+    let mut workers = Vec::with_capacity(worker_count);
+
+    for _ in 0..worker_count {
+        let tx = tx.clone();
+        let jobs = Arc::clone(&jobs);
+        let next_index = Arc::clone(&next_index);
+        let config = xtream_config.clone();
+
+        workers.push(thread::spawn(move || {
+            let Ok(session) = XtreamEpgSession::new(config) else {
+                return;
+            };
+
+            loop {
+                let job_index = next_index.fetch_add(1, Ordering::Relaxed);
+                if job_index >= jobs.len() {
+                    break;
+                }
+
+                let job = &jobs[job_index];
+                let entries = session.fetch_live_epg(&job.stream_id, normalized_limit);
+                let _ = tx.send(SourceEpgRefreshFetchOutcome {
+                    channel_id: job.channel_id,
+                    channel_name: job.channel_name.clone(),
+                    entries,
+                });
+            }
+        }));
+    }
+    drop(tx);
+
+    let mut processed_channel_ids: HashSet<i64> = HashSet::new();
+    for outcome in rx {
+        processed_channel_ids.insert(outcome.channel_id);
+
+        match outcome.entries {
             Ok(entries) => {
-                refreshed_channels += 1;
-                if !entries.is_empty() {
-                    channels_with_listings += 1;
+                let stored_entries = entries
+                    .iter()
+                    .map(api_live_epg_to_stored_record)
+                    .collect::<Vec<_>>();
+
+                match replace_live_epg_for_channel(db_path, outcome.channel_id, &stored_entries) {
+                    Ok(()) => {
+                        refreshed_channels += 1;
+                        if !entries.is_empty() {
+                            channels_with_listings += 1;
+                        }
+                    }
+                    Err(err) => {
+                        failed_channels += 1;
+                        let _ = append_log(
+                            log_path,
+                            "WARN",
+                            &format!(
+                                "epg store failed for channel {} ({}): {err}",
+                                outcome.channel_id, outcome.channel_name
+                            ),
+                        );
+                    }
                 }
             }
             Err(err) => {
                 failed_channels += 1;
                 let _ = append_log(
-                    &state.context.log_path,
+                    log_path,
                     "WARN",
                     &format!(
                         "epg refresh failed for channel {} ({}): {err}",
-                        channel.id, channel.name
+                        outcome.channel_id, outcome.channel_name
                     ),
                 );
             }
+        }
+    }
+
+    for worker in workers {
+        if worker.join().is_err() {
+            let _ = append_log(
+                log_path,
+                "WARN",
+                &format!("epg refresh worker panicked for source {source_id}"),
+            );
+        }
+    }
+
+    if processed_channel_ids.len() < jobs.len() {
+        for job in jobs.iter() {
+            if processed_channel_ids.contains(&job.channel_id) {
+                continue;
+            }
+
+            failed_channels += 1;
+            let _ = append_log(
+                log_path,
+                "WARN",
+                &format!(
+                    "epg refresh produced no result for channel {} ({})",
+                    job.channel_id, job.channel_name
+                ),
+            );
         }
     }
 

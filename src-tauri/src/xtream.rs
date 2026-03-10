@@ -104,10 +104,29 @@ pub fn list_xtream_live_epg(
     stream_id: &str,
     limit: usize,
 ) -> Result<Vec<LiveEpgEntryRecord>, String> {
-    let client = XtreamClient::new(config.clone())?;
-    client.fetch_live_epg(stream_id, limit)
+    let session = XtreamEpgSession::new(config.clone())?;
+    session.fetch_live_epg(stream_id, limit)
 }
 
+pub struct XtreamEpgSession {
+    client: XtreamClient,
+}
+
+impl XtreamEpgSession {
+    pub fn new(config: XtreamConfig) -> Result<Self, String> {
+        Ok(Self {
+            client: XtreamClient::new(config)?,
+        })
+    }
+
+    pub fn fetch_live_epg(
+        &self,
+        stream_id: &str,
+        limit: usize,
+    ) -> Result<Vec<LiveEpgEntryRecord>, String> {
+        self.client.fetch_live_epg(stream_id, limit)
+    }
+}
 pub fn list_xtream_series_episodes(
     config: &XtreamConfig,
     series_id: &str,

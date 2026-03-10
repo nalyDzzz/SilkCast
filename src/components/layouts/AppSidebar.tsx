@@ -20,8 +20,10 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAppStore } from '@/store/appStore.ts';
 import { useShallow } from 'zustand/react/shallow';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { type BackendEvent } from '@/components/app/types';
 import { refreshSourceEpg } from '@/lib/api/epgApi';
+import { subscribeBackendEvents } from '@/lib/api/eventsApi';
 
 const data = {
   navMain: [
@@ -80,6 +82,43 @@ export function AppSidebar() {
     isLiveRoute &&
     !isRefreshingEpg;
 
+  useEffect(() => {
+    if (selectedSourceId === null) {
+      setIsRefreshingEpg(false);
+    }
+  }, [selectedSourceId]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    void subscribeBackendEvents((backendEvent: BackendEvent) => {
+      if (backendEvent.event !== 'epg_updated') {
+        return;
+      }
+
+      const payloadSourceId = backendEvent.payload['source_id'];
+      if (
+        typeof payloadSourceId === 'number' &&
+        selectedSourceId !== null &&
+        payloadSourceId === selectedSourceId
+      ) {
+        setIsRefreshingEpg(false);
+      }
+    })
+      .then((unsubscribe) => {
+        unlisten = unsubscribe;
+      })
+      .catch(() => {
+        setIsRefreshingEpg(false);
+      });
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [selectedSourceId]);
+
   const handleLogout = () => {
     logout();
     navigate('/', { replace: true });
@@ -104,17 +143,15 @@ export function AppSidebar() {
     }
   };
 
-  const handleRefreshEpg = async () => {
+  const handleRefreshEpg = () => {
     if (!canRefreshEpg || selectedSourceId === null) {
       return;
     }
 
     setIsRefreshingEpg(true);
-    try {
-      await refreshSourceEpg(selectedSourceId, 2);
-    } finally {
+    void refreshSourceEpg(selectedSourceId, 2).catch(() => {
       setIsRefreshingEpg(false);
-    }
+    });
   };
 
   return (
