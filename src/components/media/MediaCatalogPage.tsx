@@ -1,82 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
+import { MediaCatalogContent } from '@/components/media/MediaCatalogContent';
+import { MediaCatalogFiltersBar } from '@/components/media/MediaCatalogFiltersBar';
+import { useLiveNowEpg } from '@/components/media/hooks/useLiveNowEpg';
+import { useMediaCatalogData } from '@/components/media/hooks/useMediaCatalogData';
+import { useMediaCatalogEvents } from '@/components/media/hooks/useMediaCatalogEvents';
+import { useMediaCatalogFilters } from '@/components/media/hooks/useMediaCatalogFilters';
+import { useMediaCatalogPlayback } from '@/components/media/hooks/useMediaCatalogPlayback';
+import { useSeriesEpisodes } from '@/components/media/hooks/useSeriesEpisodes';
 import {
-  BackendEvent,
-  ChannelRecord,
-  GroupRecord,
-  PlaybackStatus,
-  SeriesEpisodeRecord,
-} from '@/components/app/types';
-import { VirtualizedLiveChannelList } from '@/components/live/VirtualizedLiveChannelList';
-import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
-import { MovieCard } from '@/components/movies/MovieCard';
-import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Field, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  listSourceChannels,
-  setChannelFavoriteState,
-} from '@/lib/api/channelsApi';
-import { listChannelEpg } from '@/lib/api/epgApi';
-import { subscribeBackendEvents } from '@/lib/api/eventsApi';
-import { listSeriesEpisodes } from '@/lib/api/seriesApi';
-import { listSourceGroups } from '@/lib/api/sourcesApi';
+  MEDIA_COPY,
+  MediaCatalogKind,
+} from '@/components/media/mediaCatalogConfig';
 import { useAppStore } from '@/store/appStore';
-
-type MediaCatalogKind = 'live' | 'movie' | 'series';
-
-type MediaCatalogCopy = {
-  title: string;
-  singularLabel: string;
-  pluralLabel: string;
-  allGroupsValue: string;
-  favoritesFieldId: string;
-  searchPlaceholder: string;
-};
-
-const MEDIA_COPY: Record<MediaCatalogKind, MediaCatalogCopy> = {
-  live: {
-    title: 'Live TV',
-    singularLabel: 'Channel',
-    pluralLabel: 'channels',
-    allGroupsValue: '__all_live__',
-    favoritesFieldId: 'live-favorites-only',
-    searchPlaceholder: 'Search channels',
-  },
-  movie: {
-    title: 'Movies',
-    singularLabel: 'Movie',
-    pluralLabel: 'movies',
-    allGroupsValue: '__all_movies__',
-    favoritesFieldId: 'movies-favorites-only',
-    searchPlaceholder: 'Search movies',
-  },
-  series: {
-    title: 'Series',
-    singularLabel: 'Series',
-    pluralLabel: 'series',
-    allGroupsValue: '__all_series__',
-    favoritesFieldId: 'series-favorites-only',
-    searchPlaceholder: 'Search series',
-  },
-};
 
 type MediaCatalogPageProps = {
   mediaKind: MediaCatalogKind;
 };
-
-
-const LIVE_EPG_LIMIT = 2;
-const LIVE_EPG_REFRESH_CONCURRENCY = 8;
 
 export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const copy = MEDIA_COPY[mediaKind];
@@ -108,45 +49,6 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     }))
   );
 
-  const [items, setItems] = useState<ChannelRecord[]>([]);
-  const [groups, setGroups] = useState<GroupRecord[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState(copy.allGroupsValue);
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [playingItemId, setPlayingItemId] = useState<number | null>(null);
-  const [lastPlayedItemId, setLastPlayedItemId] = useState<number | null>(null);
-  const [playbackMessage, setPlaybackMessage] = useState<string | null>(null);
-  const [lastPlayedItemUrl, setLastPlayedItemUrl] = useState<string | null>(
-    null
-  );
-  const [brokenPosterIds, setBrokenPosterIds] = useState<Record<number, true>>(
-    {}
-  );
-  const [refreshVersion, setRefreshVersion] = useState(0);
-  const requestVersionRef = useRef(0);
-  const seriesRequestVersionRef = useRef(0);
-  const [selectedSeriesItem, setSelectedSeriesItem] =
-    useState<ChannelRecord | null>(null);
-  const [seriesEpisodes, setSeriesEpisodes] = useState<SeriesEpisodeRecord[]>(
-    []
-  );
-  const [seriesEpisodesLoading, setSeriesEpisodesLoading] = useState(false);
-  const [seriesEpisodesError, setSeriesEpisodesError] = useState<string | null>(
-    null
-  );
-  const [liveNowByChannelId, setLiveNowByChannelId] = useState<
-    Record<number, string>
-  >({});
-  const [epgRefreshVersion, setEpgRefreshVersion] = useState(0);
-  const liveNowRequestVersionRef = useRef(0);
-
-  const selectedGroupName = useMemo(
-    () => (selectedGroup === copy.allGroupsValue ? null : selectedGroup),
-    [copy.allGroupsValue, selectedGroup]
-  );
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === selectedSourceId) ?? null,
     [selectedSourceId, sources]
@@ -155,17 +57,101 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     () => mediaKind === 'series' && selectedSource?.source_type === 'xtream',
     [mediaKind, selectedSource?.source_type]
   );
-  const isViewingSeriesEpisodes = useMemo(
-    () =>
-      mediaKind === 'series' &&
-      supportsSeriesEpisodeList &&
-      selectedSeriesItem !== null,
-    [mediaKind, selectedSeriesItem, supportsSeriesEpisodeList]
-  );
   const activeItemId = useMemo(
     () => (activeChannel?.media_kind === mediaKind ? activeChannel.id : null),
     [activeChannel, mediaKind]
   );
+
+  const {
+    selectedGroup,
+    setSelectedGroup,
+    query,
+    setQuery,
+    debouncedQuery,
+    favoritesOnly,
+    setFavoritesOnly,
+    selectedGroupName,
+  } = useMediaCatalogFilters({
+    allGroupsValue: copy.allGroupsValue,
+  });
+
+  const {
+    items,
+    groups,
+    loading,
+    error,
+    reportError,
+    refreshCatalog,
+    handleToggleFavorite,
+  } = useMediaCatalogData({
+    selectedSourceId,
+    mediaKind,
+    selectedGroupName,
+    debouncedQuery,
+    favoritesOnly,
+  });
+
+  const navigateToPlayer = useCallback(() => {
+    navigate('/dashboard/player', {
+      state: {
+        returnTo: location.pathname,
+      },
+    });
+  }, [location.pathname, navigate]);
+
+  const {
+    playingItemId,
+    lastPlayedItemId,
+    playbackMessage,
+    brokenPosterIds,
+    handlePlayItem,
+    handlePosterError,
+    handleExternalPlaybackClosed,
+  } = useMediaCatalogPlayback({
+    singularLabel: copy.singularLabel,
+    preferredPlayer: settings.preferred_player,
+    playChannelRecord,
+    navigateToPlayer,
+    reportError,
+  });
+
+  const {
+    selectedSeriesItem,
+    seriesEpisodes,
+    seriesEpisodesLoading,
+    seriesEpisodesError,
+    isViewingSeriesEpisodes,
+    handleOpenSeries,
+    handlePlaySeriesEpisode,
+    handleBackToSeriesCatalog,
+  } = useSeriesEpisodes({
+    mediaKind,
+    selectedSourceId,
+    supportsSeriesEpisodeList,
+    playItem: handlePlayItem,
+  });
+
+  const { liveNowByChannelId, refreshEpg } = useLiveNowEpg({
+    mediaKind,
+    selectedSourceId,
+    selectedSourceType: selectedSource?.source_type,
+    items,
+  });
+
+  useMediaCatalogEvents({
+    mediaKind,
+    selectedSourceId,
+    loadSources,
+    loadSettings,
+    loadRecents,
+    loadPlaybackStatus,
+    setPlayback,
+    reportError,
+    onSourcesUpdated: refreshCatalog,
+    onEpgUpdated: refreshEpg,
+    onExternalPlaybackClosed: handleExternalPlaybackClosed,
+  });
+
   const catalogSummary = useMemo(() => {
     if (selectedSourceId === null) {
       return `Select or import a source to browse ${copy.pluralLabel}.`;
@@ -177,363 +163,6 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
 
     return `${items.length} ${copy.pluralLabel} available`;
   }, [copy.pluralLabel, items.length, loading, selectedSourceId]);
-
-  useEffect(() => {
-    void loadSources().catch((err) => setError(String(err)));
-    void loadSettings().catch((err) => setError(String(err)));
-
-    if (mediaKind === 'live') {
-      void loadRecents().catch((err) => setError(String(err)));
-      void loadPlaybackStatus().catch((err) => setError(String(err)));
-    }
-  }, [loadPlaybackStatus, loadRecents, loadSettings, loadSources, mediaKind]);
-
-  useEffect(() => {
-    if (selectedSourceId === null) {
-      navigate('/', { replace: true });
-    }
-  }, [navigate, selectedSourceId]);
-
-  useEffect(() => {
-    if (selectedSourceId === null) {
-      setGroups([]);
-      return;
-    }
-
-    void listSourceGroups(selectedSourceId, mediaKind)
-      .then(setGroups)
-      .catch((err) => setError(String(err)));
-  }, [mediaKind, refreshVersion, selectedSourceId]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    subscribeBackendEvents((backendEvent: BackendEvent) => {
-      if (
-        backendEvent.event === 'playback_state_changed' &&
-        mediaKind === 'live'
-      ) {
-        const playbackState = backendEvent.payload['state'] as
-          | PlaybackStatus
-          | undefined;
-
-        if (playbackState) {
-          setPlayback(playbackState);
-        }
-        return;
-      }
-
-      if (backendEvent.event === 'sources_updated') {
-        void loadSources().catch((err) => setError(String(err)));
-        setRefreshVersion((current) => current + 1);
-        return;
-      }
-
-      if (backendEvent.event === 'settings_updated') {
-        void loadSettings().catch((err) => setError(String(err)));
-        return;
-      }
-
-      if (backendEvent.event === 'recents_updated') {
-        void loadRecents().catch((err) => setError(String(err)));
-        return;
-      }
-
-      if (backendEvent.event === 'epg_updated') {
-        const payloadSourceId = backendEvent.payload['source_id'];
-        if (
-          typeof payloadSourceId === 'number' &&
-          selectedSourceId !== null &&
-          payloadSourceId === selectedSourceId
-        ) {
-          setEpgRefreshVersion((current) => current + 1);
-        }
-        return;
-      }
-
-      if (backendEvent.event !== 'external_playback_closed') {
-        return;
-      }
-
-      const closedUrl = backendEvent.payload['url'];
-      if (
-        typeof closedUrl === 'string' &&
-        lastPlayedItemUrl !== null &&
-        closedUrl === lastPlayedItemUrl
-      ) {
-        setPlayingItemId(null);
-        setLastPlayedItemId(null);
-        setLastPlayedItemUrl(null);
-        setPlaybackMessage(`${copy.singularLabel} playback ended.`);
-      }
-    })
-      .then((unsubscribe) => {
-        unlisten = unsubscribe;
-      })
-      .catch((err) => setError(String(err)));
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [
-    copy.singularLabel,
-    lastPlayedItemUrl,
-    loadRecents,
-    loadSettings,
-    loadSources,
-    mediaKind,
-    selectedSourceId,
-    setPlayback,
-  ]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDebouncedQuery(query);
-    }, 180);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [query]);
-
-  useEffect(() => {
-    seriesRequestVersionRef.current += 1;
-    setSelectedSeriesItem(null);
-    setSeriesEpisodes([]);
-    setSeriesEpisodesLoading(false);
-    setSeriesEpisodesError(null);
-  }, [mediaKind, selectedSourceId]);
-
-  useEffect(() => {
-    liveNowRequestVersionRef.current += 1;
-    setLiveNowByChannelId({});
-  }, [mediaKind, selectedSourceId]);
-
-  useEffect(() => {
-    if (selectedSourceId === null) {
-      setItems([]);
-      return;
-    }
-
-    const requestVersion = requestVersionRef.current + 1;
-    requestVersionRef.current = requestVersion;
-
-    setLoading(true);
-    setError(null);
-    void listSourceChannels({
-      sourceId: selectedSourceId,
-      mediaKind,
-      groupName: selectedGroupName,
-      query: debouncedQuery.trim() === '' ? null : debouncedQuery.trim(),
-      favoritesOnly,
-    })
-      .then((nextItems) => {
-        if (requestVersionRef.current === requestVersion) {
-          setItems(nextItems);
-        }
-      })
-      .catch((err) => {
-        if (requestVersionRef.current === requestVersion) {
-          setError(String(err));
-        }
-      })
-      .finally(() => {
-        if (requestVersionRef.current === requestVersion) {
-          setLoading(false);
-        }
-      });
-  }, [
-    debouncedQuery,
-    favoritesOnly,
-    mediaKind,
-    refreshVersion,
-    selectedGroupName,
-    selectedSourceId,
-  ]);
-
-  const handleToggleFavorite = useCallback(
-    async (item: ChannelRecord) => {
-      try {
-        await setChannelFavoriteState(item.id, !item.is_favorite);
-        setItems((current) =>
-          favoritesOnly && item.is_favorite
-            ? current.filter((currentItem) => currentItem.id !== item.id)
-            : current.map((currentItem) =>
-                currentItem.id === item.id
-                  ? {
-                      ...currentItem,
-                      is_favorite: !currentItem.is_favorite,
-                    }
-                  : currentItem
-              )
-        );
-      } catch (err) {
-        setError(String(err));
-      }
-    },
-    [favoritesOnly]
-  );
-
-  const loadLiveNowLines = useCallback(async () => {
-    if (mediaKind !== 'live' || selectedSource?.source_type !== 'xtream') {
-      setLiveNowByChannelId({});
-      return;
-    }
-
-    if (items.length === 0) {
-      setLiveNowByChannelId({});
-      return;
-    }
-
-    const requestVersion = liveNowRequestVersionRef.current + 1;
-    liveNowRequestVersionRef.current = requestVersion;
-
-    const nextMap: Record<number, string> = {};
-
-    for (
-      let index = 0;
-      index < items.length;
-      index += LIVE_EPG_REFRESH_CONCURRENCY
-    ) {
-      const chunk = items.slice(index, index + LIVE_EPG_REFRESH_CONCURRENCY);
-      const chunkResults = await Promise.all(
-        chunk.map(async (channel) => {
-          try {
-            const entries = await listChannelEpg(channel.id, LIVE_EPG_LIMIT);
-            return {
-              channelId: channel.id,
-              title: entries[0]?.title ?? null,
-            };
-          } catch {
-            return {
-              channelId: channel.id,
-              title: null,
-            };
-          }
-        })
-      );
-
-      if (liveNowRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-
-      for (const result of chunkResults) {
-        if (result.title) {
-          nextMap[result.channelId] = result.title;
-        }
-      }
-    }
-
-    if (liveNowRequestVersionRef.current === requestVersion) {
-      setLiveNowByChannelId(nextMap);
-    }
-  }, [items, mediaKind, selectedSource?.source_type]);
-
-  useEffect(() => {
-    void loadLiveNowLines();
-  }, [epgRefreshVersion, loadLiveNowLines]);
-  const handlePlayItem = useCallback(
-    async (item: ChannelRecord) => {
-      try {
-        setPlayingItemId(item.id);
-        setPlaybackMessage(`Starting "${item.name}"...`);
-        await playChannelRecord(item);
-        setLastPlayedItemId(item.id);
-        setLastPlayedItemUrl(
-          settings.preferred_player === 'mpv' ? item.stream_url : null
-        );
-        setPlaybackMessage(
-          settings.preferred_player === 'mpv'
-            ? `Now playing "${item.name}" in MPV pop-out.`
-            : `Now playing "${item.name}" in the in-app player.`
-        );
-
-        if (settings.preferred_player === 'web') {
-          navigate('/dashboard/player', {
-            state: {
-              returnTo: location.pathname,
-            },
-          });
-        }
-      } catch (err) {
-        setError(String(err));
-        setPlaybackMessage(null);
-      } finally {
-        setPlayingItemId(null);
-      }
-    },
-    [location.pathname, navigate, playChannelRecord, settings.preferred_player]
-  );
-
-  const handlePosterError = useCallback((itemId: number) => {
-    setBrokenPosterIds((current) => {
-      if (current[itemId]) {
-        return current;
-      }
-      return {
-        ...current,
-        [itemId]: true,
-      };
-    });
-  }, []);
-
-  const handleOpenSeries = useCallback(
-    async (item: ChannelRecord) => {
-      if (!supportsSeriesEpisodeList) {
-        await handlePlayItem(item);
-        return;
-      }
-
-      const requestVersion = seriesRequestVersionRef.current + 1;
-      seriesRequestVersionRef.current = requestVersion;
-
-      setSelectedSeriesItem(item);
-      setSeriesEpisodes([]);
-      setSeriesEpisodesError(null);
-      setSeriesEpisodesLoading(true);
-
-      try {
-        const episodes = await listSeriesEpisodes(item.id);
-        if (seriesRequestVersionRef.current === requestVersion) {
-          setSeriesEpisodes(episodes);
-        }
-      } catch (err) {
-        if (seriesRequestVersionRef.current === requestVersion) {
-          setSeriesEpisodesError(String(err));
-        }
-      } finally {
-        if (seriesRequestVersionRef.current === requestVersion) {
-          setSeriesEpisodesLoading(false);
-        }
-      }
-    },
-    [handlePlayItem, supportsSeriesEpisodeList]
-  );
-
-  const handlePlaySeriesEpisode = useCallback(
-    (episode: SeriesEpisodeRecord) => {
-      if (!selectedSeriesItem) {
-        return;
-      }
-
-      void handlePlayItem({
-        ...selectedSeriesItem,
-        name: `${selectedSeriesItem.name} - ${episode.title}`,
-        stream_url: episode.stream_url,
-      });
-    },
-    [handlePlayItem, selectedSeriesItem]
-  );
-
-  const handleBackToSeriesCatalog = useCallback(() => {
-    seriesRequestVersionRef.current += 1;
-    setSelectedSeriesItem(null);
-    setSeriesEpisodes([]);
-    setSeriesEpisodesLoading(false);
-    setSeriesEpisodesError(null);
-  }, []);
 
   return (
     <main className="box-border h-full overflow-hidden p-4 md:p-6">
@@ -551,40 +180,19 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
           </p>
         ) : null}
 
-        <div className="grid gap-3 rounded-xl border bg-card/80 p-3 backdrop-blur md:grid-cols-[1fr_220px_180px]">
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder={copy.searchPlaceholder}
-            disabled={selectedSourceId === null}
-          />
-          <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-            <SelectTrigger disabled={selectedSourceId === null}>
-              <SelectValue placeholder="All groups" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={copy.allGroupsValue}>All groups</SelectItem>
-              {groups.map((group) => (
-                <SelectItem key={group.name} value={group.name}>
-                  {group.name} ({group.channel_count})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Field
-            orientation="horizontal"
-            className="justify-start rounded-md border px-3"
-          >
-            <Checkbox
-              id={copy.favoritesFieldId}
-              checked={favoritesOnly}
-              onCheckedChange={(checked) => setFavoritesOnly(checked === true)}
-            />
-            <FieldLabel htmlFor={copy.favoritesFieldId}>
-              Favorites only
-            </FieldLabel>
-          </Field>
-        </div>
+        <MediaCatalogFiltersBar
+          query={query}
+          onQueryChange={setQuery}
+          selectedGroup={selectedGroup}
+          onSelectedGroupChange={setSelectedGroup}
+          groups={groups}
+          allGroupsValue={copy.allGroupsValue}
+          searchPlaceholder={copy.searchPlaceholder}
+          favoritesFieldId={copy.favoritesFieldId}
+          favoritesOnly={favoritesOnly}
+          onFavoritesOnlyChange={setFavoritesOnly}
+          disabled={selectedSourceId === null}
+        />
 
         {error ? (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -593,52 +201,26 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         ) : null}
 
         <div className="min-h-0 flex-1">
-          {mediaKind === 'live' ? (
-            <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
-              <VirtualizedLiveChannelList
-                channels={items}
-                epgNowByChannelId={liveNowByChannelId}
-                activeChannelId={activeItemId}
-                playingChannelId={playingItemId}
-                onPlay={(nextItem) => void handlePlayItem(nextItem)}
-                onToggleFavorite={(nextItem) =>
-                  void handleToggleFavorite(nextItem)
-                }
-              />
-            </div>
-          ) : isViewingSeriesEpisodes && selectedSeriesItem ? (
-            <SeriesEpisodeList
-              series={selectedSeriesItem}
-              episodes={seriesEpisodes}
-              loading={seriesEpisodesLoading}
-              error={seriesEpisodesError}
-              playingSeriesId={playingItemId}
-              onBack={handleBackToSeriesCatalog}
-              onPlayEpisode={handlePlaySeriesEpisode}
-            />
-          ) : (
-            <VirtualizedMovieGrid
-              items={items}
-              getItemKey={(item) => item.id}
-              renderItem={(item) => (
-                <MovieCard
-                  movie={item}
-                  isPlaying={playingItemId === item.id}
-                  isLastPlayed={lastPlayedItemId === item.id}
-                  isPosterBroken={Boolean(brokenPosterIds[item.id])}
-                  onPlay={(nextItem) =>
-                    mediaKind === 'series'
-                      ? void handleOpenSeries(nextItem)
-                      : void handlePlayItem(nextItem)
-                  }
-                  onToggleFavorite={(nextItem) =>
-                    void handleToggleFavorite(nextItem)
-                  }
-                  onPosterError={handlePosterError}
-                />
-              )}
-            />
-          )}
+          <MediaCatalogContent
+            mediaKind={mediaKind}
+            items={items}
+            liveNowByChannelId={liveNowByChannelId}
+            activeItemId={activeItemId}
+            playingItemId={playingItemId}
+            lastPlayedItemId={lastPlayedItemId}
+            brokenPosterIds={brokenPosterIds}
+            isViewingSeriesEpisodes={isViewingSeriesEpisodes}
+            selectedSeriesItem={selectedSeriesItem}
+            seriesEpisodes={seriesEpisodes}
+            seriesEpisodesLoading={seriesEpisodesLoading}
+            seriesEpisodesError={seriesEpisodesError}
+            onPlayItem={handlePlayItem}
+            onToggleFavorite={handleToggleFavorite}
+            onOpenSeries={handleOpenSeries}
+            onPlaySeriesEpisode={handlePlaySeriesEpisode}
+            onBackToSeriesCatalog={handleBackToSeriesCatalog}
+            onPosterError={handlePosterError}
+          />
         </div>
 
         {!loading && !isViewingSeriesEpisodes && items.length === 0 ? (
