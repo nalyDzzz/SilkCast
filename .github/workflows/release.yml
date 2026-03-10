@@ -27,7 +27,29 @@ jobs:
       - name: Install MPV runtime
         shell: powershell
         run: |
+          function Find-LibMpvDll {
+            param(
+              [string[]]$Roots,
+              [string[]]$Names
+            )
+
+            foreach ($name in $Names) {
+              foreach ($root in $Roots) {
+                if (-not (Test-Path $root)) {
+                  continue
+                }
+                $candidate = Get-ChildItem -Path $root -Recurse -File -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($candidate) {
+                  return $candidate
+                }
+              }
+            }
+
+            return $null
+          }
+
           choco install mpv -y --no-progress
+
           $dllNames = @("mpv-2.dll", "libmpv-2.dll", "mpv.dll")
           $searchRoots = @(
             "C:\ProgramData\chocolatey\lib\mpv\tools",
@@ -37,22 +59,63 @@ jobs:
             "C:\ProgramData\chocolatey\lib"
           ) | Where-Object { Test-Path $_ }
 
-          $foundDll = $null
-          foreach ($name in $dllNames) {
-            foreach ($root in $searchRoots) {
-              $candidate = Get-ChildItem -Path $root -Recurse -File -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
-              if ($candidate) {
-                $foundDll = $candidate
+          $foundDll = Find-LibMpvDll -Roots $searchRoots -Names $dllNames
+
+          if (-not $foundDll) {
+            Write-Host "No libmpv DLL found in Chocolatey mpv package. Falling back to shinchiro mpv-dev build."
+
+            if (-not (Get-Command 7z.exe -ErrorAction SilentlyContinue)) {
+              choco install 7zip -y --no-progress
+            }
+
+            $sevenZipPath = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+            if (-not $sevenZipPath -and (Test-Path "C:\Program Files\7-Zip\7z.exe")) {
+              $sevenZipPath = "C:\Program Files\7-Zip\7z.exe"
+            }
+            if (-not $sevenZipPath) {
+              throw "7z.exe not found after installing 7zip."
+            }
+
+            $releaseApi = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+            $release = Invoke-RestMethod -Uri $releaseApi -Headers @{
+              "Accept" = "application/vnd.github+json"
+              "User-Agent" = "silkcast-release-workflow"
+            }
+
+            $assetPatterns = @(
+              '^mpv-dev-x86_64-[0-9]{8}-git-.*\.7z$',
+              '^mpv-dev-x86_64-v3-[0-9]{8}-git-.*\.7z$',
+              '^mpv-dev-x86_64-gcc-[0-9]{8}-git-.*\.7z$',
+              '^mpv-dev-x86_64.*\.7z$'
+            )
+
+            $selectedAsset = $null
+            foreach ($pattern in $assetPatterns) {
+              $selectedAsset = $release.assets | Where-Object { $_.name -match $pattern } | Select-Object -First 1
+              if ($selectedAsset) {
                 break
               }
             }
-            if ($foundDll) { break }
-          }
 
-          if (-not $foundDll) {
-            Write-Host "Searched roots:"
-            $searchRoots | ForEach-Object { Write-Host " - $_" }
-            throw "No libmpv runtime DLL found after Chocolatey install. Tried: $($dllNames -join ', ')"
+            if (-not $selectedAsset) {
+              throw "Could not locate an mpv-dev x86_64 asset in shinchiro/mpv-winbuild-cmake latest release."
+            }
+
+            $archivePath = Join-Path $env:RUNNER_TEMP $selectedAsset.name
+            $extractDir = Join-Path $env:RUNNER_TEMP "mpv-dev-runtime"
+
+            Invoke-WebRequest -Uri $selectedAsset.browser_download_url -OutFile $archivePath
+            if (Test-Path $extractDir) {
+              Remove-Item -Path $extractDir -Recurse -Force
+            }
+            New-Item -Path $extractDir -ItemType Directory | Out-Null
+
+            & $sevenZipPath x $archivePath "-o$extractDir" -y | Out-Null
+
+            $foundDll = Find-LibMpvDll -Roots @($extractDir) -Names $dllNames
+            if (-not $foundDll) {
+              throw "Fallback mpv-dev archive was extracted but no libmpv DLL was found. Tried: $($dllNames -join ', ')"
+            }
           }
 
           $mpvDllDir = Split-Path -Path $foundDll.FullName -Parent
