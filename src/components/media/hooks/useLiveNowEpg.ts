@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChannelRecord } from '@/components/app/types';
 import { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
-import { listChannelEpg } from '@/lib/api/epgApi';
-
-const LIVE_EPG_LIMIT = 2;
-const LIVE_EPG_REFRESH_CONCURRENCY = 8;
+import { listSourceLiveNowEpg } from '@/lib/api/epgApi';
 
 type UseLiveNowEpgArgs = {
   mediaKind: MediaCatalogKind;
@@ -48,46 +45,34 @@ export function useLiveNowEpg({
     const requestVersion = liveNowRequestVersionRef.current + 1;
     liveNowRequestVersionRef.current = requestVersion;
 
+    if (selectedSourceId === null) {
+      setLiveNowByChannelId({});
+      return;
+    }
+
+    let records: Awaited<ReturnType<typeof listSourceLiveNowEpg>>;
+    try {
+      records = await listSourceLiveNowEpg(selectedSourceId);
+    } catch {
+      if (liveNowRequestVersionRef.current === requestVersion) {
+        setLiveNowByChannelId({});
+      }
+      return;
+    }
+
+    if (liveNowRequestVersionRef.current !== requestVersion) {
+      return;
+    }
+
     const nextMap: Record<number, string> = {};
-
-    for (
-      let index = 0;
-      index < items.length;
-      index += LIVE_EPG_REFRESH_CONCURRENCY
-    ) {
-      const chunk = items.slice(index, index + LIVE_EPG_REFRESH_CONCURRENCY);
-      const chunkResults = await Promise.all(
-        chunk.map(async (channel) => {
-          try {
-            const entries = await listChannelEpg(channel.id, LIVE_EPG_LIMIT);
-            return {
-              channelId: channel.id,
-              title: entries[0]?.title ?? null,
-            };
-          } catch {
-            return {
-              channelId: channel.id,
-              title: null,
-            };
-          }
-        })
-      );
-
-      if (liveNowRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-
-      for (const result of chunkResults) {
-        if (result.title) {
-          nextMap[result.channelId] = result.title;
-        }
-      }
+    for (const record of records) {
+      nextMap[record.channel_id] = record.title;
     }
 
     if (liveNowRequestVersionRef.current === requestVersion) {
       setLiveNowByChannelId(nextMap);
     }
-  }, [items, mediaKind, selectedSourceType]);
+  }, [items.length, mediaKind, selectedSourceId, selectedSourceType]);
 
   useEffect(() => {
     void loadLiveNowLines();

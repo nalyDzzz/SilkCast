@@ -7,12 +7,13 @@ use crate::foundation::update_source;
 use foundation::{
     append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
-    install_crash_hook, list_channels_for_source, list_groups_for_source,
-    list_live_epg_for_channel, list_recent_channels, list_sources, load_phase1_settings,
-    record_recent_play, replace_channels_for_source, replace_live_epg_for_channel,
+    install_crash_hook, list_channels_for_source, list_fresh_live_epg_channel_ids,
+    list_groups_for_source, list_live_epg_for_channel, list_live_now_epg_for_source,
+    list_recent_channels, list_sources, load_phase1_settings, record_recent_play,
+    replace_channels_for_source, replace_live_epg_for_channel, replace_live_epg_for_channels,
     save_phase1_settings, set_channel_favorite, set_setting, ChannelRecord, GroupRecord,
     Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
-    StoredLiveEpgEntryRecord,
+    StoredLiveEpgChannelEntries, StoredLiveEpgEntryRecord, StoredLiveNowEpgRecord,
 };
 use m3u::{load_m3u_location, parse_m3u_channels};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
@@ -25,6 +26,7 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Manager, State};
 use xtream::{
     import_xtream_channels, list_xtream_live_epg, list_xtream_series_episodes, LiveEpgEntryRecord,
@@ -43,6 +45,7 @@ struct SourceEpgRefreshResult {
     refreshed_channels: usize,
     channels_with_listings: usize,
     failed_channels: usize,
+    skipped_channels: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +56,14 @@ enum StartupResumeMode {
 }
 
 const SOURCE_EPG_REFRESH_CONCURRENCY: usize = 8;
+const SOURCE_EPG_REFRESH_FRESH_SECONDS: i64 = 6 * 60 * 60;
+
+fn current_unix_ts() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
 
 #[derive(Clone)]
 struct SourceEpgRefreshJob {
@@ -250,6 +261,7 @@ fn refresh_source_epg(
         refreshed_channels: 0,
         channels_with_listings: 0,
         failed_channels: 0,
+        skipped_channels: 0,
     })
 }
 
@@ -351,6 +363,14 @@ fn list_channel_epg(
     state: State<SharedState>,
 ) -> Result<Vec<LiveEpgEntryRecord>, String> {
     list_channel_epg_core(&state, channel_id, limit)
+}
+
+#[tauri::command]
+fn list_source_live_now_epg(
+    source_id: i64,
+    state: State<SharedState>,
+) -> Result<Vec<StoredLiveNowEpgRecord>, String> {
+    list_live_now_epg_for_source(&state.context.db_path, source_id)
 }
 
 fn list_channel_epg_core(
@@ -1114,6 +1134,7 @@ fn run_source_epg_refresh_job<R: tauri::Runtime>(
                     "refreshed_channels": result.refreshed_channels,
                     "channels_with_listings": result.channels_with_listings,
                     "failed_channels": result.failed_channels,
+                    "skipped_channels": result.skipped_channels,
                 }),
             );
 
@@ -1121,10 +1142,11 @@ fn run_source_epg_refresh_job<R: tauri::Runtime>(
                 &log_path,
                 "INFO",
                 &format!(
-                    "refreshed source epg {} (channels={}, with_listings={}, failed={})",
+                    "refreshed source epg {} (channels={}, with_listings={}, skipped={}, failed={})",
                     result.source_id,
                     result.refreshed_channels,
                     result.channels_with_listings,
+                    result.skipped_channels,
                     result.failed_channels
                 ),
             );
@@ -1143,6 +1165,7 @@ fn run_source_epg_refresh_job<R: tauri::Runtime>(
                     "refreshed_channels": 0,
                     "channels_with_listings": 0,
                     "failed_channels": 0,
+                    "skipped_channels": 0,
                     "error": err,
                 }),
             );
@@ -1167,30 +1190,27 @@ fn refresh_source_epg_core_with_paths(
     let normalized_limit = normalize_epg_limit(limit);
     let live_channels =
         list_channels_for_source(db_path, source_id, Some("live"), None, None, false)?;
+    let fresh_cutoff = current_unix_ts().saturating_sub(SOURCE_EPG_REFRESH_FRESH_SECONDS);
+    let fresh_channel_ids = list_fresh_live_epg_channel_ids(db_path, source_id, fresh_cutoff)?;
 
     let mut refreshed_channels = 0usize;
     let mut channels_with_listings = 0usize;
     let mut failed_channels = 0usize;
+    let mut skipped_channels = 0usize;
     let mut jobs: Vec<SourceEpgRefreshJob> = Vec::new();
+    let mut pending_replacements: Vec<StoredLiveEpgChannelEntries> = Vec::new();
 
     for channel in live_channels {
+        if fresh_channel_ids.contains(&channel.id) {
+            skipped_channels += 1;
+            continue;
+        }
+
         let Some(stream_id) = extract_live_stream_id(&channel) else {
-            match replace_live_epg_for_channel(db_path, channel.id, &[]) {
-                Ok(()) => {
-                    refreshed_channels += 1;
-                }
-                Err(err) => {
-                    failed_channels += 1;
-                    let _ = append_log(
-                        log_path,
-                        "WARN",
-                        &format!(
-                            "epg clear failed for channel {} ({}): {err}",
-                            channel.id, channel.name
-                        ),
-                    );
-                }
-            }
+            pending_replacements.push(StoredLiveEpgChannelEntries {
+                channel_id: channel.id,
+                entries: Vec::new(),
+            });
             continue;
         };
 
@@ -1207,6 +1227,7 @@ fn refresh_source_epg_core_with_paths(
             refreshed_channels,
             channels_with_listings,
             failed_channels,
+            skipped_channels,
         });
     }
 
@@ -1248,6 +1269,7 @@ fn refresh_source_epg_core_with_paths(
     drop(tx);
 
     let mut processed_channel_ids: HashSet<i64> = HashSet::new();
+    let mut fetched_channels_with_listings = 0usize;
     for outcome in rx {
         processed_channel_ids.insert(outcome.channel_id);
 
@@ -1258,25 +1280,13 @@ fn refresh_source_epg_core_with_paths(
                     .map(api_live_epg_to_stored_record)
                     .collect::<Vec<_>>();
 
-                match replace_live_epg_for_channel(db_path, outcome.channel_id, &stored_entries) {
-                    Ok(()) => {
-                        refreshed_channels += 1;
-                        if !entries.is_empty() {
-                            channels_with_listings += 1;
-                        }
-                    }
-                    Err(err) => {
-                        failed_channels += 1;
-                        let _ = append_log(
-                            log_path,
-                            "WARN",
-                            &format!(
-                                "epg store failed for channel {} ({}): {err}",
-                                outcome.channel_id, outcome.channel_name
-                            ),
-                        );
-                    }
+                if !entries.is_empty() {
+                    fetched_channels_with_listings += 1;
                 }
+                pending_replacements.push(StoredLiveEpgChannelEntries {
+                    channel_id: outcome.channel_id,
+                    entries: stored_entries,
+                });
             }
             Err(err) => {
                 failed_channels += 1;
@@ -1299,6 +1309,23 @@ fn refresh_source_epg_core_with_paths(
                 "WARN",
                 &format!("epg refresh worker panicked for source {source_id}"),
             );
+        }
+    }
+
+    if !pending_replacements.is_empty() {
+        match replace_live_epg_for_channels(db_path, &pending_replacements) {
+            Ok(()) => {
+                refreshed_channels += pending_replacements.len();
+                channels_with_listings += fetched_channels_with_listings;
+            }
+            Err(err) => {
+                failed_channels += pending_replacements.len();
+                let _ = append_log(
+                    log_path,
+                    "WARN",
+                    &format!("epg batch store failed for source {source_id}: {err}"),
+                );
+            }
         }
     }
 
@@ -1325,6 +1352,7 @@ fn refresh_source_epg_core_with_paths(
         refreshed_channels,
         channels_with_listings,
         failed_channels,
+        skipped_channels,
     })
 }
 
@@ -1642,6 +1670,7 @@ pub fn run() {
             list_source_channels,
             list_series_episodes,
             list_channel_epg,
+            list_source_live_now_epg,
             refresh_channel_epg,
             set_channel_favorite_state,
             list_recently_played,

@@ -41,6 +41,11 @@ export type LiveEpgEntryRecord = {
   end_timestamp: number | null;
 };
 
+export type LiveNowEpgRecord = {
+  channel_id: number;
+  title: string;
+};
+
 export type RecentChannelRecord = {
   channel: ChannelRecord;
   played_at: number;
@@ -81,6 +86,7 @@ export type SourceEpgRefreshResult = {
   refreshed_channels: number;
   channels_with_listings: number;
   failed_channels: number;
+  skipped_channels: number;
 };
 
 export const ALL_GROUPS = '__all__';
@@ -91,4 +97,3 @@ export const DEFAULT_SETTINGS: Phase1Settings = {
   startup_behavior: 'home',
   preferred_player: 'web',
 };
-

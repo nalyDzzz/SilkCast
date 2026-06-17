@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -113,6 +113,18 @@ pub struct StoredLiveEpgEntryRecord {
     pub end: Option<String>,
     pub start_timestamp: Option<i64>,
     pub end_timestamp: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredLiveEpgChannelEntries {
+    pub channel_id: i64,
+    pub entries: Vec<StoredLiveEpgEntryRecord>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StoredLiveNowEpgRecord {
+    pub channel_id: i64,
+    pub title: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -247,6 +259,12 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
               ON live_epg_entries(channel_id);
             CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel_start
               ON live_epg_entries(channel_id, start_timestamp);
+
+            CREATE TABLE IF NOT EXISTS live_epg_channel_refreshes (
+              channel_id INTEGER PRIMARY KEY,
+              fetched_at INTEGER NOT NULL,
+              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
+            );
             "#,
         )
         .map_err(|e| format!("db migration failed: {e}"))?;
@@ -761,40 +779,68 @@ pub fn replace_live_epg_for_channel(
     channel_id: i64,
     entries: &[StoredLiveEpgEntryRecord],
 ) -> Result<(), String> {
+    replace_live_epg_for_channels(
+        db_path,
+        &[StoredLiveEpgChannelEntries {
+            channel_id,
+            entries: entries.to_vec(),
+        }],
+    )
+}
+
+pub fn replace_live_epg_for_channels(
+    db_path: &Path,
+    channel_entries: &[StoredLiveEpgChannelEntries],
+) -> Result<(), String> {
+    if channel_entries.is_empty() {
+        return Ok(());
+    }
+
     let mut connection = open_connection(db_path)?;
     let tx = connection
         .transaction()
         .map_err(|e| format!("transaction start failed: {e}"))?;
+    let fetched_at = unix_ts();
 
-    tx.execute(
-        "DELETE FROM live_epg_entries WHERE channel_id = ?1",
-        params![channel_id],
-    )
-    .map_err(|e| format!("delete live epg entries failed: {e}"))?;
+    for channel_entry in channel_entries {
+        tx.execute(
+            "DELETE FROM live_epg_entries WHERE channel_id = ?1",
+            params![channel_entry.channel_id],
+        )
+        .map_err(|e| format!("delete live epg entries failed: {e}"))?;
+        tx.execute(
+            r#"
+            INSERT INTO live_epg_channel_refreshes(channel_id, fetched_at)
+            VALUES (?1, ?2)
+            ON CONFLICT(channel_id) DO UPDATE SET fetched_at = excluded.fetched_at
+            "#,
+            params![channel_entry.channel_id, fetched_at],
+        )
+        .map_err(|e| format!("upsert live epg refresh status failed: {e}"))?;
+    }
 
-    if !entries.is_empty() {
-        let fetched_at = unix_ts();
-        let mut statement = tx
-            .prepare(
-                r#"
-                INSERT INTO live_epg_entries(
-                  channel_id,
-                  title,
-                  description,
-                  start_at,
-                  end_at,
-                  start_timestamp,
-                  end_timestamp,
-                  fetched_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                "#,
-            )
-            .map_err(|e| format!("prepare insert live epg failed: {e}"))?;
+    let mut statement = tx
+        .prepare(
+            r#"
+            INSERT INTO live_epg_entries(
+              channel_id,
+              title,
+              description,
+              start_at,
+              end_at,
+              start_timestamp,
+              end_timestamp,
+              fetched_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+        )
+        .map_err(|e| format!("prepare insert live epg failed: {e}"))?;
 
-        for entry in entries {
+    for channel_entry in channel_entries {
+        for entry in &channel_entry.entries {
             statement
                 .execute(params![
-                    channel_id,
+                    channel_entry.channel_id,
                     entry.title,
                     entry.description,
                     entry.start,
@@ -805,10 +851,9 @@ pub fn replace_live_epg_for_channel(
                 ])
                 .map_err(|e| format!("insert live epg entry failed: {e}"))?;
         }
-
-        drop(statement);
     }
 
+    drop(statement);
     tx.commit()
         .map_err(|e| format!("transaction commit failed: {e}"))?;
 
@@ -871,6 +916,92 @@ pub fn list_live_epg_for_channel(
     }
 
     Ok(entries)
+}
+
+pub fn list_fresh_live_epg_channel_ids(
+    db_path: &Path,
+    source_id: i64,
+    min_fetched_at: i64,
+) -> Result<HashSet<i64>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT c.id
+            FROM channels c
+            JOIN live_epg_channel_refreshes r ON r.channel_id = c.id
+            WHERE c.source_id = ?1
+              AND c.media_kind = 'live'
+              AND r.fetched_at >= ?2
+            "#,
+        )
+        .map_err(|e| format!("prepare fresh live epg lookup failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![source_id, min_fetched_at])
+        .map_err(|e| format!("query fresh live epg lookup failed: {e}"))?;
+
+    let mut channel_ids = HashSet::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| format!("read fresh epg row failed: {e}"))?
+    {
+        channel_ids.insert(
+            row.get(0)
+                .map_err(|e| format!("decode fresh epg channel id failed: {e}"))?,
+        );
+    }
+
+    Ok(channel_ids)
+}
+
+pub fn list_live_now_epg_for_source(
+    db_path: &Path,
+    source_id: i64,
+) -> Result<Vec<StoredLiveNowEpgRecord>, String> {
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT c.id, e.title
+            FROM channels c
+            JOIN live_epg_entries e ON e.id = (
+              SELECT inner_e.id
+              FROM live_epg_entries inner_e
+              WHERE inner_e.channel_id = c.id
+              ORDER BY
+                CASE WHEN inner_e.start_timestamp IS NULL THEN 1 ELSE 0 END,
+                inner_e.start_timestamp ASC,
+                inner_e.id ASC
+              LIMIT 1
+            )
+            WHERE c.source_id = ?1
+              AND c.media_kind = 'live'
+            ORDER BY c.name COLLATE NOCASE ASC
+            "#,
+        )
+        .map_err(|e| format!("prepare live now epg lookup failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![source_id])
+        .map_err(|e| format!("query live now epg lookup failed: {e}"))?;
+
+    let mut records = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| format!("read live now epg row failed: {e}"))?
+    {
+        records.push(StoredLiveNowEpgRecord {
+            channel_id: row
+                .get(0)
+                .map_err(|e| format!("decode live now channel id failed: {e}"))?,
+            title: row
+                .get(1)
+                .map_err(|e| format!("decode live now title failed: {e}"))?,
+        });
+    }
+
+    Ok(records)
 }
 
 pub fn append_log(log_path: &Path, level: &str, message: &str) -> Result<(), String> {
@@ -1412,6 +1543,22 @@ mod tests {
         assert_eq!(first_read.len(), 2);
         assert_eq!(first_read[0].title, "Morning News");
 
+        let live_now = list_live_now_epg_for_source(&context.db_path, source_id)
+            .expect("failed to read source live now epg");
+        assert_eq!(live_now.len(), 1);
+        assert_eq!(live_now[0].channel_id, live_channel.id);
+        assert_eq!(live_now[0].title, "Morning News");
+
+        let fresh_channel_ids =
+            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() - 60)
+                .expect("failed to list fresh epg channels");
+        assert!(fresh_channel_ids.contains(&live_channel.id));
+
+        let stale_channel_ids =
+            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() + 60)
+                .expect("failed to list stale epg channels");
+        assert!(!stale_channel_ids.contains(&live_channel.id));
+
         replace_live_epg_for_channel(
             &context.db_path,
             live_channel.id,
@@ -1430,6 +1577,13 @@ mod tests {
             .expect("failed to read replaced live epg entries");
         assert_eq!(second_read.len(), 1);
         assert_eq!(second_read[0].title, "Evening Show");
+
+        replace_live_epg_for_channel(&context.db_path, live_channel.id, &[])
+            .expect("failed to store empty live epg refresh");
+        let fresh_empty_channel_ids =
+            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() - 60)
+                .expect("failed to list fresh empty epg channel");
+        assert!(fresh_empty_channel_ids.contains(&live_channel.id));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1493,7 +1647,6 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-
     #[test]
     fn record_recent_play_keeps_last_20_per_media_kind() {
         let root = make_temp_root();
@@ -1518,7 +1671,8 @@ mod tests {
             .expect("missing series channel");
 
         for _ in 0..25 {
-            record_recent_play(&context.db_path, live_channel.id).expect("record recent live failed");
+            record_recent_play(&context.db_path, live_channel.id)
+                .expect("record recent live failed");
             record_recent_play(&context.db_path, movie_channel.id)
                 .expect("record recent movie failed");
             record_recent_play(&context.db_path, series_channel.id)
@@ -1636,5 +1790,3 @@ mod tests {
         assert!(err.contains("unsupported source type"));
     }
 }
-
-
