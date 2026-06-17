@@ -1,9 +1,16 @@
-import { beforeEach, describe, it, expect } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { SettingsPage } from './SettingsPage';
 import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
+import { checkForAppUpdate } from '../lib/api/updatesApi';
+
+vi.mock('../lib/api/updatesApi', () => ({
+  checkForAppUpdate: vi.fn(),
+  installAppUpdate: vi.fn(),
+}));
 
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
@@ -60,5 +67,18 @@ describe('SettingsPage', () => {
     });
 
     expect(themeSelect).toHaveTextContent('Dark');
+  });
+
+  it('checks for app updates from settings', async () => {
+    vi.mocked(checkForAppUpdate).mockResolvedValue(null);
+    const user = userEvent.setup();
+
+    renderWithRouter(<SettingsPage />);
+    await user.click(screen.getByRole('button', { name: 'Check for Updates' }));
+
+    expect(checkForAppUpdate).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByText('SilkCast is up to date.')
+    ).toBeInTheDocument();
   });
 });
