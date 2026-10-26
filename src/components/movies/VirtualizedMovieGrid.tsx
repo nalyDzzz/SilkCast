@@ -10,6 +10,8 @@ type VirtualizedMovieGridProps<TItem> = {
   getItemKey: (item: TItem) => number | string;
   renderItem: (item: TItem) => ReactNode;
   className?: string;
+  initialScrollOffset?: number;
+  onScrollOffsetChange?: (offset: number) => void;
 };
 
 function initialViewportWidth() {
@@ -31,6 +33,8 @@ export function VirtualizedMovieGrid<TItem>({
   getItemKey,
   renderItem,
   className = '',
+  initialScrollOffset = 0,
+  onScrollOffsetChange,
 }: VirtualizedMovieGridProps<TItem>) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(() =>
@@ -59,7 +63,9 @@ export function VirtualizedMovieGrid<TItem>({
     },
     estimateSize: () => rowHeight,
     overscan: 2,
+    initialOffset: initialScrollOffset,
     onChange: (instance) => {
+      onScrollOffsetChange?.(instance.scrollOffset ?? 0);
       const nextWidth = instance.scrollRect?.width ?? 0;
       setContainerWidth((currentWidth) =>
         Math.abs(currentWidth - nextWidth) < 1 ? currentWidth : nextWidth

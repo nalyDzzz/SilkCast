@@ -38,15 +38,18 @@ export function MediaCatalogFiltersBar({
   disabled,
 }: MediaCatalogFiltersBarProps) {
   return (
-    <div className="grid gap-3 rounded-xl border bg-card/80 p-3 backdrop-blur md:grid-cols-[1fr_220px_180px]">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/80 p-3 backdrop-blur">
       <Input
         value={query}
         onChange={(event) => onQueryChange(event.currentTarget.value)}
         placeholder={searchPlaceholder}
         disabled={disabled}
+        aria-label={searchPlaceholder}
+        className="min-w-48 flex-1"
       />
+      {/* Wide windows use the group column instead. */}
       <Select value={selectedGroup} onValueChange={onSelectedGroupChange}>
-        <SelectTrigger disabled={disabled}>
+        <SelectTrigger disabled={disabled} className="w-56 lg:hidden" aria-label="Group">
           <SelectValue placeholder="All groups" />
         </SelectTrigger>
         <SelectContent>
@@ -60,7 +63,7 @@ export function MediaCatalogFiltersBar({
       </Select>
       <Field
         orientation="horizontal"
-        className="justify-start rounded-md border px-3"
+        className="w-auto justify-start rounded-md border px-3 py-2"
       >
         <Checkbox
           id={favoritesFieldId}
