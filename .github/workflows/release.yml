@@ -21,6 +21,33 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      - name: Verify tag matches app version
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const tagVersion = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+          const cargoToml = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+          const readJsonVersion = (file) =>
+            JSON.parse(fs.readFileSync(file, 'utf8')).version;
+          const versions = {
+            'package.json': readJsonVersion('package.json'),
+            'src-tauri/tauri.conf.json': readJsonVersion('src-tauri/tauri.conf.json'),
+            'src-tauri/Cargo.toml': /^version\s*=\s*"([^"]+)"/m.exec(cargoToml)?.[1],
+          };
+          const mismatched = Object.entries(versions).filter(
+            ([, version]) => version !== tagVersion
+          );
+          if (mismatched.length > 0) {
+            for (const [file, version] of mismatched) {
+              console.error(`::error file=${file}::version ${version} does not match tag v${tagVersion}`);
+            }
+            console.error('Bump the version in every file above before tagging; the updater compares app versions, not tags.');
+            process.exit(1);
+          }
+          console.log(`All manifests are at ${tagVersion}.`);
+          NODE
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 

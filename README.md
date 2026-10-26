@@ -172,7 +172,8 @@ https://github.com/nalyDzzz/SilkCast/releases/latest/download/latest.json
 
 To ship an update, bump the version in `package.json`, `src-tauri/Cargo.toml`,
 and `src-tauri/tauri.conf.json`, push a `v*` tag, then publish the generated
-draft release.
+draft release. The updater compares app versions, not tags, so the release
+workflow fails if the tag doesn't match all three files.
 
 ## Data and Logs
 
