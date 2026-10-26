@@ -1,6 +1,8 @@
 mod foundation;
 mod m3u;
 mod playback;
+mod player_environment;
+mod stream_proxy;
 mod xtream;
 
 use crate::foundation::update_source;
@@ -17,6 +19,7 @@ use foundation::{
 };
 use m3u::{load_m3u_location, parse_m3u_channels};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
+use player_environment::{PlayerEnvironment, PlayerEnvironmentState};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -27,6 +30,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
+use stream_proxy::StreamProxy;
 use tauri::{Manager, State};
 use xtream::{
     import_xtream_channels, list_xtream_live_epg, list_xtream_series_episodes, LiveEpgEntryRecord,
@@ -673,8 +677,15 @@ fn playback_load_url(
 }
 
 #[tauri::command]
+fn get_player_environment(environment: State<PlayerEnvironmentState>) -> PlayerEnvironment {
+    environment.snapshot()
+}
+
+#[tauri::command]
 fn playback_open_external_window(
     url: String,
+    title: Option<String>,
+    start_seconds: Option<f64>,
     app: tauri::AppHandle,
     state: State<SharedState>,
 ) -> Result<(), String> {
@@ -691,27 +702,51 @@ fn playback_open_external_window(
         )?;
     }
 
-    let child = spawn_mpv_popout_process(&url)?;
+    let hardware_decode = load_phase1_settings(&state.context.db_path)
+        .map(|settings| settings.hardware_decode)
+        .ok();
+    let child = spawn_mpv_popout_process(
+        &url,
+        &MpvPopoutOptions {
+            title: title.as_deref(),
+            start_seconds,
+            hardware_decode,
+        },
+    )?;
     monitor_external_mpv_process(
         child,
         app.clone(),
         url.clone(),
         state.context.log_path.clone(),
     );
+    // Stream URLs embed provider credentials, so only the host is logged.
+    let host = url::Url::parse(&url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_string))
+        .unwrap_or_else(|| "unknown host".to_string());
     append_log(
         &state.context.log_path,
         "INFO",
-        &format!("spawned external mpv pop-out for URL: {url}"),
+        &format!("spawned external mpv pop-out for {host}"),
     )
 }
 
-fn spawn_mpv_popout_process(url: &str) -> Result<Child, String> {
+/// Optional extras for the MPV pop-out window.
+#[derive(Debug, Default, Clone, Copy)]
+struct MpvPopoutOptions<'a> {
+    title: Option<&'a str>,
+    start_seconds: Option<f64>,
+    /// `None` leaves MPV's own hwdec configuration untouched.
+    hardware_decode: Option<bool>,
+}
+
+fn spawn_mpv_popout_process(url: &str, options: &MpvPopoutOptions) -> Result<Child, String> {
     #[cfg(windows)]
     const MPV_CANDIDATES: &[&str] = &["mpv.exe", "mpv"];
     #[cfg(not(windows))]
     const MPV_CANDIDATES: &[&str] = &["mpv", "mpv.exe"];
 
-    spawn_mpv_popout_process_with_candidates(url, MPV_CANDIDATES)
+    spawn_mpv_popout_process_with_candidates(url, options, MPV_CANDIDATES)
 }
 
 fn monitor_external_mpv_process(
@@ -1400,11 +1435,8 @@ fn normalize_recent_limit(limit: Option<u32>) -> usize {
     limit.unwrap_or(20).clamp(1, 100) as usize
 }
 
-fn spawn_mpv_popout_process_with_candidates(
-    url: &str,
-    candidates: &[&str],
-) -> Result<Child, String> {
-    let args = [
+fn mpv_popout_args(url: &str, options: &MpvPopoutOptions) -> Vec<String> {
+    let mut args: Vec<String> = [
         "--force-window=yes",
         "--idle=no",
         "--keep-open=no",
@@ -1412,13 +1444,45 @@ fn spawn_mpv_popout_process_with_candidates(
         "--input-default-bindings=yes",
         "--input-vo-keyboard=yes",
         "--title=SilkCast Pop-out",
-        "--",
-        url,
-    ];
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+
+    if let Some(title) = options
+        .title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+    {
+        args.push(format!("--force-media-title={title}"));
+    }
+    if let Some(seconds) = options
+        .start_seconds
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+    {
+        args.push(format!("--start={seconds}"));
+    }
+    match options.hardware_decode {
+        Some(true) => args.push("--hwdec=auto-safe".to_string()),
+        Some(false) => args.push("--hwdec=no".to_string()),
+        None => {}
+    }
+
+    args.push("--".to_string());
+    args.push(url.to_string());
+    args
+}
+
+fn spawn_mpv_popout_process_with_candidates(
+    url: &str,
+    options: &MpvPopoutOptions,
+    candidates: &[&str],
+) -> Result<Child, String> {
+    let args = mpv_popout_args(url, options);
     let mut errors: Vec<String> = Vec::new();
 
     for binary in candidates {
-        match Command::new(binary).args(args).spawn() {
+        match Command::new(binary).args(&args).spawn() {
             Ok(child) => return Ok(child),
             Err(err) => errors.push(format!("{binary}: {err}")),
         }
@@ -1582,7 +1646,11 @@ pub fn run() {
                             }
 
                             if !resumed {
-                                match spawn_mpv_popout_process(&stream_url) {
+                                let options = MpvPopoutOptions {
+                                    hardware_decode: Some(settings.hardware_decode),
+                                    ..MpvPopoutOptions::default()
+                                };
+                                match spawn_mpv_popout_process(&stream_url, &options) {
                                     Ok(child) => {
                                         monitor_external_mpv_process(
                                             child,
@@ -1643,6 +1711,20 @@ pub fn run() {
                 );
             }
 
+            // The proxy is optional: the web player degrades to direct URLs without it.
+            let stream_proxy = match StreamProxy::start(Some(state.context.log_path.clone())) {
+                Ok(proxy) => Some(proxy),
+                Err(err) => {
+                    let _ = append_log(
+                        &state.context.log_path,
+                        "WARN",
+                        &format!("stream proxy failed to start: {err}"),
+                    );
+                    None
+                }
+            };
+            app.manage(PlayerEnvironmentState::new(stream_proxy));
+
             append_log(
                 &state.context.log_path,
                 "INFO",
@@ -1681,6 +1763,7 @@ pub fn run() {
             get_phase1_settings,
             set_phase1_settings,
             emit_phase0_ping,
+            get_player_environment,
             playback_state,
             playback_attach_window,
             playback_attach_current_window,
@@ -2168,9 +2251,72 @@ https://stream.example/sports.m3u8
     }
 
     #[test]
+    fn mpv_popout_args_include_title_and_start_when_provided() {
+        let args = mpv_popout_args(
+            "https://stream.example/vod.mp4",
+            &MpvPopoutOptions {
+                title: Some("  Movie: Part 2  "),
+                start_seconds: Some(754.5),
+                hardware_decode: Some(true),
+            },
+        );
+        assert!(args.contains(&"--force-media-title=Movie: Part 2".to_string()));
+        assert!(args.contains(&"--start=754.5".to_string()));
+        assert!(args.contains(&"--hwdec=auto-safe".to_string()));
+        assert_eq!(
+            &args[args.len() - 2..],
+            &[
+                "--".to_string(),
+                "https://stream.example/vod.mp4".to_string()
+            ]
+        );
+
+        let whole_seconds = mpv_popout_args(
+            "https://stream.example/vod.mp4",
+            &MpvPopoutOptions {
+                start_seconds: Some(90.0),
+                hardware_decode: Some(false),
+                ..MpvPopoutOptions::default()
+            },
+        );
+        assert!(whole_seconds.contains(&"--start=90".to_string()));
+        assert!(whole_seconds.contains(&"--hwdec=no".to_string()));
+    }
+
+    #[test]
+    fn mpv_popout_args_omit_empty_title_and_non_positive_start() {
+        for (title, start) in [
+            (None, None),
+            (Some("   "), Some(0.0)),
+            (Some(""), Some(-5.0)),
+            (None, Some(f64::NAN)),
+        ] {
+            let args = mpv_popout_args(
+                "https://stream.example/live.m3u8",
+                &MpvPopoutOptions {
+                    title,
+                    start_seconds: start,
+                    hardware_decode: None,
+                },
+            );
+            assert!(
+                !args.iter().any(|arg| arg.starts_with("--force-media-title")
+                    || arg.starts_with("--start")
+                    || arg.starts_with("--hwdec")),
+                "unexpected args for {title:?}/{start:?}: {args:?}"
+            );
+            assert_eq!(
+                args.last().map(String::as_str),
+                Some("https://stream.example/live.m3u8")
+            );
+        }
+    }
+
+    #[test]
     fn spawn_mpv_popout_process_with_candidates_returns_error_when_all_missing() {
         let err = spawn_mpv_popout_process_with_candidates(
             "https://stream.example/live.m3u8",
+            &MpvPopoutOptions::default(),
             &["definitely-missing-binary-1", "definitely-missing-binary-2"],
         )
         .expect_err("all candidates missing should fail");
@@ -2183,6 +2329,11 @@ https://stream.example/sports.m3u8
     fn spawn_mpv_popout_process_with_candidates_uses_fallback_binary() {
         let mut child = spawn_mpv_popout_process_with_candidates(
             "https://stream.example/live.m3u8",
+            &MpvPopoutOptions {
+                title: Some("Live Channel"),
+                start_seconds: Some(12.0),
+                hardware_decode: Some(true),
+            },
             &["definitely-missing-binary-1", "rustc"],
         )
         .expect("fallback candidate should spawn");
