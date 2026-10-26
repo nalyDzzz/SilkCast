@@ -11,10 +11,12 @@ type VirtualizedLiveChannelListProps = {
   onPlay: (channel: ChannelRecord) => void;
   onToggleFavorite: (channel: ChannelRecord) => void;
   className?: string;
+  initialScrollOffset?: number;
+  onScrollOffsetChange?: (offset: number) => void;
 };
 
-const ESTIMATED_ROW_HEIGHT_PX = 80;
-const ROW_GAP_PX = 8;
+const ESTIMATED_ROW_HEIGHT_PX = 68;
+const ROW_GAP_PX = 4;
 const OVERSCAN_ROWS = 8;
 
 function initialViewportHeight() {
@@ -32,6 +34,8 @@ export function VirtualizedLiveChannelList({
   onPlay,
   onToggleFavorite,
   className = '',
+  initialScrollOffset = 0,
+  onScrollOffsetChange,
 }: VirtualizedLiveChannelListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
@@ -45,6 +49,10 @@ export function VirtualizedLiveChannelList({
     estimateSize: () => ESTIMATED_ROW_HEIGHT_PX,
     overscan: OVERSCAN_ROWS,
     gap: ROW_GAP_PX,
+    initialOffset: initialScrollOffset,
+    onChange: (instance) => {
+      onScrollOffsetChange?.(instance.scrollOffset ?? 0);
+    },
   });
 
   const virtualRows = rowVirtualizer.getVirtualItems();

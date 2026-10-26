@@ -1,22 +1,19 @@
 const GRID_GAP_PX = 16;
 
+/** Posters stay at least this wide; the grid adds columns as space allows. */
+const MIN_CARD_WIDTH_PX = 160;
+
 export function resolveMovieGridColumns(width: number): number {
-  if (width >= 1536) {
-    return 6;
-  }
-  if (width >= 1280) {
-    return 5;
-  }
-  if (width >= 1024) {
-    return 4;
-  }
-  if (width >= 640) {
-    return 3;
-  }
-  return 2;
+  const columns = Math.floor(
+    (width + GRID_GAP_PX) / (MIN_CARD_WIDTH_PX + GRID_GAP_PX)
+  );
+  return Math.min(Math.max(columns, 2), 10);
 }
 
-export function estimateMovieCardRowHeight(width: number, columns: number): number {
+export function estimateMovieCardRowHeight(
+  width: number,
+  columns: number
+): number {
   const safeColumns = Math.max(columns, 1);
   const cardWidth = Math.max(
     0,

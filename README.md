@@ -15,14 +15,21 @@ Core source import, catalog browsing, playback, recents, and settings are implem
 - Import and manage M3U playlist sources (URL or local file)
 - Import and manage Xtream sources (server URL, username, password)
 - Edit, refresh, and delete sources
-- Browse `Live TV`, `Movies`, and `Series` catalogs
-- Filter by group, search by name, and toggle favorites
-- Series episode browsing for Xtream sources
-- Live EPG now-playing labels and source-level EPG refresh for Xtream live channels
+- Home dashboard with catalog totals, continue watching, recent and favorite channels
+- Browse `Live TV`, `Movies`, and `Series` with a group column, search, and favorites
+- Browsing state (filters, open series, scroll position) survives opening the player
+- Series episode browsing by season for Xtream sources, with per-episode progress
+- Live EPG now/next for Xtream live channels, in the catalog and in the player
 - Recents view split by media type
-- In-app web playback (Vidstack) for live and on-demand streams
-- MPV pop-out playback
-- Settings for hardware decode, startup behavior, default player, and theme
+- In-app player for HLS, raw MPEG-TS, MP4, MKV, and WebM streams:
+  - channel zapping (buttons, Page Up/Down, or the channel panel) without leaving the player
+  - automatic reconnect when a live stream drops, plus a stall watchdog
+  - resume position for movies and episodes, up-next countdown between episodes
+  - audio track, quality, and speed menus; keyboard shortcuts (press `?` in the player)
+  - clear error messages (expired account, connection limits, unsupported formats) with one-click hand-off to MPV
+- MPV pop-out playback (keeps the current position and title; honors the hardware decode setting)
+- Built-in guide (`Guide` in the sidebar) covering setup, playback, shortcuts, and troubleshooting
+- Settings for default player, startup behavior, MPV hardware decode, and theme
 - Local persistence with SQLite, plus logs and crash reports
 
 ## Tech Stack
@@ -31,8 +38,28 @@ Core source import, catalog browsing, playback, recents, and settings are implem
 - Desktop runtime: Tauri v2
 - Backend: Rust
 - Storage: SQLite (`rusqlite` bundled)
-- Playback: Web player (`@vidstack/react`) and `libmpv`/`mpv`
+- Playback: custom web player (`hls.js`, `mpegts.js`, native `<video>`) fed through a local Rust stream proxy, and `mpv`
 - Testing: Vitest + Testing Library (frontend), `cargo test` (backend)
+
+## How In-App Playback Works
+
+IPTV providers rarely send CORS headers, often redirect to load-balancer hosts with
+relative segment paths, and sometimes reject browser user agents, so the WebView can't
+fetch their streams directly. SilkCast therefore:
+
+1. Starts a token-protected HTTP proxy on `127.0.0.1` at launch (`src-tauri/src/stream_proxy.rs`).
+   It adds CORS headers, follows redirects, passes `Range` requests through for seeking,
+   rewrites HLS playlists so every segment also goes through the proxy, and sends a
+   VLC user agent upstream.
+2. Picks an ordered list of engines from the stream URL (`src/lib/player/streamSource.ts`):
+   hls.js for `.m3u8`, mpegts.js for `.ts` and extensionless live URLs, the native
+   `<video>` element for MP4/MKV/WebM.
+3. Runs them through `StreamController` (`src/lib/player/streamController.ts`), which falls
+   through to the next engine on format mismatches, times out streams that never start,
+   reconnects dropped live streams with backoff, and reports provider HTTP errors as-is.
+
+Formats WebView2 can't decode at all (for example AVI) show an error with an
+`Open in MPV` button instead of a black screen.
 
 ## Project Layout
 

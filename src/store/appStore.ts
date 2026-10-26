@@ -5,6 +5,7 @@ import {
   DEFAULT_SETTINGS,
   Phase1Settings,
   PlaybackStatus,
+  PlayerEnvironment,
   SourceRecord,
 } from '../components/app/types';
 import * as channelsApi from '../lib/api/channelsApi';
@@ -110,6 +111,27 @@ const writeThemePreference = (theme: AppTheme) => {
   window.localStorage.setItem(THEME_PREFERENCE_KEY, theme);
 };
 
+/**
+ * Watch history is best-effort: a failure here (e.g. a channel id that changed
+ * in a concurrent refresh) must never block playback.
+ */
+async function recordRecentPlay(
+  channelId: number,
+  reload: () => Promise<void>
+) {
+  try {
+    await playbackApi.recordRecentChannelPlay(channelId);
+    await reload();
+  } catch {
+    // Ignored on purpose; see above.
+  }
+}
+
+const DEFAULT_PLAYER_ENVIRONMENT: PlayerEnvironment = {
+  stream_proxy_base_url: null,
+  mpv_available: true,
+};
+
 const initialSelectedSourceId = readLastSelectedSourceId();
 const initialTheme = readStoredThemePreference();
 
@@ -122,6 +144,10 @@ type AppState = {
   channels: ChannelRecord[];
   recentChannels: { channel: ChannelRecord; played_at: number }[];
   activeChannel: ChannelRecord | null;
+  /** Items the player can step through with previous/next (channels or episodes). */
+  playbackQueue: ChannelRecord[];
+  /** Null until the backend reports proxy/MPV availability. */
+  playerEnvironment: PlayerEnvironment | null;
   playback: PlaybackStatus | null;
   settings: Phase1Settings;
   theme: AppTheme;
@@ -157,7 +183,11 @@ type AppActions = {
     mediaKind?: 'live' | 'movie' | 'series' | null
   ) => Promise<void>;
   loadRecents: () => Promise<void>;
-  openChannelInMpv: (channel: ChannelRecord) => Promise<void>;
+  openChannelInMpv: (
+    channel: ChannelRecord,
+    options?: { startSeconds?: number | null }
+  ) => Promise<void>;
+  loadPlayerEnvironment: () => Promise<void>;
   loadPlaybackStatus: () => Promise<void>;
   loadSettings: () => Promise<void>;
   refreshEverything: () => Promise<void>;
@@ -180,7 +210,10 @@ type AppActions = {
     mediaKind?: 'live' | 'movie' | 'series' | null
   ) => Promise<void>;
   playChannel: (channelId: number) => Promise<void>;
-  playChannelRecord: (channel: ChannelRecord) => Promise<void>;
+  playChannelRecord: (
+    channel: ChannelRecord,
+    queue?: ChannelRecord[]
+  ) => Promise<void>;
   toggleFavorite: (channel: ChannelRecord) => Promise<void>;
   deleteSource: (source: SourceRecord) => Promise<void>;
   pausePlayback: (paused: boolean) => Promise<void>;
@@ -203,6 +236,8 @@ const initialState: AppState = {
   channels: [],
   recentChannels: [],
   activeChannel: null,
+  playbackQueue: [],
+  playerEnvironment: null,
   playback: null,
   settings: DEFAULT_SETTINGS,
   theme: initialTheme,
@@ -312,15 +347,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ recentChannels });
   },
 
-  openChannelInMpv: async (channel) => {
+  openChannelInMpv: async (channel, options = {}) => {
     set({ error: null });
     try {
-      await playbackApi.openExternalWindow(channel.stream_url);
+      await playbackApi.openExternalWindow(channel.stream_url, {
+        title: channel.name,
+        startSeconds: options.startSeconds ?? null,
+      });
       set({ activeChannel: null });
-      await playbackApi.recordRecentChannelPlay(channel.id);
-      await get().loadRecents();
+      await recordRecentPlay(channel.id, get().loadRecents);
     } catch (err) {
       set({ error: String(err) });
+    }
+  },
+
+  loadPlayerEnvironment: async () => {
+    try {
+      const playerEnvironment = await playbackApi.getPlayerEnvironment();
+      set({ playerEnvironment: playerEnvironment ?? DEFAULT_PLAYER_ENVIRONMENT });
+    } catch {
+      // Older backends lack the command; fall back to direct stream URLs.
+      set({ playerEnvironment: DEFAULT_PLAYER_ENVIRONMENT });
     }
   },
 
@@ -342,6 +389,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         get().loadPlaybackStatus(),
         get().loadRecents(),
         get().loadSettings(),
+        get().loadPlayerEnvironment(),
       ]);
 
       const { settings, recentChannels, activeChannel } = get();
@@ -351,7 +399,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         recentChannels.length > 0 &&
         activeChannel === null
       ) {
-        set({ activeChannel: recentChannels[0].channel });
+        set({
+          activeChannel: recentChannels[0].channel,
+          playbackQueue: [recentChannels[0].channel],
+        });
       }
     } catch (err) {
       set({ error: String(err) });
@@ -485,32 +536,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
 
       if (get().settings.preferred_player === 'mpv') {
-        await playbackApi.openExternalWindow(channel.stream_url);
+        await playbackApi.openExternalWindow(channel.stream_url, {
+          title: channel.name,
+        });
         set({ activeChannel: null });
       } else {
-        set({ activeChannel: channel });
+        set({ activeChannel: channel, playbackQueue: [channel] });
       }
 
-      await playbackApi.recordRecentChannelPlay(channelId);
-      await get().loadRecents();
+      await recordRecentPlay(channelId, get().loadRecents);
     } catch (err) {
       set({ error: String(err) });
     }
   },
 
-  playChannelRecord: async (channel) => {
+  playChannelRecord: async (channel, queue) => {
     set({ error: null });
 
     try {
       if (get().settings.preferred_player === 'mpv') {
-        await playbackApi.openExternalWindow(channel.stream_url);
+        await playbackApi.openExternalWindow(channel.stream_url, {
+          title: channel.name,
+        });
         set({ activeChannel: null });
       } else {
-        set({ activeChannel: channel });
+        set({
+          activeChannel: channel,
+          playbackQueue: queue && queue.length > 0 ? queue : [channel],
+        });
       }
 
-      await playbackApi.recordRecentChannelPlay(channel.id);
-      await get().loadRecents();
+      await recordRecentPlay(channel.id, get().loadRecents);
     } catch (err) {
       set({ error: String(err) });
     }
@@ -546,6 +602,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       importMessage: null,
       selectedGroup: ALL_GROUPS,
       activeChannel: activeChannelBelongsToSource ? null : get().activeChannel,
+      playbackQueue: activeChannelBelongsToSource ? [] : get().playbackQueue,
     });
 
     try {
@@ -652,6 +709,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       hasPersistedSourceSelection: false,
       selectedGroup: ALL_GROUPS,
       activeChannel: null,
+      playbackQueue: [],
       groups: [],
       channels: [],
     });

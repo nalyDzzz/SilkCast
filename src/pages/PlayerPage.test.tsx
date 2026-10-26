@@ -36,8 +36,11 @@ describe("PlayerPage", () => {
       initialEntries: ["/dashboard/player"],
     });
 
+    expect(screen.getByText("Nothing is playing")).toBeInTheDocument();
     expect(
-      screen.getByText("Pick something from Live TV or Movies to start playback.")
+      screen.getByText(
+        "Pick something from Live TV, Movies, or Series to start playback."
+      )
     ).toBeInTheDocument();
   });
 

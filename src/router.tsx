@@ -1,5 +1,8 @@
-import { createHashRouter, Navigate } from 'react-router';
+import { createHashRouter } from 'react-router';
 import { AppLayout } from '@/components/layouts/AppLayout';
+import { RootLayout } from '@/components/layouts/RootLayout';
+import { DashboardHomePage } from '@/pages/DashboardHomePage';
+import { HelpPage } from '@/pages/HelpPage';
 import { HomePage } from '@/pages/HomePage';
 import { LivePage } from '@/pages/LivePage';
 import { MoviesPage } from '@/pages/MoviesPage';
@@ -11,42 +14,51 @@ import { SettingsPage } from '@/pages/SettingsPage.tsx';
 
 export const appRouter = createHashRouter([
   {
-    path: '/',
-    element: <HomePage />,
-    errorElement: <RouteErrorPage />,
-  },
-  {
-    path: '/dashboard',
-    element: <AppLayout />,
+    element: <RootLayout />,
     errorElement: <RouteErrorPage />,
     children: [
       {
-        index: true,
-        element: <Navigate to="live" replace />,
+        path: '/',
+        element: <HomePage />,
       },
       {
-        path: 'live',
-        element: <LivePage />,
-      },
-      {
-        path: 'player',
+        // Full-window player, rendered outside the sidebar layout.
+        path: '/dashboard/player',
         element: <PlayerPage />,
       },
       {
-        path: 'movies',
-        element: <MoviesPage />,
-      },
-      {
-        path: 'series',
-        element: <SeriesPage />,
-      },
-      {
-        path: 'recents',
-        element: <RecentsPage />,
-      },
-      {
-        path: 'settings',
-        element: <SettingsPage />,
+        path: '/dashboard',
+        element: <AppLayout />,
+        children: [
+          {
+            index: true,
+            element: <DashboardHomePage />,
+          },
+          {
+            path: 'live',
+            element: <LivePage />,
+          },
+          {
+            path: 'movies',
+            element: <MoviesPage />,
+          },
+          {
+            path: 'series',
+            element: <SeriesPage />,
+          },
+          {
+            path: 'recents',
+            element: <RecentsPage />,
+          },
+          {
+            path: 'settings',
+            element: <SettingsPage />,
+          },
+          {
+            path: 'help',
+            element: <HelpPage />,
+          },
+        ],
       },
     ],
   },

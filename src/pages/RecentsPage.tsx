@@ -16,7 +16,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from '@/components/ui/item';
-import { subscribeBackendEvents } from '@/lib/api/eventsApi';
+import { useBackendEvents } from '@/hooks/useBackendEvents';
 import { useAppStore } from '@/store/appStore';
 
 type RecentMediaKind = 'live' | 'movie' | 'series';
@@ -100,25 +100,14 @@ export function RecentsPage() {
     void loadRecents().catch((err) => setError(String(err)));
   }, [loadRecents, loadSources, navigate, selectedSourceId, setError]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    subscribeBackendEvents((backendEvent: BackendEvent) => {
+  useBackendEvents(
+    (backendEvent: BackendEvent) => {
       if (backendEvent.event === 'recents_updated') {
         void loadRecents().catch((err) => setError(String(err)));
       }
-    })
-      .then((unsubscribe) => {
-        unlisten = unsubscribe;
-      })
-      .catch((err) => setError(String(err)));
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [loadRecents, setError]);
+    },
+    (err) => setError(String(err))
+  );
 
   const handlePlayRecent = useCallback(
     async (recent: RecentChannelRecord) => {

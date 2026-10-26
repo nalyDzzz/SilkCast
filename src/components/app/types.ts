@@ -63,6 +63,11 @@ export type PlaybackStatus = {
   render_mode: 'external_window' | 'embedded_surface';
 };
 
+export type PlayerEnvironment = {
+  stream_proxy_base_url: string | null;
+  mpv_available: boolean;
+};
+
 export type Phase1Settings = {
   hardware_decode: boolean;
   buffering_preset: 'normal';

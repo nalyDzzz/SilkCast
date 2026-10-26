@@ -1,8 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
-import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Link } from 'react-router';
+import { CircleHelp, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { SourceRecord } from '@/components/app/types';
+import { DeleteSourceDialog } from '@/components/sources/DeleteSourceDialog';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -118,6 +120,9 @@ export function HomePage() {
     useState<ImportSourceType>('m3u');
   const [xtreamDraft, setXtreamDraft] = useState(INITIAL_XTREAM_DRAFT);
   const [editDraft, setEditDraft] = useState<SourceEditDraft | null>(null);
+  const [sourceToDelete, setSourceToDelete] = useState<SourceRecord | null>(
+    null
+  );
 
   useEffect(() => {
     void loadSources().catch((err) => setError(String(err)));
@@ -219,19 +224,16 @@ export function HomePage() {
     }
   };
 
-  const handleDeleteSource = async (source: SourceRecord) => {
+  const handleDeleteSource = (source: SourceRecord) => {
     if (isSourceActionPending) {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete "${source.name}"? This removes the source and its imported catalog.`
-    );
+    setSourceToDelete(source);
+  };
 
-    if (!confirmed) {
-      return;
-    }
-
+  const confirmDeleteSource = async (source: SourceRecord) => {
+    setSourceToDelete(null);
     setPendingDeleteId(source.id);
 
     try {
@@ -295,9 +297,25 @@ export function HomePage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {sources.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No sources imported yet.
-              </p>
+              <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">
+                  No sources imported yet.
+                </p>
+                <p>
+                  Add one below. Choose <strong>Xtream provider</strong> if
+                  your provider gave you a server address, username, and
+                  password: it unlocks movies, series episodes, and the TV
+                  guide. Otherwise paste your <strong>M3U playlist</strong>{' '}
+                  link.
+                </p>
+                <Link
+                  to="/dashboard/help"
+                  className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+                >
+                  <CircleHelp className="size-4" />
+                  Read the getting-started guide
+                </Link>
+              </div>
             ) : (
               <div
                 className="flex flex-col gap-2"
@@ -377,7 +395,7 @@ export function HomePage() {
                           onKeyDown={(event) => event.stopPropagation()}
                           onClick={(event) => {
                             event.stopPropagation();
-                            void handleDeleteSource(source);
+                            handleDeleteSource(source);
                           }}
                           disabled={isSourceActionPending}
                         >
@@ -590,6 +608,11 @@ export function HomePage() {
           </CardFooter>
         </Card>
       </section>
+      <DeleteSourceDialog
+        source={sourceToDelete}
+        onCancel={() => setSourceToDelete(null)}
+        onConfirm={(source) => void confirmDeleteSource(source)}
+      />
     </main>
   );
 }

@@ -4,6 +4,10 @@ import {
 } from '@/components/app/types';
 import { VirtualizedLiveChannelList } from '@/components/live/VirtualizedLiveChannelList';
 import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
+import {
+  readScrollOffset,
+  writeScrollOffset,
+} from '@/components/media/catalogViewStore';
 import { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
 import { MovieCard } from '@/components/movies/MovieCard';
 import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
@@ -19,8 +23,12 @@ type MediaCatalogContentProps = {
   isViewingSeriesEpisodes: boolean;
   selectedSeriesItem: ChannelRecord | null;
   seriesEpisodes: SeriesEpisodeRecord[];
+  episodeRecords: ChannelRecord[];
   seriesEpisodesLoading: boolean;
   seriesEpisodesError: string | null;
+  /** Identifies the current list for scroll-position restore. */
+  scrollKey: string;
+  onRetryEpisodes: () => void;
   onPlayItem: (item: ChannelRecord) => Promise<void>;
   onToggleFavorite: (item: ChannelRecord) => Promise<void>;
   onOpenSeries: (item: ChannelRecord) => Promise<void>;
@@ -40,8 +48,11 @@ export function MediaCatalogContent({
   isViewingSeriesEpisodes,
   selectedSeriesItem,
   seriesEpisodes,
+  episodeRecords,
   seriesEpisodesLoading,
   seriesEpisodesError,
+  scrollKey,
+  onRetryEpisodes,
   onPlayItem,
   onToggleFavorite,
   onOpenSeries,
@@ -53,6 +64,9 @@ export function MediaCatalogContent({
     return (
       <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
         <VirtualizedLiveChannelList
+          key={scrollKey}
+          initialScrollOffset={readScrollOffset(scrollKey)}
+          onScrollOffsetChange={(offset) => writeScrollOffset(scrollKey, offset)}
           channels={items}
           epgNowByChannelId={liveNowByChannelId}
           activeChannelId={activeItemId}
@@ -69,10 +83,12 @@ export function MediaCatalogContent({
       <SeriesEpisodeList
         series={selectedSeriesItem}
         episodes={seriesEpisodes}
+        episodeRecords={episodeRecords}
         loading={seriesEpisodesLoading}
         error={seriesEpisodesError}
         playingSeriesId={playingItemId}
         onBack={onBackToSeriesCatalog}
+        onRetry={onRetryEpisodes}
         onPlayEpisode={onPlaySeriesEpisode}
       />
     );
@@ -80,6 +96,9 @@ export function MediaCatalogContent({
 
   return (
     <VirtualizedMovieGrid
+      key={scrollKey}
+      initialScrollOffset={readScrollOffset(scrollKey)}
+      onScrollOffsetChange={(offset) => writeScrollOffset(scrollKey, offset)}
       items={items}
       getItemKey={(item) => item.id}
       renderItem={(item) => (

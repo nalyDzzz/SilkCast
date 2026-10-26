@@ -456,6 +456,25 @@ pub fn replace_channels_for_source(
         .transaction()
         .map_err(|e| format!("transaction start failed: {e}"))?;
 
+    // Favorites and watch history point at channel ids, which every re-import
+    // replaces. Remember them by stream identity and re-attach them below so a
+    // source refresh doesn't silently wipe them.
+    let preserved_favorites = snapshot_channel_links(
+        &tx,
+        "SELECT c.media_kind, c.stream_url, c.name, f.created_at
+           FROM favorites f JOIN channels c ON c.id = f.channel_id
+          WHERE c.source_id = ?1",
+        source_id,
+    )?;
+    let preserved_recents = snapshot_channel_links(
+        &tx,
+        "SELECT c.media_kind, c.stream_url, c.name, r.played_at
+           FROM recents r JOIN channels c ON c.id = r.channel_id
+          WHERE c.source_id = ?1
+          ORDER BY r.played_at",
+        source_id,
+    )?;
+
     tx.execute(
         "DELETE FROM channels WHERE source_id = ?1",
         params![source_id],
@@ -483,6 +502,7 @@ pub fn replace_channels_for_source(
         .map_err(|e| format!("prepare insert failed: {e}"))?;
 
     let ts = unix_ts();
+    let mut new_ids = ChannelIdentityIndex::default();
     for channel in channels {
         let group_name = channel
             .group_name
@@ -490,9 +510,10 @@ pub fn replace_channels_for_source(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("Ungrouped");
+        let media_kind = normalize_media_kind(&channel.media_kind);
 
-        statement
-            .execute(params![
+        let channel_id = statement
+            .insert(params![
                 source_id,
                 channel.name,
                 group_name,
@@ -500,15 +521,35 @@ pub fn replace_channels_for_source(
                 channel.tvg_id,
                 channel.tvg_name,
                 channel.stream_url,
-                normalize_media_kind(&channel.media_kind),
+                media_kind,
                 ts,
                 ts,
             ])
             .map_err(|e| format!("insert channel failed: {e}"))?;
+        new_ids.add(&media_kind, &channel.stream_url, &channel.name, channel_id);
         inserted += 1;
     }
 
     drop(statement);
+
+    for link in &preserved_favorites {
+        if let Some(channel_id) = new_ids.find(link) {
+            tx.execute(
+                "INSERT OR IGNORE INTO favorites(channel_id, created_at) VALUES (?1, ?2)",
+                params![channel_id, link.timestamp],
+            )
+            .map_err(|e| format!("restore favorite failed: {e}"))?;
+        }
+    }
+    for link in &preserved_recents {
+        if let Some(channel_id) = new_ids.find(link) {
+            tx.execute(
+                "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
+                params![channel_id, link.timestamp],
+            )
+            .map_err(|e| format!("restore recent failed: {e}"))?;
+        }
+    }
 
     tx.execute(
         "DELETE FROM recents WHERE channel_id NOT IN (SELECT id FROM channels)",
@@ -525,6 +566,65 @@ pub fn replace_channels_for_source(
         .map_err(|e| format!("transaction commit failed: {e}"))?;
 
     Ok(inserted)
+}
+
+/// A favorite or recent entry captured by channel identity rather than id.
+struct ChannelLink {
+    media_kind: String,
+    stream_url: String,
+    name: String,
+    timestamp: i64,
+}
+
+fn snapshot_channel_links(
+    tx: &rusqlite::Transaction<'_>,
+    sql: &str,
+    source_id: i64,
+) -> Result<Vec<ChannelLink>, String> {
+    let mut statement = tx
+        .prepare(sql)
+        .map_err(|e| format!("prepare channel link snapshot failed: {e}"))?;
+    let rows = statement
+        .query_map(params![source_id], |row| {
+            Ok(ChannelLink {
+                media_kind: row.get(0)?,
+                stream_url: row.get(1)?,
+                name: row.get(2)?,
+                timestamp: row.get(3)?,
+            })
+        })
+        .map_err(|e| format!("query channel link snapshot failed: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("read channel link snapshot failed: {e}"))
+}
+
+/// Looks up re-imported channels by stream URL, falling back to the name when
+/// the URL changed (for example after editing Xtream credentials).
+#[derive(Default)]
+struct ChannelIdentityIndex {
+    by_url: HashMap<(String, String), i64>,
+    by_name: HashMap<(String, String), i64>,
+}
+
+impl ChannelIdentityIndex {
+    fn add(&mut self, media_kind: &str, stream_url: &str, name: &str, channel_id: i64) {
+        self.by_url
+            .entry((media_kind.to_string(), stream_url.to_string()))
+            .or_insert(channel_id);
+        self.by_name
+            .entry((media_kind.to_string(), name.to_string()))
+            .or_insert(channel_id);
+    }
+
+    fn find(&self, link: &ChannelLink) -> Option<i64> {
+        self.by_url
+            .get(&(link.media_kind.clone(), link.stream_url.clone()))
+            .or_else(|| {
+                self.by_name
+                    .get(&(link.media_kind.clone(), link.name.clone()))
+            })
+            .copied()
+    }
 }
 
 pub fn list_groups_for_source(
@@ -1417,6 +1517,89 @@ mod tests {
             list_channels_for_source(&context.db_path, source_id, None, None, None, true)
                 .expect("failed to list favorites");
         assert_eq!(favorites.len(), 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn replace_channels_keeps_favorites_and_recents_across_refresh() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = create_source(
+            &context.db_path,
+            "xtream",
+            "Provider",
+            &json!({ "server_url": "http://x", "username": "u", "password": "p" }),
+        )
+        .expect("failed to create source");
+
+        let channel = |name: &str, url: &str, kind: &str| ChannelInsertRecord {
+            name: name.to_string(),
+            group_name: Some("Group".to_string()),
+            logo: None,
+            tvg_id: None,
+            tvg_name: None,
+            stream_url: url.to_string(),
+            media_kind: kind.to_string(),
+        };
+
+        replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                channel("News", "http://x/live/u/p/1.ts", "live"),
+                channel("Sports", "http://x/live/u/p/2.ts", "live"),
+                channel("Film", "http://x/movie/u/p/3.mp4", "movie"),
+            ],
+        )
+        .expect("initial import failed");
+        let before = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("list failed");
+        let id_of = |channels: &[ChannelRecord], name: &str| {
+            channels
+                .iter()
+                .find(|item| item.name == name)
+                .map(|item| item.id)
+                .expect("channel missing")
+        };
+        set_channel_favorite(&context.db_path, id_of(&before, "News"), true)
+            .expect("favorite failed");
+        set_channel_favorite(&context.db_path, id_of(&before, "Film"), true)
+            .expect("favorite failed");
+        record_recent_play(&context.db_path, id_of(&before, "Sports")).expect("recent failed");
+
+        // Refresh: new order, a new channel, and the movie's URL changed (new
+        // password) so it can only be matched by name.
+        replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                channel("Brand New", "http://x/live/u/p/9.ts", "live"),
+                channel("Sports", "http://x/live/u/p/2.ts", "live"),
+                channel("Film", "http://x/movie/u/p2/3.mp4", "movie"),
+                channel("News", "http://x/live/u/p/1.ts", "live"),
+            ],
+        )
+        .expect("refresh failed");
+
+        let after = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("list failed");
+        assert_ne!(id_of(&before, "News"), id_of(&after, "News"), "ids should change");
+
+        let mut favorites: Vec<String> =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, true)
+                .expect("favorites failed")
+                .into_iter()
+                .map(|item| item.name)
+                .collect();
+        favorites.sort();
+        assert_eq!(favorites, vec!["Film".to_string(), "News".to_string()]);
+
+        let recents = list_recent_channels(&context.db_path, 10).expect("recents failed");
+        assert_eq!(recents.len(), 1);
+        assert_eq!(recents[0].channel.name, "Sports");
+        assert_eq!(recents[0].channel.id, id_of(&after, "Sports"));
 
         let _ = fs::remove_dir_all(root);
     }

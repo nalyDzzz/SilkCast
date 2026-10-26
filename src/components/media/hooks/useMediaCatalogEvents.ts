@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { BackendEvent, PlaybackStatus } from '@/components/app/types';
 import { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
-import { subscribeBackendEvents } from '@/lib/api/eventsApi';
+import { useBackendEvents } from '@/hooks/useBackendEvents';
 
 type UseMediaCatalogEventsArgs = {
   mediaKind: MediaCatalogKind;
@@ -13,7 +13,6 @@ type UseMediaCatalogEventsArgs = {
   loadPlaybackStatus: () => Promise<void>;
   setPlayback: (playback: PlaybackStatus) => void;
   reportError: (message: string) => void;
-  onSourcesUpdated: () => void;
   onEpgUpdated: () => void;
   onExternalPlaybackClosed: (closedUrl: unknown) => void;
 };
@@ -27,7 +26,6 @@ export function useMediaCatalogEvents({
   loadPlaybackStatus,
   setPlayback,
   reportError,
-  onSourcesUpdated,
   onEpgUpdated,
   onExternalPlaybackClosed,
 }: UseMediaCatalogEventsArgs) {
@@ -56,11 +54,14 @@ export function useMediaCatalogEvents({
     }
   }, [navigate, selectedSourceId]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    void subscribeBackendEvents((backendEvent: BackendEvent) => {
-      if (backendEvent.event === 'playback_state_changed' && mediaKind === 'live') {
+  // Catalog refetches after source changes are driven app-wide by
+  // useCatalogInvalidation; here we only keep page-level state in sync.
+  useBackendEvents(
+    (backendEvent: BackendEvent) => {
+      if (
+        backendEvent.event === 'playback_state_changed' &&
+        mediaKind === 'live'
+      ) {
         const playbackState = backendEvent.payload['state'] as
           | PlaybackStatus
           | undefined;
@@ -73,7 +74,6 @@ export function useMediaCatalogEvents({
 
       if (backendEvent.event === 'sources_updated') {
         void loadSources().catch((err) => reportError(String(err)));
-        onSourcesUpdated();
         return;
       }
 
@@ -99,32 +99,10 @@ export function useMediaCatalogEvents({
         return;
       }
 
-      if (backendEvent.event !== 'external_playback_closed') {
-        return;
+      if (backendEvent.event === 'external_playback_closed') {
+        onExternalPlaybackClosed(backendEvent.payload['url']);
       }
-
-      onExternalPlaybackClosed(backendEvent.payload['url']);
-    })
-      .then((unsubscribe) => {
-        unlisten = unsubscribe;
-      })
-      .catch((err) => reportError(String(err)));
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [
-    loadRecents,
-    loadSettings,
-    loadSources,
-    mediaKind,
-    onEpgUpdated,
-    onExternalPlaybackClosed,
-    onSourcesUpdated,
-    reportError,
-    selectedSourceId,
-    setPlayback,
-  ]);
+    },
+    (err) => reportError(String(err))
+  );
 }

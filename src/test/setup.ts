@@ -1,5 +1,35 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+
+// Catalog view state and result caches are module-level; isolate tests.
+// Imported lazily so each test file's vi.mock() calls apply to their deps.
+afterEach(async () => {
+  const [{ useCatalogViewStore }, { clearMediaCatalogCache }] =
+    await Promise.all([
+      import("@/components/media/catalogViewStore"),
+      import("@/components/media/hooks/useMediaCatalogData"),
+    ]);
+  clearMediaCatalogCache();
+  useCatalogViewStore.setState({ views: {}, episodesBySeriesId: {} });
+  window.localStorage.removeItem("silkcast:player:resumePositions");
+});
+
+// jsdom does not implement media playback.
+Object.defineProperty(HTMLMediaElement.prototype, "play", {
+  configurable: true,
+  writable: true,
+  value: vi.fn(() => Promise.resolve()),
+});
+Object.defineProperty(HTMLMediaElement.prototype, "pause", {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+});
+Object.defineProperty(HTMLMediaElement.prototype, "load", {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+});
 
 Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
   configurable: true,

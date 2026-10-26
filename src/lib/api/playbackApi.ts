@@ -1,5 +1,8 @@
 import { tauriInvoke } from '../tauriClient';
-import { PlaybackStatus } from '../../components/app/types';
+import {
+  PlaybackStatus,
+  PlayerEnvironment,
+} from '../../components/app/types';
 
 type EmbeddedBounds = {
   x: number;
@@ -40,8 +43,24 @@ export function seekPlayback(seconds: number) {
   return tauriInvoke<void>('playback_seek', { seconds });
 }
 
-export function openExternalWindow(url: string) {
-  return tauriInvoke<void>('playback_open_external_window', { url });
+export type ExternalPlaybackOptions = {
+  title?: string | null;
+  startSeconds?: number | null;
+};
+
+export function openExternalWindow(
+  url: string,
+  options: ExternalPlaybackOptions = {}
+) {
+  return tauriInvoke<void>('playback_open_external_window', {
+    url,
+    title: options.title ?? null,
+    startSeconds: options.startSeconds ?? null,
+  });
+}
+
+export function getPlayerEnvironment() {
+  return tauriInvoke<PlayerEnvironment>('get_player_environment');
 }
 
 export function startEmbeddedSurfaceMode(bounds: EmbeddedBounds) {

@@ -8,6 +8,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import {
+  CircleHelp,
   Clock,
   Film,
   Home,
@@ -23,7 +24,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useEffect, useMemo, useState } from 'react';
 import { type BackendEvent } from '@/components/app/types';
 import { refreshSourceEpg } from '@/lib/api/epgApi';
-import { subscribeBackendEvents } from '@/lib/api/eventsApi';
+import { useBackendEvents } from '@/hooks/useBackendEvents';
 
 const data = {
   navMain: [
@@ -88,10 +89,8 @@ export function AppSidebar() {
     }
   }, [selectedSourceId]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    void subscribeBackendEvents((backendEvent: BackendEvent) => {
+  useBackendEvents(
+    (backendEvent: BackendEvent) => {
       if (backendEvent.event !== 'epg_updated') {
         return;
       }
@@ -104,20 +103,9 @@ export function AppSidebar() {
       ) {
         setIsRefreshingEpg(false);
       }
-    })
-      .then((unsubscribe) => {
-        unlisten = unsubscribe;
-      })
-      .catch(() => {
-        setIsRefreshingEpg(false);
-      });
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [selectedSourceId]);
+    },
+    () => setIsRefreshingEpg(false)
+  );
 
   const handleLogout = () => {
     logout();
@@ -211,7 +199,23 @@ export function AppSidebar() {
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild className="cursor-pointer">
+              <SidebarMenuButton
+                asChild
+                className="cursor-pointer"
+                isActive={location.pathname === '/dashboard/help'}
+              >
+                <Link to={'/dashboard/help'}>
+                  <CircleHelp />
+                  <span>Guide</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                className="cursor-pointer"
+                isActive={location.pathname === '/dashboard/settings'}
+              >
                 <Link to={'/dashboard/settings'}>
                   <Settings />
                   <span>Settings</span>

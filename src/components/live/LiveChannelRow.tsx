@@ -35,14 +35,14 @@ export const LiveChannelRow = memo(function LiveChannelRow({
   return (
     <Item
       variant={isActive ? 'outline-selected' : 'outline'}
-      className="gap-3 rounded-xl bg-card/85 px-3 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:flex-nowrap"
+      className="gap-3 rounded-lg bg-card/85 px-3 py-2 transition-colors hover:bg-accent/60 sm:flex-nowrap"
     >
       <ItemMedia
         variant={channel.logo ? 'image' : 'icon'}
         className={
           channel.logo
-            ? 'size-12 rounded-md border bg-muted/30'
-            : 'size-10 rounded-md border bg-muted/40 text-muted-foreground'
+            ? 'size-11 rounded-md border bg-muted/30 [&_img]:object-contain'
+            : 'size-11 rounded-md border bg-muted/40 text-muted-foreground'
         }
       >
         {channel.logo ? (
@@ -60,13 +60,13 @@ export const LiveChannelRow = memo(function LiveChannelRow({
           <span className="truncate">{channel.name}</span>
         </ItemTitle>
         <ItemDescription className="truncate">
-          {channel.group_name || 'Ungrouped'}
-        </ItemDescription>
-        <ItemDescription
-          className={`truncate text-xs ${epgNowTitle ? 'text-emerald-700' : 'text-transparent'}`}
-          aria-hidden={!epgNowTitle}
-        >
-          {epgNowTitle ? `Playing: ${epgNowTitle}` : '\u00a0'}
+          {epgNowTitle ? (
+            <span className="text-emerald-600 dark:text-emerald-400">
+              Now: {epgNowTitle}
+            </span>
+          ) : (
+            channel.group_name || 'Ungrouped'
+          )}
         </ItemDescription>
       </ItemContent>
 

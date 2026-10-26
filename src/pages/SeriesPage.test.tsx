@@ -195,7 +195,44 @@ describe('SeriesPage', () => {
       expect(playChannelRecord).not.toHaveBeenCalled();
     });
     expect(await screen.findByText('Pilot')).toBeInTheDocument();
-    expect(screen.getByText('Episodes')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'All series' })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the open series when returning to the page', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(listSourceChannels).mockResolvedValue([DEFAULT_SERIES]);
+    vi.mocked(listSeriesEpisodes).mockResolvedValueOnce(DEFAULT_EPISODES);
+
+    resetStore({
+      sources: [
+        {
+          id: 77,
+          source_type: 'xtream',
+          name: 'Xtream Source',
+          config: {},
+          created_at: 1000,
+        },
+      ],
+    });
+
+    const { unmount } = renderWithRouter(<SeriesPage />, {
+      initialEntries: ['/dashboard/series'],
+    });
+    await user.click(await screen.findByText('SilkCast Show'));
+    expect(await screen.findByText('Pilot')).toBeInTheDocument();
+    unmount();
+
+    renderWithRouter(<SeriesPage />, {
+      initialEntries: ['/dashboard/series'],
+    });
+
+    expect(await screen.findByText('Pilot')).toBeInTheDocument();
+    // Episodes come from the cache instead of a second provider request.
+    expect(listSeriesEpisodes).toHaveBeenCalledTimes(1);
+    vi.mocked(listSourceChannels).mockResolvedValue([]);
   });
 
   it('plays a selected episode from the episode list', async () => {
@@ -229,15 +266,24 @@ describe('SeriesPage', () => {
     );
 
     await user.click(await screen.findByText('SilkCast Show'));
-    await user.click(await screen.findByRole('button', { name: 'Play Pilot' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Play S01E01 Pilot' })
+    );
 
     await waitFor(() => {
       expect(playChannelRecord).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 901,
           stream_url: 'https://provider.example/series/alice/secret/5551.mp4',
-          name: 'SilkCast Show - Pilot',
-        })
+          name: 'S01E01 · Pilot',
+          group_name: 'SilkCast Show',
+        }),
+        // The full episode list becomes the player's next/previous queue.
+        [
+          expect.objectContaining({
+            stream_url: 'https://provider.example/series/alice/secret/5551.mp4',
+          }),
+        ]
       );
     });
     expect(await screen.findByText('Player Screen')).toBeInTheDocument();
@@ -269,7 +315,7 @@ describe('SeriesPage', () => {
     await user.click(await screen.findByText('SilkCast Show'));
 
     await waitFor(() => {
-      expect(playChannelRecord).toHaveBeenCalledWith(DEFAULT_SERIES);
+      expect(playChannelRecord).toHaveBeenCalledWith(DEFAULT_SERIES, undefined);
       expect(listSeriesEpisodes).not.toHaveBeenCalled();
     });
   });

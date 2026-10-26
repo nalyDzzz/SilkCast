@@ -2,7 +2,9 @@ import { useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
 import { MediaCatalogContent } from '@/components/media/MediaCatalogContent';
+import { CatalogGroupList } from '@/components/media/CatalogGroupList';
 import { MediaCatalogFiltersBar } from '@/components/media/MediaCatalogFiltersBar';
+import { catalogScrollKey } from '@/components/media/catalogViewStore';
 import { useLiveNowEpg } from '@/components/media/hooks/useLiveNowEpg';
 import { useMediaCatalogData } from '@/components/media/hooks/useMediaCatalogData';
 import { useMediaCatalogEvents } from '@/components/media/hooks/useMediaCatalogEvents';
@@ -13,6 +15,7 @@ import {
   MEDIA_COPY,
   MediaCatalogKind,
 } from '@/components/media/mediaCatalogConfig';
+import type { ChannelRecord } from '@/components/app/types';
 import { useAppStore } from '@/store/appStore';
 
 type MediaCatalogPageProps = {
@@ -71,7 +74,10 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     favoritesOnly,
     setFavoritesOnly,
     selectedGroupName,
+    view,
   } = useMediaCatalogFilters({
+    mediaKind,
+    selectedSourceId,
     allGroupsValue: copy.allGroupsValue,
   });
 
@@ -81,7 +87,6 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     loading,
     error,
     reportError,
-    refreshCatalog,
     handleToggleFavorite,
   } = useMediaCatalogData({
     selectedSourceId,
@@ -102,7 +107,6 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
   const {
     playingItemId,
     lastPlayedItemId,
-    playbackMessage,
     brokenPosterIds,
     handlePlayItem,
     handlePosterError,
@@ -115,15 +119,24 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     reportError,
   });
 
+  // Live channels play with the filtered list as a zapping queue.
+  const handlePlayCatalogItem = useCallback(
+    (item: ChannelRecord) =>
+      handlePlayItem(item, mediaKind === 'live' ? items : undefined),
+    [handlePlayItem, items, mediaKind]
+  );
+
   const {
     selectedSeriesItem,
     seriesEpisodes,
+    episodeRecords,
     seriesEpisodesLoading,
     seriesEpisodesError,
     isViewingSeriesEpisodes,
     handleOpenSeries,
     handlePlaySeriesEpisode,
     handleBackToSeriesCatalog,
+    handleRetryEpisodes,
   } = useSeriesEpisodes({
     mediaKind,
     selectedSourceId,
@@ -147,7 +160,6 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
     loadPlaybackStatus,
     setPlayback,
     reportError,
-    onSourcesUpdated: refreshCatalog,
     onEpgUpdated: refreshEpg,
     onExternalPlaybackClosed: handleExternalPlaybackClosed,
   });
@@ -161,7 +173,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
       return `Loading your ${copy.pluralLabel}...`;
     }
 
-    return `${items.length} ${copy.pluralLabel} available`;
+    return `${items.length.toLocaleString()} ${copy.pluralLabel} available`;
   }, [copy.pluralLabel, items.length, loading, selectedSourceId]);
 
   return (
@@ -173,12 +185,6 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
           </h1>
           <p className="text-sm text-muted-foreground">{catalogSummary}</p>
         </header>
-
-        {playbackMessage ? (
-          <p className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
-            {playbackMessage}
-          </p>
-        ) : null}
 
         <MediaCatalogFiltersBar
           query={query}
@@ -194,40 +200,62 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
           disabled={selectedSourceId === null}
         />
 
-        {error ? (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
+        <div className="flex min-h-0 flex-1 gap-4">
+          {!isViewingSeriesEpisodes ? (
+            <CatalogGroupList
+              className="hidden w-60 shrink-0 lg:flex"
+              groups={groups}
+              selectedGroup={selectedGroup}
+              allGroupsValue={copy.allGroupsValue}
+              allLabel={`All ${copy.pluralLabel}`}
+              onSelect={setSelectedGroup}
+            />
+          ) : null}
 
-        <div className="min-h-0 flex-1">
-          <MediaCatalogContent
-            mediaKind={mediaKind}
-            items={items}
-            liveNowByChannelId={liveNowByChannelId}
-            activeItemId={activeItemId}
-            playingItemId={playingItemId}
-            lastPlayedItemId={lastPlayedItemId}
-            brokenPosterIds={brokenPosterIds}
-            isViewingSeriesEpisodes={isViewingSeriesEpisodes}
-            selectedSeriesItem={selectedSeriesItem}
-            seriesEpisodes={seriesEpisodes}
-            seriesEpisodesLoading={seriesEpisodesLoading}
-            seriesEpisodesError={seriesEpisodesError}
-            onPlayItem={handlePlayItem}
-            onToggleFavorite={handleToggleFavorite}
-            onOpenSeries={handleOpenSeries}
-            onPlaySeriesEpisode={handlePlaySeriesEpisode}
-            onBackToSeriesCatalog={handleBackToSeriesCatalog}
-            onPosterError={handlePosterError}
-          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+            {error ? (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+
+            <div className="min-h-0 flex-1">
+              <MediaCatalogContent
+                mediaKind={mediaKind}
+                items={items}
+                liveNowByChannelId={liveNowByChannelId}
+                activeItemId={activeItemId}
+                playingItemId={playingItemId}
+                lastPlayedItemId={lastPlayedItemId}
+                brokenPosterIds={brokenPosterIds}
+                isViewingSeriesEpisodes={isViewingSeriesEpisodes}
+                selectedSeriesItem={selectedSeriesItem}
+                seriesEpisodes={seriesEpisodes}
+                episodeRecords={episodeRecords}
+                scrollKey={catalogScrollKey(mediaKind, {
+                  ...view,
+                  query: debouncedQuery,
+                })}
+                seriesEpisodesLoading={seriesEpisodesLoading}
+                seriesEpisodesError={seriesEpisodesError}
+                onRetryEpisodes={handleRetryEpisodes}
+                onPlayItem={handlePlayCatalogItem}
+                onToggleFavorite={handleToggleFavorite}
+                onOpenSeries={handleOpenSeries}
+                onPlaySeriesEpisode={handlePlaySeriesEpisode}
+                onBackToSeriesCatalog={handleBackToSeriesCatalog}
+                onPosterError={handlePosterError}
+              />
+            </div>
+
+            {!loading && !isViewingSeriesEpisodes && items.length === 0 ? (
+              <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                No {copy.pluralLabel} matched these filters for the selected
+                source.
+              </p>
+            ) : null}
+          </div>
         </div>
-
-        {!loading && !isViewingSeriesEpisodes && items.length === 0 ? (
-          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-            No {copy.pluralLabel} matched these filters for the selected source.
-          </p>
-        ) : null}
       </section>
     </main>
   );
