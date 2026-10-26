@@ -1,5 +1,27 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+
+// Resume positions live in localStorage; isolate tests.
+afterEach(() => {
+  window.localStorage.removeItem("silkcast:player:resumePositions");
+});
+
+// jsdom does not implement media playback.
+Object.defineProperty(HTMLMediaElement.prototype, "play", {
+  configurable: true,
+  writable: true,
+  value: vi.fn(() => Promise.resolve()),
+});
+Object.defineProperty(HTMLMediaElement.prototype, "pause", {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+});
+Object.defineProperty(HTMLMediaElement.prototype, "load", {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+});
 
 Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
   configurable: true,

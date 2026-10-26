@@ -1,6 +1,9 @@
 import { useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
+import { ArrowLeft, Loader2, MonitorPlay } from 'lucide-react';
+import type { ChannelRecord } from '@/components/app/types';
 import { PlayerScreen } from '@/components/player/PlayerScreen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +11,12 @@ import { useAppStore } from '@/store/appStore';
 
 type PlayerLocationState = {
   returnTo?: string;
+};
+
+const FALLBACK_RETURN_PATH: Record<ChannelRecord['media_kind'], string> = {
+  live: '/dashboard/live',
+  movie: '/dashboard/movies',
+  series: '/dashboard/series',
 };
 
 function resolveReturnPath(candidate: unknown, fallbackPath: string) {
@@ -28,16 +37,24 @@ export function PlayerPage() {
 
   const {
     selectedSourceId,
+    sources,
     activeChannel,
+    playbackQueue,
     settings,
-    setActiveChannel,
+    playerEnvironment,
+    loadPlayerEnvironment,
+    playChannelRecord,
     openChannelInMpv,
   } = useAppStore(
     useShallow((state) => ({
       selectedSourceId: state.selectedSourceId,
+      sources: state.sources,
       activeChannel: state.activeChannel,
+      playbackQueue: state.playbackQueue,
       settings: state.settings,
-      setActiveChannel: state.setActiveChannel,
+      playerEnvironment: state.playerEnvironment,
+      loadPlayerEnvironment: state.loadPlayerEnvironment,
+      playChannelRecord: state.playChannelRecord,
       openChannelInMpv: state.openChannelInMpv,
     }))
   );
@@ -48,26 +65,43 @@ export function PlayerPage() {
     }
   }, [navigate, selectedSourceId]);
 
-  const fallbackReturnPath =
-    activeChannel?.media_kind === 'movie' ? '/dashboard/movies' : '/dashboard/live';
+  useEffect(() => {
+    if (playerEnvironment === null) {
+      void loadPlayerEnvironment();
+    }
+  }, [loadPlayerEnvironment, playerEnvironment]);
 
   const returnPath = useMemo(() => {
     const state = location.state as PlayerLocationState | null;
-    return resolveReturnPath(state?.returnTo, fallbackReturnPath);
-  }, [fallbackReturnPath, location.state]);
+    return resolveReturnPath(
+      state?.returnTo,
+      FALLBACK_RETURN_PATH[activeChannel?.media_kind ?? 'live']
+    );
+  }, [activeChannel?.media_kind, location.state]);
+
+  const sourceType = useMemo(
+    () =>
+      sources.find((source) => source.id === activeChannel?.source_id)
+        ?.source_type ?? null,
+    [activeChannel?.source_id, sources]
+  );
 
   const handleBack = () => {
     navigate(returnPath);
   };
 
-  const handleOpenInMpv = async () => {
+  const handleOpenInMpv = async (startSeconds: number | null) => {
     if (!activeChannel) {
       return;
     }
 
-    await openChannelInMpv(activeChannel);
-    if (useAppStore.getState().error === null) {
+    await openChannelInMpv(activeChannel, { startSeconds });
+    const { error } = useAppStore.getState();
+    if (error === null) {
+      toast.success(`Opened "${activeChannel.name}" in MPV`);
       navigate(returnPath, { replace: true });
+    } else {
+      toast.error("Couldn't open MPV", { description: error });
     }
   };
 
@@ -77,18 +111,21 @@ export function PlayerPage() {
 
   if (settings.preferred_player !== 'web') {
     return (
-      <main className="flex h-full min-h-0 items-center justify-center p-4 md:p-6">
+      <main className="flex h-screen min-h-0 items-center justify-center p-4 md:p-6">
         <Card className="w-full max-w-xl">
           <CardHeader>
             <CardTitle>Web Player Is Disabled</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Your default player is set to MPV pop-out. Switch to the in-app web
+              Your default player is set to MPV pop-out. Switch to the in-app
               player in settings to use this screen.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => navigate('/dashboard/settings')}>
+              <Button
+                type="button"
+                onClick={() => navigate('/dashboard/settings')}
+              >
                 Open Settings
               </Button>
               <Button type="button" variant="outline" onClick={handleBack}>
@@ -101,12 +138,47 @@ export function PlayerPage() {
     );
   }
 
+  if (!activeChannel) {
+    return (
+      <main className="dark flex h-screen flex-col items-center justify-center gap-4 bg-black p-6 text-center text-white">
+        <MonitorPlay className="size-12 text-white/50" aria-hidden="true" />
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold">Nothing is playing</h1>
+          <p className="text-sm text-white/60">
+            Pick something from Live TV, Movies, or Series to start playback.
+          </p>
+        </div>
+        <Button type="button" variant="secondary" onClick={handleBack}>
+          <ArrowLeft />
+          Back
+        </Button>
+      </main>
+    );
+  }
+
+  if (playerEnvironment === null) {
+    return (
+      <main className="flex h-screen items-center justify-center bg-black text-white">
+        <Loader2
+          className="size-8 animate-spin"
+          aria-label="Preparing player"
+        />
+      </main>
+    );
+  }
+
   return (
-    <PlayerScreen
-      activeChannel={activeChannel}
-      onBack={handleBack}
-      onStop={() => setActiveChannel(null)}
-      onOpenInMpv={handleOpenInMpv}
-    />
+    <main className="h-screen w-screen overflow-hidden bg-black">
+      <PlayerScreen
+        channel={activeChannel}
+        queue={playbackQueue}
+        proxyBaseUrl={playerEnvironment.stream_proxy_base_url}
+        mpvAvailable={playerEnvironment.mpv_available}
+        epgEnabled={sourceType === 'xtream'}
+        onBack={handleBack}
+        onSelectItem={(item) => void playChannelRecord(item, playbackQueue)}
+        onOpenInMpv={handleOpenInMpv}
+      />
+    </main>
   );
 }

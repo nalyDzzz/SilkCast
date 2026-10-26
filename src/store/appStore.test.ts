@@ -828,6 +828,38 @@ describe('appStore', () => {
       expect(useAppStore.getState().activeChannel).toEqual(channel);
     });
 
+    it('still plays when recording watch history fails', async () => {
+      const playbackApi = await getPlaybackApi();
+      playbackApi.recordRecentChannelPlay.mockRejectedValue(
+        'FOREIGN KEY constraint failed'
+      );
+
+      const channel = {
+        id: 1,
+        source_id: 1,
+        name: 'CNN',
+        group_name: 'News',
+        logo: null,
+        tvg_id: null,
+        tvg_name: null,
+        stream_url: 'http://cnn.m3u8',
+        media_kind: 'live' as const,
+        is_favorite: false,
+      };
+      const queue = [channel, { ...channel, id: 2, stream_url: 'http://bbc' }];
+
+      useAppStore.setState({
+        settings: { ...DEFAULT_SETTINGS, preferred_player: 'web' },
+      });
+
+      await useAppStore.getState().playChannelRecord(channel, queue);
+      expect(useAppStore.getState()).toMatchObject({
+        activeChannel: channel,
+        playbackQueue: queue,
+        error: null,
+      });
+    });
+
     it('opens MPV for mpv player preference', async () => {
       const playbackApi = await getPlaybackApi();
       const recentsApi = await getRecentsApi();
@@ -855,7 +887,8 @@ describe('appStore', () => {
 
       await useAppStore.getState().playChannel(1);
       expect(playbackApi.openExternalWindow).toHaveBeenCalledWith(
-        'http://cnn.m3u8'
+        'http://cnn.m3u8',
+        { title: 'CNN' }
       );
       expect(useAppStore.getState().activeChannel).toBeNull();
     });
