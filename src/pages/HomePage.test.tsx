@@ -281,15 +281,16 @@ describe('HomePage', () => {
       .mockResolvedValueOnce([movies]);
     vi.mocked(sourcesApi.deleteRegisteredSource).mockResolvedValue(undefined);
 
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-
     await renderHomePage();
 
     const row = getSourceRow('Sports');
     await user.click(within(row).getByRole('button', { name: 'Delete' }));
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete "Sports"? This removes the source and its imported catalog.'
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Delete "Sports"?')).toBeInTheDocument();
+    expect(sourcesApi.deleteRegisteredSource).not.toHaveBeenCalled();
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Delete source' })
     );
 
     await waitFor(() => {
@@ -299,8 +300,32 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByText('Deleted "Sports".')).toBeInTheDocument();
     });
+  });
 
-    confirmSpy.mockRestore();
+  it('keeps the source when deletion is cancelled', async () => {
+    const user = userEvent.setup();
+    const sports = {
+      id: 1,
+      source_type: 'm3u',
+      name: 'Sports',
+      config: { location: 'https://example.com/sports.m3u' },
+      created_at: 1000,
+    };
+
+    resetStore({ sources: [sports] });
+    vi.mocked(sourcesApi.listRegisteredSources).mockResolvedValue([sports]);
+
+    await renderHomePage();
+
+    const row = getSourceRow('Sports');
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+    expect(sourcesApi.deleteRegisteredSource).not.toHaveBeenCalled();
   });
 
   it('refreshes a source from its row action', async () => {

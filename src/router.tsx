@@ -1,6 +1,8 @@
-import { createHashRouter, Navigate } from 'react-router';
+import { createHashRouter } from 'react-router';
 import { AppLayout } from '@/components/layouts/AppLayout';
 import { RootLayout } from '@/components/layouts/RootLayout';
+import { DashboardHomePage } from '@/pages/DashboardHomePage';
+import { HelpPage } from '@/pages/HelpPage';
 import { HomePage } from '@/pages/HomePage';
 import { LivePage } from '@/pages/LivePage';
 import { MoviesPage } from '@/pages/MoviesPage';
@@ -30,7 +32,7 @@ export const appRouter = createHashRouter([
         children: [
           {
             index: true,
-            element: <Navigate to="live" replace />,
+            element: <DashboardHomePage />,
           },
           {
             path: 'live',
@@ -51,6 +53,10 @@ export const appRouter = createHashRouter([
           {
             path: 'settings',
             element: <SettingsPage />,
+          },
+          {
+            path: 'help',
+            element: <HelpPage />,
           },
         ],
       },

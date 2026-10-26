@@ -55,6 +55,23 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows settings that finish loading after the page opens', () => {
+    renderWithRouter(<SettingsPage />);
+    const playerSelect = screen.getByRole('combobox', {
+      name: 'Default player',
+    });
+    expect(playerSelect).toHaveTextContent('In-app player');
+
+    act(() => {
+      useAppStore.setState({
+        settings: { ...DEFAULT_SETTINGS, preferred_player: 'mpv' },
+      });
+    });
+
+    expect(playerSelect).toHaveTextContent('MPV pop-out window');
+    expect(screen.getByRole('button', { name: 'Save Settings' })).toBeDisabled();
+  });
+
   it('reflects theme changes in appearance controls', () => {
     renderWithRouter(<SettingsPage />);
 
