@@ -34,13 +34,15 @@ const STARTS_WITH_DIVIDER = new RegExp(`^\\s*[#=*~━─═▬]{2,}`);
 const ENDS_WITH_DIVIDER = new RegExp(`[#=*~━─═▬]{2,}\\s*$`);
 
 const COUNTRY_PREFIX = /^\s*[[(|]?\s*([A-Z]{2,3})\s*[\])|:]\s*|^\s*([A-Z]{2,3})\s+-\s+/;
-const QUALITY_PREFIX = /^\s*(4K|8K|UHD|FHD|HD|SD|HEVC|H\.?265)(?:[-\s]*[A-Z]\+?)?\s*[-|:]\s*/i;
+const QUALITY_PREFIX = /^\s*(3D|4K|8K|UHD|FHD|HD|SD|HEVC|H\.?265)(?:[-\s]*[A-Z]\+?)?\s*[-|:]\s*/i;
+/** "3D-DE - Title", "4K EN | Title": a quality and a country in one prefix. */
+const QUALITY_COUNTRY_PREFIX = /^\s*(3D|4K|8K|UHD|FHD|HD|SD)[-\s]+([A-Z]{2,3})\s*[-|:]\s*/;
 const BRACKETED = /[[(]\s*(multi[\s-]?subs?|subs?|subbed|multi|dual audio|[A-Z]{2,3})\s*[\])]/gi;
 const TRAILING_YEAR = /[\s.([-]*\(?((?:19|20)\d{2})\)?\s*$/;
 
 /** Quality tokens, normalised. Null means "drop it, it isn't useful to show". */
 const QUALITY_TOKENS: Record<string, string | null> = {
-  '4K': '4K', '8K': '8K', UHD: '4K', '2160P': '4K', '3840P': '4K', FHD: 'FHD', '1080P': 'FHD', '1080I': 'FHD',
+  '3D': '3D', '4K': '4K', '8K': '8K', UHD: '4K', '2160P': '4K', '3840P': '4K', FHD: 'FHD', '1080P': 'FHD', '1080I': 'FHD',
   HD: 'HD', '720P': 'HD', SD: 'SD', '576P': 'SD', '480P': 'SD', HDR: 'HDR', HDR10: 'HDR', DV: 'HDR',
   '60FPS': '60 fps', '50FPS': '50 fps', FPS: null, RAW: null, HEVC: null, H265: null, 'H.265': null,
   X264: null, X265: null, 'WEB-DL': null, WEBDL: null, WEBRIP: null, BLURAY: null, BRRIP: null, DOLBY: null,
@@ -135,6 +137,13 @@ function computeCleanName(input: string): CleanName {
       text = text.slice(country[0].length);
       continue;
     }
+    const both = QUALITY_COUNTRY_PREFIX.exec(text);
+    if (both) {
+      addTag(countryTags, both[2]);
+      addTag(qualityTags, qualityFor(both[1]) ?? null);
+      text = text.slice(both[0].length);
+      continue;
+    }
     const quality = QUALITY_PREFIX.exec(text);
     if (quality) {
       addTag(qualityTags, qualityFor(quality[1]) ?? null);
@@ -153,7 +162,11 @@ function computeCleanName(input: string): CleanName {
 
   // Scene-style names: "123.Low.Tide.Motel.1997" or "Velvet.Underpass.2021.1080p".
   if (!/\s/.test(text.trim()) && (text.match(/\./g) ?? []).length >= 2) {
-    text = text.replace(/\./g, ' ').replace(/^\s*\d{1,4}\s+(?=\D)/, '');
+    text = text
+      .replace(/\./g, ' ')
+      .replace(/^\s*\d{1,4}\s+(?=\D)/, '')
+      // "L A Confidential" -> "L.A. Confidential"
+      .replace(/\b(?:[A-Z] ){1,}[A-Z]\b/g, (letters) => `${letters.replace(/ /g, '.')}.`);
   }
 
   // Quality tokens anywhere (usually trailing, often from superscripts).

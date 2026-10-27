@@ -99,7 +99,11 @@ const GuideRow = memo(function GuideRow({
         ))}
         {blocks.length === 0 ? (
           <span className="absolute inset-y-1.5 left-0.5 flex items-center px-3 text-[13px] text-muted-foreground/70">
-            {hasSchedule ? 'Nothing listed in this window' : 'No guide data'}
+            {!hasSchedule
+              ? 'No guide data'
+              : programmes.every((programme) => programme.end <= timeWindow.start)
+                ? 'Guide out of date: refresh it from the source menu'
+                : 'Nothing listed in this window'}
           </span>
         ) : null}
         <NowLine timeWindow={timeWindow} nowSeconds={nowSeconds} />

@@ -7,6 +7,8 @@ describe('cleanName', () => {
     ['UK| ARC SPORTS 1 FHD ⁶⁰ᶠᵖˢ', 'Arc Sports 1', null, ['UK', 'FHD', '60 fps']],
     ['4K-A+ - Glass Orchard (2024)', 'Glass Orchard', 2024, ['4K']],
     ['123.Low.Tide.Motel.1997', 'Low Tide Motel', 1997, []],
+    ['123.L.A.Confidential.1997', 'L.A. Confidential', 1997, []],
+    ['3D-DE - Alles fliegt dir um die Ohren (1981)', 'Alles fliegt dir um die Ohren', 1981, ['DE', '3D']],
     ['Velvet.Underpass.2021.1080p', 'Velvet Underpass', 2021, ['FHD']],
     ["EN - The Cartographer's Daughter (2023)", "The Cartographer's Daughter", 2023, ['EN']],
     ['EN - Ninth Floor (2024) [MULTI-SUB]', 'Ninth Floor', 2024, ['EN', 'Subs']],
