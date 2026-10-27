@@ -215,6 +215,8 @@ type AppActions = {
   seekPlayback: (seconds: number) => Promise<void>;
   saveSettings: () => Promise<void>;
   logout: () => void;
+  /** Lets the sources page open without the startup redirect to the dashboard. */
+  manageSources: () => void;
 };
 
 type AppStore = AppState & AppActions;
@@ -693,6 +695,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ error: String(err) });
     }
   },
+
+  manageSources: () => set({ hasPersistedSourceSelection: false }),
 
   logout: () => {
     writeLastSelectedSourceId(null);
