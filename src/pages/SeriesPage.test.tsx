@@ -111,7 +111,7 @@ describe('SeriesPage', () => {
     });
     expect(screen.getByRole('heading', { name: 'Series' })).toBeInTheDocument();
     await screen.findByText(
-      'No series matched these filters for the selected source.'
+      'No series match these filters.'
     );
   });
 
@@ -121,9 +121,9 @@ describe('SeriesPage', () => {
     });
 
     expect(screen.getByPlaceholderText('Search series')).toBeInTheDocument();
-    expect(screen.getByLabelText('Favorites only')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Favorites' })).toBeInTheDocument();
     await screen.findByText(
-      'No series matched these filters for the selected source.'
+      'No series match these filters.'
     );
   });
 
@@ -159,7 +159,7 @@ describe('SeriesPage', () => {
 
     expect(
       await screen.findByText(
-        'No series matched these filters for the selected source.'
+        'No series match these filters.'
       )
     ).toBeInTheDocument();
   });
@@ -188,7 +188,7 @@ describe('SeriesPage', () => {
       initialEntries: ['/dashboard/series'],
     });
 
-    await user.click(await screen.findByText('SilkCast Show'));
+    await user.click(await screen.findByRole('button', { name: 'Open SilkCast Show' }));
 
     await waitFor(() => {
       expect(listSeriesEpisodes).toHaveBeenCalledWith(901);
@@ -221,7 +221,7 @@ describe('SeriesPage', () => {
     const { unmount } = renderWithRouter(<SeriesPage />, {
       initialEntries: ['/dashboard/series'],
     });
-    await user.click(await screen.findByText('SilkCast Show'));
+    await user.click(await screen.findByRole('button', { name: 'Open SilkCast Show' }));
     expect(await screen.findByText('Pilot')).toBeInTheDocument();
     unmount();
 
@@ -265,7 +265,7 @@ describe('SeriesPage', () => {
       </MemoryRouter>
     );
 
-    await user.click(await screen.findByText('SilkCast Show'));
+    await user.click(await screen.findByRole('button', { name: 'Open SilkCast Show' }));
     await user.click(
       await screen.findByRole('button', { name: 'Play S01E01 Pilot' })
     );
@@ -312,7 +312,7 @@ describe('SeriesPage', () => {
       initialEntries: ['/dashboard/series'],
     });
 
-    await user.click(await screen.findByText('SilkCast Show'));
+    await user.click(await screen.findByRole('button', { name: 'Open SilkCast Show' }));
 
     await waitFor(() => {
       expect(playChannelRecord).toHaveBeenCalledWith(DEFAULT_SERIES, undefined);
