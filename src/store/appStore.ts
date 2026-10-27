@@ -84,23 +84,14 @@ const writeLastSelectedSourceId = (sourceId: number | null) => {
   );
 };
 
+// SilkCast is dark-first (it's a media app); light is an explicit choice in Settings.
 const readStoredThemePreference = (): AppTheme => {
   if (typeof window === 'undefined') {
-    return 'light';
+    return 'dark';
   }
 
   const storedTheme = window.localStorage.getItem(THEME_PREFERENCE_KEY);
-  if (isAppTheme(storedTheme)) {
-    return storedTheme;
-  }
-
-  if (typeof window.matchMedia === 'function') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
-  }
-
-  return 'light';
+  return isAppTheme(storedTheme) ? storedTheme : 'dark';
 };
 
 const writeThemePreference = (theme: AppTheme) => {
