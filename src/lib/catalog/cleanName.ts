@@ -199,7 +199,15 @@ function computeCleanName(input: string): CleanName {
     .trim();
 
   if (text === '') {
-    return { title: input, year: null, tags: [], region: null, isSeparator: false };
+    // Names made only of tags ("4K| ᵁᴴᴰ ³⁸⁴⁰ᴾ") read best as the tags themselves.
+    const onlyTags = [...countryTags, ...qualityTags];
+    return {
+      title: onlyTags.length > 0 ? onlyTags.join(' ') : input,
+      year: null,
+      tags: [],
+      region: countryTags[0] ?? null,
+      isSeparator: false,
+    };
   }
 
   return {

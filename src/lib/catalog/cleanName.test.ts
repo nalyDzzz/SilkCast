@@ -62,8 +62,9 @@ describe('cleanName', () => {
     expect(cleanName('1917 (2019)')).toMatchObject({ title: '1917', year: 2019 });
   });
 
-  it('falls back to the raw name when cleaning would leave nothing', () => {
+  it('shows the tags as the title when a name is nothing but tags', () => {
     expect(cleanName('4K').title).toBe('4K');
+    expect(cleanName('4K| ᵁᴴᴰ ³⁸⁴⁰ᴾ')).toMatchObject({ title: '4K', tags: [] });
     expect(cleanName('').title).toBe('');
   });
 });
