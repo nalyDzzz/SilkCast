@@ -41,8 +41,14 @@ describe('cleanName', () => {
       title: 'Detective Hale',
       year: null,
       tags: [],
+      region: null,
       isSeparator: false,
     });
+  });
+
+  it('exposes the country or language tag as the region', () => {
+    expect(cleanName('UK| ARC SPORTS 1 FHD').region).toBe('UK');
+    expect(cleanName('4K-A+ - Glass Orchard (2024)').region).toBeNull();
   });
 
   it('keeps mixed-case names as the provider wrote them', () => {

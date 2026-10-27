@@ -2,7 +2,6 @@ import {
   ChannelRecord,
   SeriesEpisodeRecord,
 } from '@/components/app/types';
-import { VirtualizedLiveChannelList } from '@/components/live/VirtualizedLiveChannelList';
 import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
 import {
   readScrollOffset,
@@ -15,8 +14,6 @@ import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
 type MediaCatalogContentProps = {
   mediaKind: MediaCatalogKind;
   items: ChannelRecord[];
-  liveNowByChannelId: Record<number, string>;
-  activeItemId: number | null;
   playingItemId: number | null;
   lastPlayedItemId: number | null;
   brokenPosterIds: Record<number, true>;
@@ -40,8 +37,6 @@ type MediaCatalogContentProps = {
 export function MediaCatalogContent({
   mediaKind,
   items,
-  liveNowByChannelId,
-  activeItemId,
   playingItemId,
   lastPlayedItemId,
   brokenPosterIds,
@@ -60,24 +55,6 @@ export function MediaCatalogContent({
   onBackToSeriesCatalog,
   onPosterError,
 }: MediaCatalogContentProps) {
-  if (mediaKind === 'live') {
-    return (
-      <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
-        <VirtualizedLiveChannelList
-          key={scrollKey}
-          initialScrollOffset={readScrollOffset(scrollKey)}
-          onScrollOffsetChange={(offset) => writeScrollOffset(scrollKey, offset)}
-          channels={items}
-          epgNowByChannelId={liveNowByChannelId}
-          activeChannelId={activeItemId}
-          playingChannelId={playingItemId}
-          onPlay={(nextItem) => void onPlayItem(nextItem)}
-          onToggleFavorite={(nextItem) => void onToggleFavorite(nextItem)}
-        />
-      </div>
-    );
-  }
-
   if (isViewingSeriesEpisodes && selectedSeriesItem) {
     return (
       <SeriesEpisodeList

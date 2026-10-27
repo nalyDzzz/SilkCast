@@ -1,5 +1,5 @@
-import { MediaCatalogPage } from '@/components/media/MediaCatalogPage';
+import { LiveTvPage } from '@/components/live/LiveTvPage';
 
 export function LivePage() {
-  return <MediaCatalogPage mediaKind="live" />;
+  return <LiveTvPage />;
 }

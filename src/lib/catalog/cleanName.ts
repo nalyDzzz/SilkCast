@@ -9,6 +9,8 @@ export type CleanName = {
   year: number | null;
   /** Country/language first, then quality, e.g. ["UK", "FHD", "60 fps"]. */
   tags: string[];
+  /** The country/language tag, if any ("UK", "EN"). */
+  region: string | null;
   /** Provider divider rows like "##### SPORTS #####"; hide these from lists. */
   isSeparator: boolean;
 };
@@ -109,7 +111,13 @@ function computeCleanName(input: string): CleanName {
     (STARTS_WITH_DIVIDER.test(input) && ENDS_WITH_DIVIDER.test(input))
   ) {
     const title = input.replace(DIVIDER_EDGE, '').trim();
-    return { title: title === '' ? input : toTitleCase(title), year: null, tags: [], isSeparator: input !== '' };
+    return {
+      title: title === '' ? input : toTitleCase(title),
+      year: null,
+      tags: [],
+      region: null,
+      isSeparator: input !== '',
+    };
   }
 
   const countryTags: string[] = [];
@@ -178,13 +186,14 @@ function computeCleanName(input: string): CleanName {
     .trim();
 
   if (text === '') {
-    return { title: input, year: null, tags: [], isSeparator: false };
+    return { title: input, year: null, tags: [], region: null, isSeparator: false };
   }
 
   return {
     title: isShouting(text) ? toTitleCase(text) : text,
     year,
     tags: [...countryTags, ...qualityTags],
+    region: countryTags[0] ?? null,
     isSeparator: false,
   };
 }
