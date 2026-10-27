@@ -22,7 +22,7 @@ import { TagBadges } from '@/components/catalog/TagBadges';
 import { useCommandPaletteStore } from '@/components/command/commandPaletteStore';
 import { useAllGroups, useCatalogSearch } from '@/components/command/useCatalogSearch';
 import { useCatalogViewStore } from '@/components/media/catalogViewStore';
-import type { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
+import { MEDIA_PATH, type MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
 import { useSourceActions } from '@/components/sources/useSourceActions';
 import {
   Command,
@@ -37,11 +37,6 @@ import { useOpenCatalogItem } from '@/hooks/useOpenCatalogItem';
 import { cleanName } from '@/lib/catalog/cleanName';
 import { useAppStore } from '@/store/appStore';
 
-const KIND_PATH: Record<MediaCatalogKind, string> = {
-  live: '/dashboard/live',
-  movie: '/dashboard/movies',
-  series: '/dashboard/series',
-};
 const KIND_LABEL: Record<MediaCatalogKind, string> = {
   live: 'Live TV',
   movie: 'Movies',
@@ -166,7 +161,7 @@ export function CommandPalette() {
     useCatalogViewStore
       .getState()
       .updateView(kind, selectedSourceId, { group: groupName, selectedSeries: null });
-    navigate(KIND_PATH[kind]);
+    navigate(MEDIA_PATH[kind]);
   };
 
   const pages = [

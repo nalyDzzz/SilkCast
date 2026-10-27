@@ -1,57 +1,37 @@
 import { useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
-import { CircleHelp, Film, Heart, Tv, TvMinimal } from 'lucide-react';
+import { Film, Tv, TvMinimal } from 'lucide-react';
 import type { ChannelRecord } from '@/components/app/types';
-import {
-  BrowseTile,
-  ChannelTile,
-  MediaRail,
-  PosterTile,
-} from '@/components/home/HomeTiles';
+import { useChannelSchedules, useNowSeconds } from '@/components/epg/useChannelSchedules';
+import { ContinueCard, HomeRail, LibraryTile, OnNowCard } from '@/components/home/HomeCards';
+import { type HeroFeature, HomeHero } from '@/components/home/HomeHero';
+import { continueItems, onNowChannels } from '@/components/home/homeItems';
 import { useHomeDashboardData } from '@/components/home/useHomeDashboardData';
 import { useCatalogViewStore } from '@/components/media/catalogViewStore';
-import { resumeKeyFor } from '@/components/player/hooks/useResumeTracking';
+import { MEDIA_PATH } from '@/components/media/mediaCatalogConfig';
 import { Button } from '@/components/ui/button';
+import { useOpenCatalogItem } from '@/hooks/useOpenCatalogItem';
+import { scheduleSlots } from '@/lib/epg/schedule';
 import { getResumeEntries } from '@/lib/player/playerStorage';
 import { useAppStore } from '@/store/appStore';
-import { displayTitle } from '@/lib/catalog/cleanName';
 
-const RAIL_LIMIT = 15;
-
-function uniqueById(items: ChannelRecord[]) {
-  const seen = new Set<number>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) {
-      return false;
-    }
-    seen.add(item.id);
-    return true;
-  });
-}
+const CONTINUE_LIMIT = 12;
+const ON_NOW_LIMIT = 12;
 
 export function DashboardHomePage() {
   const navigate = useNavigate();
-  const {
-    sources,
-    selectedSourceId,
-    recentChannels,
-    preferredPlayer,
-    loadRecents,
-    playChannelRecord,
-  } = useAppStore(
+  const { sources, selectedSourceId, recentChannels, loadRecents } = useAppStore(
     useShallow((state) => ({
       sources: state.sources,
       selectedSourceId: state.selectedSourceId,
       recentChannels: state.recentChannels,
-      preferredPlayer: state.settings.preferred_player,
       loadRecents: state.loadRecents,
-      playChannelRecord: state.playChannelRecord,
     }))
   );
-  const { counts, favoriteChannels, loading } =
-    useHomeDashboardData(selectedSourceId);
+  const { counts, favoriteChannels, loading } = useHomeDashboardData(selectedSourceId);
+  const { open } = useOpenCatalogItem();
+  const nowSeconds = useNowSeconds();
 
   useEffect(() => {
     if (selectedSourceId === null) {
@@ -62,172 +42,96 @@ export function DashboardHomePage() {
   }, [loadRecents, navigate, selectedSourceId]);
 
   const source = sources.find((item) => item.id === selectedSourceId) ?? null;
-
-  const { recentLive, continueWatching } = useMemo(() => {
-    const forSource = recentChannels
-      .filter((recent) => recent.channel.source_id === selectedSourceId)
-      .map((recent) => recent.channel);
-    return {
-      recentLive: uniqueById(
-        forSource.filter((item) => item.media_kind === 'live')
-      ).slice(0, RAIL_LIMIT),
-      continueWatching: uniqueById(
-        forSource.filter((item) => item.media_kind !== 'live')
-      ).slice(0, RAIL_LIMIT),
-    };
-  }, [recentChannels, selectedSourceId]);
-
   const resumeEntries = useMemo(() => getResumeEntries(), []);
 
-  const play = async (item: ChannelRecord, queue?: ChannelRecord[]) => {
-    await playChannelRecord(item, queue);
-    const { error } = useAppStore.getState();
-    if (error !== null) {
-      toast.error("Couldn't start playback", { description: error });
-      return;
-    }
+  const continueList = useMemo(
+    () => continueItems(recentChannels, selectedSourceId, resumeEntries, CONTINUE_LIMIT),
+    [recentChannels, resumeEntries, selectedSourceId]
+  );
+  const liveChannels = useMemo(
+    () => onNowChannels(favoriteChannels, recentChannels, selectedSourceId, ON_NOW_LIMIT),
+    [favoriteChannels, recentChannels, selectedSourceId]
+  );
+  const schedules = useChannelSchedules(
+    liveChannels.map((channel) => channel.id),
+    { limit: 3, enabled: source?.source_type === 'xtream' }
+  );
+  const nowFor = (channel: ChannelRecord) =>
+    scheduleSlots(schedules[channel.id] ?? [], nowSeconds).now;
 
-    if (preferredPlayer === 'web') {
-      navigate('/dashboard/player', { state: { returnTo: '/dashboard' } });
-    } else {
-      toast.success(`Playing "${displayTitle(item.name)}" in MPV`);
-    }
+  const feature: HeroFeature = (() => {
+    const resume = continueList.find((entry) => entry.progress !== null) ?? continueList[0];
+    if (resume) return { kind: 'resume', entry: resume };
+    const live = liveChannels.find((channel) => nowFor(channel) !== null);
+    const programme = live ? nowFor(live) : null;
+    if (live && programme) return { kind: 'live', channel: live, programme };
+    return { kind: 'welcome' };
+  })();
+
+  const openItem = (item: ChannelRecord) =>
+    void open(item, item.media_kind === 'live' ? liveChannels : undefined);
+
+  const browseGroup = (item: ChannelRecord) => {
+    useCatalogViewStore
+      .getState()
+      .updateView(item.media_kind, selectedSourceId, { group: item.group_name, selectedSeries: null });
+    navigate(MEDIA_PATH[item.media_kind]);
   };
-
-  const openContinueItem = (item: ChannelRecord) => {
-    if (item.media_kind === 'series' && source?.source_type === 'xtream') {
-      useCatalogViewStore
-        .getState()
-        .updateView('series', selectedSourceId, { selectedSeries: item });
-      navigate('/dashboard/series');
-      return;
-    }
-    void play(item);
-  };
-
-  const progressFor = (item: ChannelRecord) => {
-    if (item.media_kind !== 'movie') {
-      return null;
-    }
-    const entry = resumeEntries[resumeKeyFor(item)];
-    return entry ? Math.min(entry.position / entry.duration, 1) : null;
-  };
-
-  const isEmpty =
-    !loading &&
-    recentLive.length === 0 &&
-    continueWatching.length === 0 &&
-    favoriteChannels.length === 0;
 
   return (
-    <main className="p-4 md:p-6">
-      <section className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-            Home
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {source ? `Watching from ${source.name}` : 'Loading your source…'}
-          </p>
-        </header>
+    <main className="pb-12">
+      <HomeHero feature={feature} nowSeconds={nowSeconds} onOpen={openItem} onBrowseGroup={browseGroup} />
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <BrowseTile
-            to="/dashboard/live"
-            icon={<Tv />}
-            label="Live TV"
-            count={loading ? undefined : (counts?.live ?? null)}
-          />
-          <BrowseTile
-            to="/dashboard/movies"
-            icon={<Film />}
-            label="Movies"
-            count={loading ? undefined : (counts?.movie ?? null)}
-          />
-          <BrowseTile
-            to="/dashboard/series"
-            icon={<TvMinimal />}
-            label="Series"
-            count={loading ? undefined : (counts?.series ?? null)}
-          />
-        </div>
-
-        {continueWatching.length > 0 ? (
-          <MediaRail
+      <div className="relative z-10 -mt-4 space-y-9">
+        {continueList.length > 0 ? (
+          <HomeRail
             title="Continue watching"
             action={
               <Button asChild variant="ghost" size="sm">
-                <Link to="/dashboard/recents">See all</Link>
+                <Link to="/dashboard/recents">Watch history</Link>
               </Button>
             }
           >
-            {continueWatching.map((item) => (
-              <PosterTile
-                key={item.id}
-                item={item}
-                progress={progressFor(item)}
-                subtitle={item.media_kind === 'series' ? 'Series' : 'Movie'}
-                onSelect={openContinueItem}
-              />
+            {continueList.map((entry) => (
+              <ContinueCard key={entry.item.id} entry={entry} onOpen={openItem} />
             ))}
-          </MediaRail>
+          </HomeRail>
         ) : null}
 
-        {recentLive.length > 0 ? (
-          <MediaRail title="Recent channels">
-            {recentLive.map((channel) => (
-              <ChannelTile
-                key={channel.id}
-                channel={channel}
-                onPlay={(item) => void play(item, recentLive)}
-              />
-            ))}
-          </MediaRail>
-        ) : null}
-
-        {favoriteChannels.length > 0 ? (
-          <MediaRail
-            title="Favorite channels"
+        {liveChannels.length > 0 ? (
+          <HomeRail
+            title="On now"
+            subtitle={favoriteChannels.length > 0 ? 'Favorites and recent channels' : 'Recent channels'}
             action={
               <Button asChild variant="ghost" size="sm">
-                <Link to="/dashboard/live">Browse all</Link>
+                <Link to="/dashboard/live">Browse Live TV</Link>
               </Button>
             }
           >
-            {favoriteChannels.slice(0, 30).map((channel) => (
-              <ChannelTile
+            {liveChannels.map((channel) => (
+              <OnNowCard
                 key={channel.id}
                 channel={channel}
-                onPlay={(item) => void play(item, favoriteChannels)}
+                programme={nowFor(channel)}
+                nowSeconds={nowSeconds}
+                onPlay={openItem}
               />
             ))}
-          </MediaRail>
+          </HomeRail>
         ) : null}
 
-        {isEmpty ? (
-          <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-6">
-            <Heart className="size-6 text-muted-foreground" />
-            <div className="space-y-1">
-              <h2 className="font-semibold">Nothing here yet</h2>
-              <p className="text-sm text-muted-foreground">
-                Channels you watch and favorite will show up here for one-click
-                access. Tap the heart on any channel to favorite it.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <Link to="/dashboard/live">Browse Live TV</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/dashboard/help">
-                  <CircleHelp />
-                  Read the guide
-                </Link>
-              </Button>
-            </div>
+        <section className="space-y-3 px-8">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Library
+            {source ? <span className="ml-3 text-sm font-normal text-muted-foreground">{source.name}</span> : null}
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <LibraryTile to="/dashboard/live" icon={<Tv />} label="Live TV" count={loading ? undefined : (counts?.live ?? null)} />
+            <LibraryTile to="/dashboard/movies" icon={<Film />} label="Movies" count={loading ? undefined : (counts?.movie ?? null)} />
+            <LibraryTile to="/dashboard/series" icon={<TvMinimal />} label="Series" count={loading ? undefined : (counts?.series ?? null)} />
           </div>
-        ) : null}
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

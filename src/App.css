@@ -175,3 +175,17 @@
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+
+@keyframes thread-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklab, var(--thread) 28%, transparent),
+      0 0 10px var(--thread);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in oklab, var(--thread) 14%, transparent),
+      0 0 16px var(--thread);
+  }
+}

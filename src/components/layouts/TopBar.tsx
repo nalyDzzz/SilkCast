@@ -45,7 +45,7 @@ export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; s
         overlay ? 'absolute inset-x-0 top-0' : 'relative',
         solid
           ? 'border-b border-border bg-background/92 backdrop-blur-md'
-          : 'border-b border-transparent bg-linear-to-b from-background/80 via-background/35 to-transparent'
+          : 'bg-linear-to-b from-background/80 via-background/35 to-transparent'
       )}
     >
       <Link to="/dashboard" aria-label="SilkCast home" className="rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
