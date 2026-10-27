@@ -131,6 +131,8 @@ type AppState = {
   sources: SourceRecord[];
   selectedSourceId: number | null;
   hasPersistedSourceSelection: boolean;
+  /** Set while the user is on the sources page by choice; stops the startup redirect. */
+  managingSources: boolean;
   groups: { name: string; channel_count: number }[];
   selectedGroup: string;
   channels: ChannelRecord[];
@@ -225,6 +227,7 @@ const initialState: AppState = {
   sources: [],
   selectedSourceId: initialSelectedSourceId,
   hasPersistedSourceSelection: initialSelectedSourceId !== null,
+  managingSources: false,
   groups: [],
   selectedGroup: ALL_GROUPS,
   channels: [],
@@ -257,6 +260,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       selectedSourceId: normalizedSourceId,
       hasPersistedSourceSelection: false,
+      managingSources: false,
     });
   },
   setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
@@ -696,7 +700,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  manageSources: () => set({ hasPersistedSourceSelection: false }),
+  manageSources: () => set({ hasPersistedSourceSelection: false, managingSources: true }),
 
   logout: () => {
     writeLastSelectedSourceId(null);

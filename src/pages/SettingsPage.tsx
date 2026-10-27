@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { type AppTheme, useAppStore } from '@/store/appStore';
+import { PageHeader } from '@/components/layouts/PageHeader';
 
 export function SettingsPage() {
   const { theme, setTheme } = useAppStore(
@@ -23,14 +24,10 @@ export function SettingsPage() {
   return (
     <main className="p-4 md:p-6">
       <section className="mx-auto w-full max-w-3xl space-y-4">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-            Settings
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Control playback behavior and choose your default player.
-          </p>
-        </header>
+        <PageHeader
+          title="Settings"
+          description="Choose your default player, what happens at startup, and the theme."
+        />
 
         <PlaybackSettingsCard />
 

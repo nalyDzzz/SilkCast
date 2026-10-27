@@ -114,9 +114,9 @@ describe('RecentsPage', () => {
       initialEntries: ['/dashboard/recents'],
     });
 
-    expect(screen.getByRole('heading', { name: 'Recents' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Watch history' })).toBeInTheDocument();
     expect(
-      screen.getByText('Showing recents for Primary Source.')
+      screen.getByText('What you watched on Primary Source, newest first.')
     ).toBeInTheDocument();
 
     await waitFor(() => {

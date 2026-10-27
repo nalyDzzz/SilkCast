@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import {
-  CircleHelp,
   Film,
   Keyboard,
   ListVideo,
@@ -20,6 +19,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { useAppStore } from '@/store/appStore';
+import { PageHeader } from '@/components/layouts/PageHeader';
 
 function GuideSection({
   icon,
@@ -73,11 +73,11 @@ const TROUBLESHOOTING: { problem: string; fix: ReactNode }[] = [
   },
   {
     problem: 'Channels or movies are missing or outdated',
-    fix: 'Use Refresh Source in the sidebar. Providers change their catalogs and stream addresses regularly.',
+    fix: 'Open the source menu in the top bar and choose Refresh source. Providers change their catalogs and stream addresses regularly.',
   },
   {
     problem: 'No programme guide (EPG) information',
-    fix: 'Guide data is only available for Xtream sources. Open Live TV and use Refresh EPG in the sidebar.',
+    fix: 'Guide data is only available for Xtream sources. Choose Refresh guide in the source menu, or press Ctrl K and run Refresh guide.',
   },
 ];
 
@@ -89,16 +89,10 @@ export function HelpPage() {
   return (
     <main className="p-4 md:p-6">
       <section className="mx-auto w-full max-w-3xl space-y-4">
-        <header className="space-y-1">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight md:text-3xl">
-            <CircleHelp className="size-7" />
-            Guide
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Everything you need to get watching, plus fixes for common stream
-            problems.
-          </p>
-        </header>
+        <PageHeader
+          title="Help"
+          description="Everything you need to get watching, plus fixes for common stream problems."
+        />
 
         <GuideSection
           icon={<Plug className="size-5" />}
@@ -106,7 +100,8 @@ export function HelpPage() {
           description="SilkCast is a player only; it ships with no channels."
         >
           <p>
-            From the <strong>Switch Source</strong> screen you can add either:
+            Open the source menu in the top bar and choose{' '}
+            <strong>Add source</strong>. You can add either:
           </p>
           <ul className="list-disc space-y-2 pl-5">
             <li>
@@ -131,17 +126,29 @@ export function HelpPage() {
         <GuideSection icon={<Film className="size-5" />} title="2. Browse">
           <ul className="list-disc space-y-2 pl-5">
             <li>
-              <strong>Live TV, Movies, Series</strong>: search by name, filter
-              by group, and tap the heart to favorite. Use{' '}
-              <strong>Favorites only</strong> to build a personal channel list.
+              <strong>Search</strong>: press <strong>Ctrl K</strong> anywhere
+              to find a channel, movie, series, or group, or to run an action
+              such as Refresh guide.
+            </li>
+            <li>
+              <strong>Live TV, Movies, Series</strong>: pick a group, filter the
+              list, and tap the heart to favorite. The{' '}
+              <strong>Favorites</strong> chip shows only your favorites.
             </li>
             <li>
               Filters, the open series, and your scroll position are kept when
               you open the player and come back.
             </li>
             <li>
-              <strong>Recents</strong> lists what you played, by type, so you
-              can jump back in.
+              <strong>Live TV</strong> has two views: <strong>Channels</strong>{' '}
+              (pick a channel to see what's on now and next, use the arrow keys,
+              press Enter to watch) and <strong>Guide</strong> (a timeline of the
+              next few hours).
+            </li>
+            <li>
+              <strong>Home</strong> picks up where you left off. Its{' '}
+              <strong>Watch history</strong> link lists everything you played, by
+              type.
             </li>
           </ul>
         </GuideSection>
