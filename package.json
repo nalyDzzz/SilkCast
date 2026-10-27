@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:desktop": "npm run tauri build",
+    "build:icons": "node scripts/build-icons.mjs",
     "prepare:mpv-runtime": "node scripts/prepare-mpv-runtime.mjs",
     "prepare:mpv-runtime:strict": "node scripts/prepare-mpv-runtime.mjs --strict",
     "build:windows:exe": "npm run prepare:mpv-runtime && npm run tauri build -- --bundles nsis",
@@ -45,6 +46,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- SilkCast "Thread" icon, simplified drawing for 16-32 px: thicker thread, no highlight or glow. -->
+  <defs>
+    <linearGradient id="plum" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2D1733"/><stop offset="1" stop-color="#0E0A0F"/></linearGradient>
+    <radialGradient id="glow" cx=".26" cy=".1" r=".95"><stop offset="0" stop-color="#D2447F" stop-opacity=".34"/><stop offset=".55" stop-color="#D2447F" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#plum)"/>
+  <rect width="1024" height="1024" rx="220" fill="url(#glow)"/>
+  <g transform="translate(512 512) scale(1.1) translate(-512 -512) translate(80 0) skewX(-9)">
+    <path d="M704 312 C668 244 596 212 512 212 C404 212 324 270 324 362 C324 468 430 492 512 512 C598 532 700 560 700 662 C700 756 616 812 512 812 C430 812 356 780 318 712" fill="none" stroke="#E4558F" stroke-width="150" stroke-linecap="round"/>
+    <circle cx="318" cy="712" r="96" fill="#FCEEDC"/>
+  </g>
+</svg>
