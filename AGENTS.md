@@ -16,3 +16,10 @@
 
 ## Testing
 - When developing a feature, write tests for that feature when it makes sense.
+
+## Design System
+- Read `docs/design/README.md` before visual work; it records the chosen direction and links the mockups.
+- Colours come from the Mulberry tokens in `src/App.css` (shadcn names plus `--thread`, `--sheen`, `--live`); style with token utilities such as `bg-primary`, `text-thread`, `text-live`.
+- Display provider names through `cleanName()` (`src/lib/catalog/cleanName.ts`) and `TagBadges`; keep raw names for search, playback and storage.
+- Progress is always `ThreadProgress`. Titles (hero, details, page headers) use `font-display-italic`; everything else uses the default Onest.
+- App icons are generated: edit `src-tauri/icons/source/*.svg`, then run `npm run build:icons`.
