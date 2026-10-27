@@ -10,6 +10,7 @@ import {
   setChannelFavoriteState,
 } from '@/lib/api/channelsApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
+import { cleanName } from '@/lib/catalog/cleanName';
 
 export function clearMediaCatalogCache() {
   catalogResultCache.clear();
@@ -107,7 +108,9 @@ export function useMediaCatalogData({
       query: normalizedQuery === '' ? null : normalizedQuery,
       favoritesOnly,
     })
-      .then((nextItems) => {
+      .then((rawItems) => {
+        // Providers ship divider rows ("##### SPORTS #####") as channels.
+        const nextItems = rawItems.filter((item) => !cleanName(item.name).isSeparator);
         catalogResultCache.rememberItems(itemsKey, nextItems);
         if (requestVersionRef.current === requestVersion) {
           setItems(nextItems);

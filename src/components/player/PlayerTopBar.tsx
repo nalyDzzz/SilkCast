@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatClockTime } from '@/lib/player/formatTime';
 import { cn } from '@/lib/utils';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 type PlayerTopBarProps = {
   channel: ChannelRecord;
@@ -61,7 +62,7 @@ export function PlayerTopBar({
               </Badge>
             ) : null}
             <h1 className="truncate text-base font-semibold text-white sm:text-lg">
-              {channel.name}
+              {displayTitle(channel.name)}
             </h1>
           </div>
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SkipForward, X } from 'lucide-react';
 import type { ChannelRecord } from '@/components/app/types';
 import { Button } from '@/components/ui/button';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 const COUNTDOWN_SECONDS = 10;
 
@@ -44,7 +45,7 @@ export function PlayerUpNext({
           <p className="text-xs font-medium tracking-wide text-white/60 uppercase">
             Up next in {remaining}s
           </p>
-          <p className="truncate font-semibold">{nextItem.name}</p>
+          <p className="truncate font-semibold">{displayTitle(nextItem.name)}</p>
         </div>
         <Button
           type="button"

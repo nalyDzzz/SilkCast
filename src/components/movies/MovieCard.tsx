@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Heart, Play } from "lucide-react";
 import { ChannelRecord } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { cleanName, displayTitle } from "@/lib/catalog/cleanName";
 
 const movieBackdropGradients = [
   "from-sky-500/80 via-indigo-600/80 to-violet-800/80",
@@ -63,7 +64,9 @@ export const MovieCard = memo(function MovieCard({
           )}
           <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/85 via-black/20 to-transparent" />
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-            <span className="line-clamp-2 text-sm font-semibold text-white">{movie.name}</span>
+            <span className="line-clamp-2 text-sm font-semibold text-white">
+              {displayTitle(movie.name)}
+            </span>
             <span className="rounded-full bg-black/45 p-2 text-white backdrop-blur-sm">
               {isPlaying ? (
                 <span className="text-xs font-semibold">...</span>
@@ -75,7 +78,9 @@ export const MovieCard = memo(function MovieCard({
         </div>
       </button>
       <div className="flex items-center justify-between gap-2 p-2">
-        <p className="truncate text-xs text-muted-foreground">{movie.group_name}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {cleanName(movie.name).year ?? cleanName(movie.group_name).title}
+        </p>
         <Button
           type="button"
           size="icon-sm"

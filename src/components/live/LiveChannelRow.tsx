@@ -10,6 +10,8 @@ import {
   ItemTitle,
 } from '@/components/ui/item';
 import { Button } from '@/components/ui/button';
+import { cleanName } from '@/lib/catalog/cleanName';
+import { TagBadges } from '@/components/catalog/TagBadges';
 
 type LiveChannelRowProps = {
   channel: ChannelRecord;
@@ -28,9 +30,10 @@ export const LiveChannelRow = memo(function LiveChannelRow({
   onPlay,
   onToggleFavorite,
 }: LiveChannelRowProps) {
+  const { title, tags } = cleanName(channel.name);
   const favoriteLabel = channel.is_favorite
-    ? `Remove ${channel.name} from favorites`
-    : `Add ${channel.name} to favorites`;
+    ? `Remove ${title} from favorites`
+    : `Add ${title} to favorites`;
 
   return (
     <Item
@@ -57,7 +60,8 @@ export const LiveChannelRow = memo(function LiveChannelRow({
         onClick={() => onPlay(channel)}
       >
         <ItemTitle className="w-full min-w-0">
-          <span className="truncate">{channel.name}</span>
+          <span className="truncate">{title}</span>
+          <TagBadges tags={tags} />
         </ItemTitle>
         <ItemDescription className="truncate">
           {epgNowTitle ? (
@@ -65,7 +69,7 @@ export const LiveChannelRow = memo(function LiveChannelRow({
               Now: {epgNowTitle}
             </span>
           ) : (
-            channel.group_name || 'Ungrouped'
+            cleanName(channel.group_name).title || 'Ungrouped'
           )}
         </ItemDescription>
       </ItemContent>

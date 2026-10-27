@@ -8,6 +8,7 @@ import { PlayerScreen } from '@/components/player/PlayerScreen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAppStore } from '@/store/appStore';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 type PlayerLocationState = {
   returnTo?: string;
@@ -98,7 +99,7 @@ export function PlayerPage() {
     await openChannelInMpv(activeChannel, { startSeconds });
     const { error } = useAppStore.getState();
     if (error === null) {
-      toast.success(`Opened "${activeChannel.name}" in MPV`);
+      toast.success(`Opened "${displayTitle(activeChannel.name)}" in MPV`);
       navigate(returnPath, { replace: true });
     } else {
       toast.error("Couldn't open MPV", { description: error });

@@ -13,6 +13,7 @@ import * as playbackApi from '../lib/api/playbackApi';
 import * as recentsApi from '../lib/api/recentsApi';
 import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
+import { displayTitle } from '../lib/catalog/cleanName';
 
 const LAST_SELECTED_SOURCE_KEY = 'silkcast:lastSelectedSourceId';
 const THEME_PREFERENCE_KEY = 'silkcast:theme';
@@ -342,7 +343,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ error: null });
     try {
       await playbackApi.openExternalWindow(channel.stream_url, {
-        title: channel.name,
+        title: displayTitle(channel.name),
         startSeconds: options.startSeconds ?? null,
       });
       set({ activeChannel: null });
@@ -528,7 +529,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       if (get().settings.preferred_player === 'mpv') {
         await playbackApi.openExternalWindow(channel.stream_url, {
-          title: channel.name,
+          title: displayTitle(channel.name),
         });
         set({ activeChannel: null });
       } else {
@@ -547,7 +548,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       if (get().settings.preferred_player === 'mpv') {
         await playbackApi.openExternalWindow(channel.stream_url, {
-          title: channel.name,
+          title: displayTitle(channel.name),
         });
         set({ activeChannel: null });
       } else {

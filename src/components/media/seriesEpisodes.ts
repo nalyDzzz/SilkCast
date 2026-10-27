@@ -2,6 +2,7 @@ import type {
   ChannelRecord,
   SeriesEpisodeRecord,
 } from '@/components/app/types';
+import { cleanName } from '@/lib/catalog/cleanName';
 
 export function formatEpisodeCode(episode: SeriesEpisodeRecord) {
   const season = String(Math.max(episode.season_number, 1)).padStart(2, '0');
@@ -18,10 +19,14 @@ const EPISODE_CODE = /^s\d{1,2}\s*e\d{1,3}\b/i;
  */
 export function cleanEpisodeTitle(seriesName: string, rawTitle: string) {
   let title = rawTitle.trim();
-  const normalizedSeries = seriesName.trim().toLowerCase();
+  // Episodes may repeat either the raw provider name or its cleaned title.
+  const candidates = [seriesName, cleanName(seriesName).title]
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
+  const prefix = candidates.find((name) => title.toLowerCase().startsWith(name));
 
-  if (normalizedSeries && title.toLowerCase().startsWith(normalizedSeries)) {
-    title = title.slice(normalizedSeries.length).replace(SEPARATORS, '');
+  if (prefix) {
+    title = title.slice(prefix.length).replace(SEPARATORS, '');
   }
 
   if (EPISODE_CODE.test(title)) {

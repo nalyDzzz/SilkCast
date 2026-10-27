@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import type { GroupRecord } from '@/components/app/types';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { cleanName } from '@/lib/catalog/cleanName';
+import { TagBadges } from '@/components/catalog/TagBadges';
 
 type CatalogGroupListProps = {
   groups: GroupRecord[];
@@ -14,11 +16,13 @@ type CatalogGroupListProps = {
 
 function GroupButton({
   label,
+  tags = [],
   count,
   active,
   onClick,
 }: {
   label: string;
+  tags?: string[];
   count: number | null;
   active: boolean;
   onClick: () => void;
@@ -33,7 +37,10 @@ function GroupButton({
         active && 'bg-accent font-medium text-accent-foreground'
       )}
     >
-      <span className="truncate">{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate">{label}</span>
+        <TagBadges tags={tags} max={2} />
+      </span>
       {count !== null ? (
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {count.toLocaleString()}
@@ -60,7 +67,9 @@ export function CatalogGroupList({
   const visibleGroups = useMemo(() => {
     const normalized = filter.trim().toLowerCase();
     return normalized
-      ? groups.filter((group) => group.name.toLowerCase().includes(normalized))
+      ? groups.filter((group) =>
+          cleanName(group.name).title.toLowerCase().includes(normalized)
+        )
       : groups;
   }, [filter, groups]);
 
@@ -91,7 +100,8 @@ export function CatalogGroupList({
         {visibleGroups.map((group) => (
           <GroupButton
             key={group.name}
-            label={group.name || 'Ungrouped'}
+            label={group.name ? cleanName(group.name).title : 'Ungrouped'}
+            tags={group.name ? cleanName(group.name).tags : []}
             count={group.channel_count}
             active={selectedGroup === group.name}
             onClick={() => onSelect(group.name)}

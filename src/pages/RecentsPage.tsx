@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/item';
 import { useBackendEvents } from '@/hooks/useBackendEvents';
 import { useAppStore } from '@/store/appStore';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 type RecentMediaKind = 'live' | 'movie' | 'series';
 
@@ -178,9 +179,10 @@ export function RecentsPage() {
                     className="cursor-pointer"
                     onClick={() => void handlePlayRecent(recent)}
                   >
-                    <ItemTitle>{recent.channel.name}</ItemTitle>
+                    <ItemTitle>{displayTitle(recent.channel.name)}</ItemTitle>
                     <ItemDescription>
-                      {formatPlayedAt(recent.played_at)} · {recent.channel.group_name}
+                      {formatPlayedAt(recent.played_at)} ·{' '}
+                      {displayTitle(recent.channel.group_name)}
                     </ItemDescription>
                   </ItemContent>
                 </Item>

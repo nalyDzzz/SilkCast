@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cleanName } from '@/lib/catalog/cleanName';
 
 type MediaCatalogFiltersBarProps = {
   query: string;
@@ -56,7 +57,8 @@ export function MediaCatalogFiltersBar({
           <SelectItem value={allGroupsValue}>All groups</SelectItem>
           {groups.map((group) => (
             <SelectItem key={group.name} value={group.name}>
-              {group.name} ({group.channel_count})
+              {[cleanName(group.name).title, ...cleanName(group.name).tags].join(' · ')} (
+              {group.channel_count})
             </SelectItem>
           ))}
         </SelectContent>

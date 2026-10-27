@@ -120,7 +120,7 @@ describe('DashboardHomePage', () => {
     renderPage();
 
     await user.click(
-      await screen.findByRole('button', { name: 'Play Sports HD' })
+      await screen.findByRole('button', { name: 'Play Sports' })
     );
 
     await waitFor(() => {

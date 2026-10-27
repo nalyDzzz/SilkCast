@@ -4,6 +4,7 @@ import { Play, Tv } from 'lucide-react';
 import type { ChannelRecord } from '@/components/app/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 export function MediaRail({
   title,
@@ -75,7 +76,7 @@ export function ChannelTile({
       type="button"
       onClick={() => onPlay(channel)}
       className="group flex w-40 shrink-0 snap-start flex-col gap-2 rounded-xl border bg-card/80 p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
-      aria-label={`Play ${channel.name}`}
+      aria-label={`Play ${displayTitle(channel.name)}`}
     >
       <span className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg bg-muted">
         {channel.logo ? (
@@ -92,7 +93,7 @@ export function ChannelTile({
           <Play className="size-7 fill-white text-white" />
         </span>
       </span>
-      <span className="truncate text-sm font-medium">{channel.name}</span>
+      <span className="truncate text-sm font-medium">{displayTitle(channel.name)}</span>
     </button>
   );
 }
@@ -113,7 +114,7 @@ export function PosterTile({
       type="button"
       onClick={() => onSelect(item)}
       className="group w-36 shrink-0 snap-start space-y-2 text-left"
-      aria-label={`Open ${item.name}`}
+      aria-label={`Open ${displayTitle(item.name)}`}
     >
       <span
         className={cn(
@@ -129,7 +130,7 @@ export function PosterTile({
           />
         ) : (
           <span className="flex size-full items-center justify-center bg-linear-to-br from-sky-600 to-indigo-800 p-3 text-center text-sm font-semibold text-white">
-            {item.name}
+            {displayTitle(item.name)}
           </span>
         )}
         <span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition group-hover:opacity-100">
@@ -144,7 +145,7 @@ export function PosterTile({
           </span>
         ) : null}
       </span>
-      <span className="block truncate text-sm font-medium">{item.name}</span>
+      <span className="block truncate text-sm font-medium">{displayTitle(item.name)}</span>
       <span className="block truncate text-xs text-muted-foreground">
         {subtitle}
       </span>

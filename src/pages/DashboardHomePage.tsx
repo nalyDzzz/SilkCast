@@ -16,6 +16,7 @@ import { resumeKeyFor } from '@/components/player/hooks/useResumeTracking';
 import { Button } from '@/components/ui/button';
 import { getResumeEntries } from '@/lib/player/playerStorage';
 import { useAppStore } from '@/store/appStore';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 const RAIL_LIMIT = 15;
 
@@ -89,7 +90,7 @@ export function DashboardHomePage() {
     if (preferredPlayer === 'web') {
       navigate('/dashboard/player', { state: { returnTo: '/dashboard' } });
     } else {
-      toast.success(`Playing "${item.name}" in MPV`);
+      toast.success(`Playing "${displayTitle(item.name)}" in MPV`);
     }
   };
 

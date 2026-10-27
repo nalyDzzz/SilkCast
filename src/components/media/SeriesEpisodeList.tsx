@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPlaybackTime } from '@/lib/player/formatTime';
 import { getResumeEntries, type ResumeEntry } from '@/lib/player/playerStorage';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 type SeriesEpisodeListProps = {
   series: ChannelRecord;
@@ -151,7 +152,7 @@ export function SeriesEpisodeList({
             <ArrowLeft />
             All series
           </Button>
-          <h2 className="truncate text-xl font-semibold">{series.name}</h2>
+          <h2 className="truncate text-xl font-semibold">{displayTitle(series.name)}</h2>
           <p className="text-sm text-muted-foreground">
             {loading
               ? 'Loading episodes…'
