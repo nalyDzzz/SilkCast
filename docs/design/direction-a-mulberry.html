@@ -1,0 +1,1117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SilkCast · Direction A · Mulberry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=Onest:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* Page shell. Sits on the T3 thread background and uses T3's injected tokens (with fallbacks).
+Direction tokens never go on :root — they are applied to .app / .callout elements by SCF.applyTokens. */
+.doc{font-family:var(--font-sans,system-ui,sans-serif);color:var(--foreground,#e8e8e8);font-size:14px;line-height:1.55}
+.doc *,.doc *::before,.doc *::after{box-sizing:border-box}
+.doc-head{margin:2px 0 22px}
+.doc-eyebrow{font:600 11px/1.2 var(--font-mono,ui-monospace,monospace);letter-spacing:.14em;text-transform:uppercase;color:var(--muted-foreground,#9a9a9a)}
+.doc-title{margin:10px 0 8px;font-size:40px;line-height:1;letter-spacing:-.01em;font-weight:600}
+.doc-lede{color:var(--muted-foreground,#9a9a9a);max-width:64ch;margin:0;font-size:15px}
+.doc-sig{margin:12px 0 0;max-width:64ch;font-size:14px}
+.doc-sig b{font-weight:600}
+.doc h2:not(.app *){font:600 11px/1.2 var(--font-mono,ui-monospace,monospace);letter-spacing:.14em;text-transform:uppercase;color:var(--muted-foreground,#9a9a9a);margin:40px 0 14px}
+.doc p:not(.app *){margin:0 0 10px}
+.doc ul:not(.app *){margin:0;padding-left:18px}
+.doc li:not(.app *){margin:0 0 6px}
+.doc li:not(.app *)::marker{color:var(--muted-foreground,#9a9a9a)}
+.mock{margin:0}
+.mock-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px}
+.mock-label{font-weight:600;font-size:15px}
+.mock-label span{color:var(--muted-foreground,#9a9a9a);font-weight:400;margin-left:8px;font-size:13px}
+.mock-toggle{font:500 12px/1 var(--font-sans,system-ui,sans-serif);background:transparent;border:1px solid var(--border,#333);color:var(--muted-foreground,#9a9a9a);border-radius:999px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+.mock-toggle:hover{color:var(--foreground,#e8e8e8)}
+.mock-toggle:focus-visible{outline:2px solid var(--ring,#888);outline-offset:2px}
+.mock-viewport{border-radius:12px;overflow:hidden;border:1px solid color-mix(in oklab,var(--foreground,#fff) 16%,transparent);box-shadow:0 24px 60px -28px #000a;line-height:0}
+.mock.actual .mock-viewport{overflow:auto}
+.mock .mock-note{color:var(--muted-foreground,#9a9a9a);font-size:13.5px;line-height:1.55;margin:12px 0 36px;max-width:76ch}
+.mock .mock-note b{color:var(--foreground,#e8e8e8);font-weight:600}
+.screen{width:1280px;height:800px;position:relative;overflow:hidden;line-height:normal}
+.app{background:var(--background);color:var(--foreground);font-synthesis:none;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.app *,.app *::before,.app *::after{box-sizing:border-box}
+.app button{font:inherit;color:inherit}
+.callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px 16px;align-items:start}
+.callout-wrap.wide{grid-column:1/-1}
+.callout-label{font-weight:600;font-size:14px;margin:0 0 4px}
+.callout-desc{color:var(--muted-foreground,#9a9a9a);font-size:13px;margin:0 0 10px}
+.callout{border-radius:var(--radius,10px);padding:20px;overflow:hidden;border:1px solid color-mix(in oklab,var(--foreground,#fff) 12%,transparent)}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.swatch{display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;align-items:center;min-width:0}
+.swatch i{display:block;width:40px;height:40px;border-radius:8px;border:1px solid color-mix(in oklab,var(--foreground,#fff) 18%,transparent)}
+.swatch b{display:block;font-weight:600;font-size:13px;line-height:1.25}
+.swatch code{display:block;font:11.5px/1.35 var(--font-mono,ui-monospace,monospace);color:var(--muted-foreground,#9a9a9a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.swatch small{display:block;font-size:12px;color:var(--muted-foreground,#9a9a9a);line-height:1.3}
+.tokens{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px;margin-top:16px}
+.tokens pre{margin:0;padding:16px;border-radius:var(--radius,10px);background:var(--code-background,#0000002e);color:var(--code-foreground,inherit);font:11.5px/1.6 var(--font-mono,ui-monospace,monospace);overflow:auto;white-space:pre}
+.tokens pre .c{color:var(--muted-foreground,#9a9a9a)}
+.type-rows{display:grid;gap:18px}
+.type-row{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;border-top:1px solid var(--border,#333);padding-top:14px}
+.type-row .meta{font:12px/1.5 var(--font-mono,ui-monospace,monospace);color:var(--muted-foreground,#9a9a9a)}
+.type-row .sample{color:var(--foreground,#e8e8e8);overflow-wrap:anywhere}
+.two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:8px 28px}
+@media (prefers-reduced-motion:reduce){.app *,.callout *{animation:none!important;transition:none!important}}
+</style>
+<style>
+.dA{--disp:'Bodoni Moda',Didot,'Bodoni 72',Georgia,serif;font-family:'Onest',system-ui,sans-serif;font-size:14px;line-height:1.4;font-variant-numeric:tabular-nums}
+.dA svg{display:block;flex:none}
+.dA b{font-weight:600}
+.dA .clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* top bar */
+.dA .tb{position:absolute;inset:0 0 auto;height:64px;display:flex;align-items:center;gap:40px;padding:0 32px 0 48px;z-index:5}
+.dA .tb.solid{background:var(--background);border-bottom:1px solid var(--border)}
+.dA .tb.over{background:linear-gradient(180deg,color-mix(in oklab,var(--background) 78%,transparent),transparent)}
+.dA .wm{font:italic 600 26px/1 var(--disp);letter-spacing:-.015em}
+.dA .nav{display:flex;gap:28px;align-self:stretch}
+.dA .nav a{position:relative;display:flex;align-items:center;white-space:nowrap;font-weight:500;color:var(--muted-foreground)}
+.dA .nav a.on{color:var(--foreground)}
+.dA .nav a.on::after{content:"";position:absolute;left:0;right:0;bottom:15px;height:2px;border-radius:2px;background:var(--thread);box-shadow:0 0 10px var(--thread)}
+.dA .tb-r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.dA .search{display:flex;align-items:center;gap:10px;width:320px;height:38px;padding:0 6px 0 14px;border-radius:999px;border:1px solid var(--border);background:color-mix(in oklab,var(--foreground) 6%,transparent);color:var(--muted-foreground);font-size:13px}
+.dA .tb.over .search,.dA .tb.over .src{background:color-mix(in oklab,var(--background) 45%,transparent);backdrop-filter:blur(14px)}
+.dA .search span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dA kbd{font:500 11px/1 'Onest',sans-serif;padding:4px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted-foreground)}
+.dA .src{display:flex;align-items:center;gap:9px;height:38px;padding:0 12px 0 5px;border-radius:999px;border:1px solid var(--border);background:color-mix(in oklab,var(--foreground) 6%,transparent);font-weight:500;font-size:13px;margin-left:4px;white-space:nowrap}
+.dA .av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;flex:none;font:italic 600 15px/1 var(--disp);color:#fff;background:linear-gradient(140deg,var(--primary),#5C1A3B)}
+.dA .av.n{background:linear-gradient(140deg,#4C6A8A,#22324A)}.dA .av.h{background:linear-gradient(140deg,#7A6A55,#3A3026)}.dA .av.c{background:linear-gradient(140deg,#3E5C8F,#1C2A47)}
+.dA .dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--ok);box-shadow:0 0 0 3px color-mix(in oklab,var(--ok) 22%,transparent)}
+.dA .dot.warn{background:var(--sheen);box-shadow:0 0 0 3px color-mix(in oklab,var(--sheen) 22%,transparent)}
+.dA .ib{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:var(--muted-foreground);background:none;border:0}
+/* the silk thread */
+.dA .thread{position:relative;height:2px;border-radius:2px;background:color-mix(in oklab,var(--foreground) 15%,transparent)}
+.dA .thread i{position:absolute;left:0;top:0;bottom:0;width:calc(var(--p) * 100%);border-radius:inherit;background:linear-gradient(90deg,color-mix(in oklab,var(--thread) 30%,transparent),var(--thread))}
+.dA .thread i::after{content:"";position:absolute;right:-3.5px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:#FFF4F8;box-shadow:0 0 0 1.5px var(--thread),0 0 10px 2px color-mix(in oklab,var(--thread) 75%,transparent)}
+.dA .thread.quiet i{background:color-mix(in oklab,var(--thread) 55%,transparent)}
+.dA .thread.quiet i::after,.dA .thread.empty i::after{display:none}
+.dA .thread.big{height:3px}
+.dA .thread.big i::after{width:11px;height:11px;right:-5.5px;margin-top:-5.5px}
+.dA .thread.pulse i::after{animation:bead 2.6s ease-in-out infinite alternate}
+@keyframes bead{from{box-shadow:0 0 0 1.5px var(--thread),0 0 6px 1px color-mix(in oklab,var(--thread) 50%,transparent)}to{box-shadow:0 0 0 1.5px var(--thread),0 0 14px 4px color-mix(in oklab,var(--thread) 85%,transparent)}}
+/* shared bits */
+.dA .btn{display:inline-flex;align-items:center;gap:9px;height:44px;padding:0 22px;border-radius:999px;border:0;font-weight:600;font-size:14px;white-space:nowrap}
+.dA .btn.pri{background:var(--primary);color:var(--primary-foreground);box-shadow:0 10px 28px -12px var(--primary)}
+.dA .btn.sec{background:color-mix(in oklab,var(--foreground) 11%,transparent);backdrop-filter:blur(12px)}
+.dA .btn.ghost{background:none;border:1px solid var(--border)}
+.dA .btn.round{width:44px;padding:0;justify-content:center}
+.dA .btn.sm{height:38px;padding:0 16px;font-size:13px}
+.dA .btn.sm.round{width:38px;padding:0}
+.dA .bdg{display:inline-block;font:600 10px/1 'Onest',sans-serif;letter-spacing:.04em;padding:3px 5px 2px;border-radius:4px;border:1px solid color-mix(in oklab,var(--foreground) 16%,transparent);color:var(--muted-foreground);white-space:nowrap}
+.dA .live{display:inline-flex;align-items:center;gap:5px;font:700 10px/1 'Onest',sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--thread)}
+.dA .live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+.dA .lg{position:relative;flex:none;width:44px;height:44px;border-radius:10px;overflow:hidden}
+.dA .pst{position:relative;aspect-ratio:2/3;border-radius:10px;overflow:hidden;background:var(--card)}
+.dA .sh{display:flex;align-items:baseline;gap:10px;margin:0 0 12px}
+.dA .sh h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.005em}
+.dA .sh span{color:var(--muted-foreground);font-size:13px}
+.dA .meta{display:flex;align-items:center;gap:8px;color:var(--muted-foreground);font-size:13.5px}
+.dA .meta i{font-style:normal;opacity:.45}
+.dA .star{color:var(--sheen)}
+.dA .eyebrow{font-size:11.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--sheen)}
+/* home */
+.dA .hero{position:absolute;inset:0 0 auto;height:476px}
+.dA .scrim{position:absolute;inset:0;background:var(--scrim),linear-gradient(0deg,var(--background) 0%,transparent 36%)}
+.dA .hero-c{position:absolute;left:56px;top:92px;width:540px}
+.dA .hero h1{margin:12px 0 14px;font:italic 500 80px/.9 var(--disp);letter-spacing:-.03em}
+.dA .hero p{margin:14px 0 22px;color:color-mix(in oklab,var(--foreground) 80%,transparent);font-size:15px;line-height:1.55;max-width:500px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.dA .acts{display:flex;gap:10px;align-items:center}
+.dA .pager{position:absolute;right:56px;top:354px;display:flex;gap:6px}
+.dA .pager .thread{width:30px}
+.dA .rails{position:absolute;left:56px;right:56px;top:408px}
+.dA .rail{display:grid;gap:16px}
+.dA .rail+.sh,.dA .rail+.sec-gap{margin-top:26px}
+.dA .cw-row{grid-template-columns:repeat(5,1fr)}
+.dA .cw-img{position:relative;aspect-ratio:16/9;border-radius:10px;overflow:hidden;box-shadow:0 14px 30px -18px #000}
+.dA .cw-img::after{content:"";position:absolute;inset:45% 0 0;background:linear-gradient(0deg,#0009,transparent)}
+.dA .cw-img .thread{position:absolute;left:12px;right:12px;bottom:12px;z-index:2}
+.dA .cw-t{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:10px}
+.dA .cw-t b{font-size:14px}
+.dA .cw-t span,.dA .cw-s{font-size:12px;color:var(--muted-foreground);white-space:nowrap}
+.dA .cw-s{margin-top:2px}
+.dA .on-row{grid-template-columns:repeat(4,1fr)}
+.dA .onc{display:flex;gap:12px;align-items:center;padding:12px;border-radius:12px;background:var(--card);border:1px solid var(--border)}
+.dA .on-b{flex:1;min-width:0}
+.dA .on-c{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-foreground)}
+.dA .on-p{font-weight:600;margin:2px 0 8px}
+.dA .th-row{display:flex;align-items:center;gap:10px}
+.dA .th-row .thread{flex:1}
+.dA .th-row span{font-size:11.5px;color:var(--muted-foreground);white-space:nowrap}
+.dA .ra-row{grid-template-columns:repeat(8,1fr)}
+/* live */
+.dA .lv{position:absolute;inset:64px 0 0;padding:24px 32px 0;display:grid;grid-template-columns:780px 1fr;gap:28px}
+.dA .stage{position:relative;height:439px;border-radius:16px;overflow:hidden;box-shadow:0 30px 60px -30px #000}
+.dA .st-sc{position:absolute;inset:0;background:linear-gradient(0deg,#0E0A0FF2 0%,#0E0A0F99 26%,transparent 52%),linear-gradient(180deg,#0E0A0F80,transparent 22%)}
+.dA .st-top{position:absolute;left:20px;top:18px;display:flex;align-items:center;gap:10px;z-index:2}
+.dA .pill-live{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font:700 11px/1 'Onest';letter-spacing:.1em;text-transform:uppercase}
+.dA .pill-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.dA .st-top span:last-child{font-size:12px;color:color-mix(in oklab,var(--foreground) 75%,transparent)}
+.dA .st-b{position:absolute;left:24px;right:24px;bottom:22px;z-index:2}
+.dA .st-ch{display:flex;align-items:center;gap:14px}
+.dA .st-ch .lg{width:52px;height:52px;border-radius:12px}
+.dA .st-cn{display:flex;gap:6px;align-items:center;font-size:13px;color:color-mix(in oklab,var(--foreground) 80%,transparent)}
+.dA .st-cn b{color:var(--foreground);margin-right:2px}
+.dA .st-t{margin:4px 0 0;font-size:26px;font-weight:600;letter-spacing:-.015em;line-height:1.15}
+.dA .st-time{display:flex;justify-content:space-between;font-size:12.5px;color:color-mix(in oklab,var(--foreground) 78%,transparent);margin:16px 0 9px}
+.dA .lv-acts{display:flex;align-items:center;gap:10px;margin-top:20px}
+.dA .upd{margin-left:auto;display:flex;align-items:center;gap:4px;font-size:12.5px;color:var(--muted-foreground)}
+.dA .upd .ib{width:32px;height:32px}
+.dA .sched{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:12px;margin-top:20px}
+.dA .slot{padding:16px 18px 18px;border-radius:12px;background:var(--card);border:1px solid var(--border);min-width:0}
+.dA .slot.now{border-color:color-mix(in oklab,var(--primary) 45%,transparent);background:linear-gradient(180deg,color-mix(in oklab,var(--primary) 9%,var(--card)),var(--card))}
+.dA .slot-h{display:flex;justify-content:space-between;font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-foreground)}
+.dA .slot-h span{letter-spacing:0;font-weight:500;font-size:12px}
+.dA .slot.now .slot-h{color:var(--thread)}
+.dA .slot b{display:block;margin:6px 0 4px;font-size:14px}
+.dA .slot p{margin:0;font-size:12.5px;color:var(--muted-foreground);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dA .side{min-width:0;display:flex;flex-direction:column}
+.dA .gp{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border-radius:12px;background:var(--card);border:1px solid var(--border);color:var(--muted-foreground)}
+.dA .gp b{color:var(--foreground);font-size:14px}
+.dA .gp em{font-style:normal;font-size:13px}
+.dA .gp svg:last-child{margin-left:auto}
+.dA .fin{display:flex;align-items:center;gap:9px;height:38px;margin-top:10px;padding:0 12px;border-radius:10px;border:1px solid var(--border);color:var(--muted-foreground);font-size:13px}
+.dA .chips{display:flex;gap:6px;margin:12px 0 10px}
+.dA .chip{height:28px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;border-radius:999px;border:1px solid var(--border);font-size:12.5px;font-weight:500;color:var(--muted-foreground)}
+.dA .chip.on{background:color-mix(in oklab,var(--primary) 20%,transparent);border-color:color-mix(in oklab,var(--primary) 50%,transparent);color:var(--foreground)}
+.dA .list{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
+.dA .row{position:relative;display:flex;align-items:center;gap:12px;padding:9px 10px 9px 10px;border-radius:12px}
+.dA .row .lg{width:40px;height:40px;border-radius:9px}
+.dA .row-b{flex:1;min-width:0}
+.dA .row-n{display:flex;align-items:center;gap:5px}
+.dA .row-n b{font-size:14px;margin-right:3px}
+.dA .row-p{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted-foreground);margin:2px 0 7px}
+.dA .row-r{align-self:flex-start;width:62px;text-align:right;margin-top:3px;font-size:11.5px;color:var(--muted-foreground);white-space:nowrap}
+.dA .row.sel{background:var(--accent)}
+.dA .row.sel::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:3px;background:var(--primary);box-shadow:0 0 10px var(--primary)}
+.dA .row.kf{outline:2px solid var(--ring);outline-offset:-2px}
+/* details */
+.dA .bd{position:absolute;inset:0 0 auto;height:560px;overflow:hidden}
+.dA .bd-art{position:absolute;top:0;bottom:0;left:38%;right:-22%;-webkit-mask-image:linear-gradient(90deg,transparent,#000 22%);mask-image:linear-gradient(90deg,transparent,#000 22%)}
+.dA .dt{position:absolute;left:56px;right:56px;top:116px;display:flex;gap:40px}
+.dA .dt .pst{width:212px;flex:none;box-shadow:0 30px 60px -24px #000;border:1px solid var(--border)}
+.dA .dt-i{max-width:600px;padding-top:4px}
+.dA .dt h1{margin:12px 0 14px;font:italic 500 74px/.92 var(--disp);letter-spacing:-.03em}
+.dA .dt p{margin:16px 0 14px;font-size:15px;line-height:1.55;color:color-mix(in oklab,var(--foreground) 82%,transparent)}
+.dA .cred{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;color:var(--muted-foreground);margin-bottom:22px}
+.dA .cred b{font-weight:500;color:var(--foreground)}
+.dA .resume{display:flex;align-items:center;gap:12px;margin-top:16px;width:430px;font-size:12px;color:var(--muted-foreground);white-space:nowrap}
+.dA .resume .thread{flex:1}
+.dA .more{position:absolute;left:56px;right:56px;top:526px}
+/* callouts */
+.callout.dA{font-size:14px}
+.dA .pop{width:316px;border-radius:14px;background:var(--popover);border:1px solid var(--border);box-shadow:0 24px 50px -20px #000;padding:6px;margin-top:8px}
+.dA .pop-h{display:flex;gap:12px;align-items:center;padding:10px 10px 12px}
+.dA .pop-h .av{width:36px;height:36px;font-size:18px}
+.dA .pop-h small,.dA .mi small{display:block;font-size:12px;color:var(--muted-foreground);line-height:1.35}
+.dA .stat{display:flex;align-items:center;gap:8px;margin:0 10px 8px;padding:8px 10px;border-radius:10px;background:color-mix(in oklab,var(--foreground) 5%,transparent);font-size:12px;color:var(--muted-foreground)}
+.dA .mi{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;font-size:13.5px;color:var(--foreground)}
+.dA .mi>svg{color:var(--muted-foreground)}
+.dA .mi.hl{background:var(--accent)}
+.dA .mi .grow{flex:1;min-width:0}
+.dA .mi .av{width:28px;height:28px;font-size:14px}
+.dA .mi .n{margin-left:auto;font-size:12px;color:var(--muted-foreground)}
+.dA .mi .warn{color:var(--sheen)}
+.dA .sep{height:1px;background:var(--border);margin:6px 4px}
+.dA .lab{padding:8px 10px 4px;font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-foreground)}
+.dA .pop .fin{margin:4px 4px 6px}
+.callout.dA.cl{container-type:inline-size}
+.dA .cl-row{display:grid;grid-template-columns:70px minmax(0,1.15fr) 16px minmax(0,1fr);gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--border)}
+.dA .cl-row:first-child{border-top:0;padding-top:0}
+.dA .cl-k{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-foreground)}
+.dA .cl-raw{font:12.5px/1.35 ui-monospace,Consolas,monospace;color:var(--muted-foreground);background:color-mix(in oklab,var(--foreground) 5%,transparent);padding:5px 8px;border-radius:6px;overflow-wrap:anywhere}
+.dA .cl-ar{color:var(--thread)}
+.dA .cl-out{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dA .cl-out b{font-size:15px;margin-right:2px}
+.dA .cl-y{color:var(--muted-foreground);font-size:13px;margin-right:2px}
+.dA .cl-hid{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--muted-foreground)}
+.dA .cl-note{flex-basis:100%;font-size:12px;color:var(--muted-foreground)}
+@container (max-width:560px){.dA .cl-row{grid-template-columns:1fr;gap:6px}.dA .cl-ar{display:none}}
+.dA .sig{display:flex;flex-wrap:wrap;gap:24px 20px;align-items:flex-start}
+.dA .sig figure{margin:0}
+.dA .sig figcaption{margin-top:10px;font-size:12px;color:var(--muted-foreground)}
+.dA .mp{position:relative;width:300px;aspect-ratio:16/9;border-radius:12px;overflow:hidden}
+.dA .mp-c{position:absolute;left:0;right:0;bottom:0;padding:22px 14px 12px;background:linear-gradient(0deg,#000c,transparent);z-index:2}
+.dA .mp-t{display:flex;justify-content:space-between;font-size:11.5px;color:#fffc;margin-bottom:9px}
+.dA .mp-i{display:flex;gap:12px;margin-top:10px;color:#fffd}
+</style>
+</head>
+<body>
+<main class="doc">
+<header class="doc-head">
+<div class="doc-eyebrow">Direction A · Cinematic streaming</div>
+<h1 class="doc-title" style="font:italic 500 56px/1 'Bodoni Moda',Georgia,serif;letter-spacing:-.02em">Mulberry</h1>
+<p class="doc-lede">Posters and backdrops lead and the chrome steps back, the same way the full-window player already treats video. Silk is spun on mulberry, so the night is plum-black, the one accent is a mulberry jewel tone, and the text is warm ivory instead of white.</p>
+<p class="doc-sig"><b>Signature:</b> the silk thread. Every progress indicator (continue watching, live programmes, resume, the player scrubber) is the same hairline with a glowing bead. Next to it, hero titles are set large in Bodoni Moda italic. Everything else stays quiet.</p>
+</header>
+<figure class="mock" data-label="Home" data-sub="Featured, Continue watching, On now">
+<div class="screen app dA" id="s-home"></div>
+<figcaption class="mock-note"><b>The sidebar becomes a top bar</b> with tabs, global search (Ctrl K) and the source switcher, which now holds Refresh. The hero features new films, and <b>Continue watching</b> and <b>On now</b> take over from Recents. Every title is cleaned, so there are no <code>4K-A+ -</code> or <code>US|</code> prefixes and country and quality become small badges.</figcaption>
+</figure>
+<figure class="mock" data-label="Live TV" data-sub="Preview stage with now / next / later">
+<div class="screen app dA" id="s-live"></div>
+<figcaption class="mock-note"><b>Preview pane with now/next</b>: the selected channel plays muted on the stage, with Now / Next / Later beneath it and "Guide updated 12 min ago" next to its refresh. The 189-group column becomes a <b>searchable group picker</b> (open state shown below), which leaves the channel list a single right column. Keyboard focus (the ring on Arc Sports 2) is separate from the selection (the mulberry edge on Arc Sports 1).</figcaption>
+</figure>
+<figure class="mock" data-label="Movie details" data-sub="Low Tide Motel, part-watched">
+<div class="screen app dA" id="s-detail"></div>
+<figcaption class="mock-note"><b>Movie details</b> (from <code>get_vod_info</code>): backdrop, plot and credits, with <b>Resume</b> as the main action. The thread shows exactly where you stopped. Open in MPV sits next to Play, as it does in the player.</figcaption>
+</figure>
+<h2>Components at actual size</h2>
+<div class="callouts">
+<div class="callout-wrap"><p class="callout-label">Source switcher, open</p><p class="callout-desc">Refresh moves here from the sidebar, next to the sync status it changes.</p><div class="callout app dA" id="c-src"></div></div>
+<div class="callout-wrap"><p class="callout-label">Group picker, open</p><p class="callout-desc">Replaces the 189-row group column on Live TV, Movies and Series.</p><div class="callout app dA" id="c-grp"></div></div>
+<div class="callout-wrap wide"><p class="callout-label">Title cleanup</p><p class="callout-desc">What the provider sends, and what SilkCast shows.</p><div class="callout app dA cl" id="c-clean"></div></div>
+<div class="callout-wrap wide"><p class="callout-label">Signature: the silk thread</p><p class="callout-desc">One progress component everywhere. The bead marks "now" and pulses gently only on live content.</p><div class="callout app dA" id="c-sig"></div></div>
+</div>
+<section id="spec"></section>
+</main>
+<script>
+/* SilkCast mockups — shared fictional content. Everything here is invented. */
+const SC = (() => {
+const min = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const NOW = 18 * 60 + 42;
+const sources = [
+{ id: 'tidewater', name: 'Tidewater', kind: 'Xtream', active: true, counts: { live: 14830, movies: 26412, series: 7215 }, synced: '2 h ago', epg: '12 min ago', status: 'ok' },
+{ id: 'northgate', name: 'Northgate', kind: 'Xtream', counts: { live: 9240, movies: 11800, series: 3020 }, synced: 'yesterday', status: 'ok' },
+{ id: 'home', name: 'Home playlist', kind: 'M3U file', counts: { live: 312 }, synced: '3 days ago', status: 'ok' },
+{ id: 'cobalt', name: 'Cobalt Backup', kind: 'Xtream', counts: { live: 6110 }, synced: '5 days ago', status: 'warn', note: 'Expires in 6 days' },
+];
+const groups = [
+{ name: 'All channels', count: 14830 },
+{ name: 'Favorites', count: 24, fav: true },
+{ name: 'News', count: 412 },
+{ name: 'Sports', count: 1208 },
+{ name: 'Movies', count: 960 },
+{ name: 'Kids', count: 318 },
+{ name: 'Documentary', count: 274 },
+{ name: 'Entertainment', count: 1530 },
+{ name: 'Music', count: 146 },
+{ name: '24/7', count: 682 },
+{ name: 'Local', count: 2140 },
+{ name: 'Lifestyle', count: 203 },
+{ name: 'International', count: 6977 },
+];
+const countries = ['US', 'UK', 'CA', 'IE', 'AU'];
+// logo: mark text, bg, fg, shape (square|circle|pill|slant), font (sans|serif|mono|condensed|round), fs (font scale)
+const channels = [
+{ id: 'harbor', num: 101, name: 'Harbor News 24', group: 'News', country: 'US', tags: ['HD'], fav: true, scene: 'studio',
+logo: { mark: 'H24', bg: '#12355B', fg: '#FFFFFF', bar: '#E8452C', shape: 'square', font: 'sans' },
+sched: [
+{ s: '17:00', e: '18:00', t: 'Harbor Afternoon' },
+{ s: '18:00', e: '19:00', t: 'The Evening Ledger', d: "Headlines, markets and the day's top stories from the Harbor newsroom." },
+{ s: '19:00', e: '19:30', t: 'Weather Coast to Coast' },
+{ s: '19:30', e: '20:30', t: 'Harbor Tonight' },
+{ s: '20:30', e: '21:00', t: 'Late Ledger' },
+] },
+{ id: 'meridian', num: 102, name: 'Meridian World', group: 'News', country: 'UK', tags: ['FHD'], scene: 'world',
+logo: { mark: 'MW', bg: '#1C1C1C', fg: '#F2C14E', shape: 'circle', font: 'serif' },
+sched: [
+{ s: '17:30', e: '18:00', t: 'Market Close' },
+{ s: '18:00', e: '18:45', t: 'World at Six', d: 'International news from correspondents in twelve bureaus.' },
+{ s: '18:45', e: '19:45', t: 'Dispatches from the Delta' },
+{ s: '19:45', e: '21:00', t: 'The Long Read' },
+] },
+{ id: 'arc1', num: 201, name: 'Arc Sports 1', group: 'Sports', country: 'UK', tags: ['FHD', '60 fps'], fav: true, scene: 'pitch',
+logo: { mark: 'ARC1', bg: '#00A36C', fg: '#FFFFFF', shape: 'slant', font: 'sans', fs: 0.85 },
+sched: [
+{ s: '16:00', e: '17:30', t: 'Rugby Build-up' },
+{ s: '17:30', e: '19:30', t: 'Premier Rugby: Northport v Kingsbridge', live: true, d: 'Round 9 from Harbour Park. Kingsbridge need a win to stay in the top four.' },
+{ s: '19:30', e: '20:00', t: 'Try Time: Highlights' },
+{ s: '20:00', e: '21:00', t: 'Arc Sports Tonight' },
+] },
+{ id: 'arc2', num: 202, name: 'Arc Sports 2', group: 'Sports', country: 'UK', tags: ['HD'], scene: 'court',
+logo: { mark: 'ARC2', bg: '#0B6E4F', fg: '#FFFFFF', shape: 'slant', font: 'sans', fs: 0.85 },
+sched: [
+{ s: '16:30', e: '18:15', t: 'Valmont Open: Day 6' },
+{ s: '18:15', e: '20:45', t: 'Valmont Open: Quarter-final', live: true, d: 'Second seed Mara Ilić meets qualifier Jun Takeda on Centre Court.' },
+{ s: '20:45', e: '21:15', t: 'Courtside' },
+] },
+{ id: 'fieldhouse', num: 203, name: 'Fieldhouse Network', group: 'Sports', country: 'US', tags: ['HD'], scene: 'hardwood',
+logo: { mark: 'FH', bg: '#F26B1D', fg: '#1A0E05', shape: 'circle', font: 'condensed' },
+sched: [
+{ s: '17:00', e: '18:30', t: 'Fieldhouse Live' },
+{ s: '18:30', e: '20:30', t: 'College Hoops: Ridgeway at Larkspur', live: true, d: "Ridgeway's unbeaten run is on the line in a sold-out Larkspur Arena." },
+{ s: '20:30', e: '21:00', t: 'Final Buzzer' },
+] },
+{ id: 'kestrel', num: 301, name: 'Kestrel Cinema', group: 'Movies', country: 'US', tags: ['FHD'], fav: true, scene: 'motel',
+logo: { mark: 'KC', bg: '#2B0F2E', fg: '#F5D27A', shape: 'square', font: 'serif' },
+sched: [
+{ s: '17:10', e: '19:05', t: 'Low Tide Motel', d: 'A night clerk on the Gulf coast starts keeping a ledger of the guests who never check out. (1997)' },
+{ s: '19:05', e: '21:00', t: 'Paper Lanterns' },
+] },
+{ id: 'kestrel4k', num: 302, name: 'Kestrel Cinema 4K', group: 'Movies', country: 'US', tags: ['4K'], scene: 'orchard',
+logo: { mark: 'KC', bg: '#2B0F2E', fg: '#F5D27A', shape: 'square', font: 'serif', sub: '4K' },
+sched: [
+{ s: '16:15', e: '18:20', t: 'Copper Sky' },
+{ s: '18:20', e: '20:25', t: 'Glass Orchard', d: "Three sisters return to their late father's greenhouse farm and find the harvest, and the debts, larger than he let on. (2024)" },
+{ s: '20:25', e: '22:00', t: 'Northbound' },
+] },
+{ id: 'pelican', num: 401, name: 'Pelican Kids', group: 'Kids', country: 'US', tags: ['HD'], fav: true, scene: 'kids',
+logo: { mark: 'pelican', bg: '#FFCF33', fg: '#2D2A6E', shape: 'pill', font: 'round', fs: 0.62 },
+sched: [
+{ s: '18:00', e: '18:30', t: 'Captain Quill' },
+{ s: '18:30', e: '18:55', t: 'Moss & Pebble', d: 'Moss and Pebble build a raft to visit the island at the end of the pond.' },
+{ s: '18:55', e: '19:20', t: 'Tiny Engineers' },
+{ s: '19:20', e: '20:00', t: 'Goodnight Garden' },
+] },
+{ id: 'northline', num: 501, name: 'Northline Docs', group: 'Documentary', country: 'UK', tags: ['HD'], fav: true, scene: 'salt',
+logo: { mark: 'N/L', bg: '#E9E4D8', fg: '#1F2A2E', shape: 'square', font: 'mono' },
+sched: [
+{ s: '17:00', e: '18:00', t: 'Salt & Iron' },
+{ s: '18:00', e: '19:00', t: 'The Salt Roads', d: 'Following the caravan routes that carried salt across the Sahel for a thousand years.' },
+{ s: '19:00', e: '20:00', t: 'Deep Field: The Dark Between' },
+{ s: '20:00', e: '21:00', t: 'Cities Under Ice' },
+] },
+{ id: 'meridian-nature', num: 502, name: 'Meridian Nature 4K', group: 'Documentary', country: 'UK', tags: ['4K', 'HDR'], scene: 'ferns',
+logo: { mark: 'MN', bg: '#1E4D2B', fg: '#CDEBC5', shape: 'circle', font: 'serif' },
+sched: [
+{ s: '17:10', e: '18:10', t: 'Night Pollinators' },
+{ s: '18:10', e: '19:10', t: 'Kingdom of Ferns', d: 'Inside the temperate rainforests where ferns have outlived the dinosaurs.' },
+{ s: '19:10', e: '20:10', t: 'The Last Glacier Walk' },
+] },
+{ id: 'velvet', num: 601, name: 'Velvet Comedy', group: 'Entertainment', country: 'US', tags: ['HD'], scene: 'stage',
+logo: { mark: 'velvet', bg: '#7A1E48', fg: '#FFE3EF', shape: 'square', font: 'serif-italic', fs: 0.7 },
+sched: [
+{ s: '18:00', e: '18:30', t: 'Open Mic Hour' },
+{ s: '18:30', e: '19:30', t: 'Late Shift with Ada Morrow', d: 'Ada takes the show on the road to a night ferry. Guests include Theo Brandt.' },
+{ s: '19:30', e: '20:00', t: 'Two Doors Down' },
+] },
+{ id: 'copperfield', num: 602, name: 'Copperfield Classics', group: 'Entertainment', country: 'UK', tags: ['SD'], scene: 'noir',
+logo: { mark: 'CC', bg: '#8A4B22', fg: '#FBE6CF', shape: 'circle', font: 'serif' },
+sched: [
+{ s: '17:30', e: '18:25', t: 'Detective Hale · S3 E1' },
+{ s: '18:25', e: '19:20', t: 'Detective Hale · S3 E2', d: 'Hale reopens a pawnbroker case that the station would rather forget.' },
+{ s: '19:20', e: '20:15', t: 'The Parlour Game' },
+] },
+{ id: 'lumen', num: 701, name: 'Lumen Music', group: 'Music', country: 'US', tags: ['FHD'], fav: true, scene: 'concert',
+logo: { mark: 'LUMEN', bg: '#121212', fg: '#8AF3FF', shape: 'square', font: 'wide', fs: 0.62 },
+sched: [
+{ s: '18:00', e: '19:00', t: 'Lumen Live Sessions: Wren & the Tidelines', d: 'A ten-song set recorded at the Glasshouse, Portland.' },
+{ s: '19:00', e: '20:00', t: 'Night Rotation' },
+] },
+{ id: 'cedar', num: 801, name: 'Cedar Kitchen', group: 'Lifestyle', country: 'CA', tags: ['HD'], scene: 'kitchen',
+logo: { mark: 'cedar', bg: '#3D5A3A', fg: '#F4E9D8', shape: 'pill', font: 'round', fs: 0.7 },
+sched: [
+{ s: '18:00', e: '18:30', t: 'Fire & Salt' },
+{ s: '18:30', e: '19:00', t: 'The Ember Kitchen', d: 'Whole fish over coals, with a smoked-butter sauce.' },
+{ s: '19:00', e: '19:30', t: 'Market Day' },
+] },
+{ id: 'bayside', num: 901, name: 'Bayside 7', group: 'Local', country: 'US', tags: ['HD'], scene: 'skyline',
+logo: { mark: '7', bg: '#1F6FD1', fg: '#FFFFFF', shape: 'circle', font: 'sans', fs: 1.3 },
+sched: [
+{ s: '18:00', e: '19:00', t: 'Bayside Weekend', d: 'Ferry delays, a new night market, and the high-school football scores.' },
+{ s: '19:00', e: '19:30', t: 'Bayside at Seven' },
+{ s: '19:30', e: '20:00', t: 'Harbour Lights' },
+] },
+{ id: 'hale247', num: 902, name: 'Detective Hale 24/7', group: '24/7', country: 'US', tags: ['SD'], scene: 'noir',
+logo: { mark: '24/7', bg: '#0D0D0D', fg: '#E8E8E8', shape: 'square', font: 'condensed', sub: 'HALE' },
+sched: [
+{ s: '18:05', e: '19:00', t: 'Detective Hale · S2 E7', d: '"The Fourth Key". A locksmith confesses to a burglary that has not happened yet.' },
+{ s: '19:00', e: '19:55', t: 'Detective Hale · S2 E8' },
+] },
+];
+// art: motif + 4 colours + ink (title colour) + titleFont
+const movies = [
+{ id: 'signal-fire', title: 'Signal Fire', year: 2025, genre: 'Thriller', runtime: '2h 4m', rating: 7.6, quality: '4K', isNew: true,
+plot: 'When a lighthouse keeper on a decommissioned coast picks up a distress call from a ship that sank forty years ago, she has one night to find out who is still sending it.',
+cast: ['Imogen Rask', 'Tomas Ealing', 'Bea Okafor', 'Rui Salgado'], director: 'Lena Marsh', scene: 'lighthouse',
+art: { motif: 'beam', c: ['#04161C', '#0B3E49', '#F2A541', '#FCE7C2'], ink: '#FCE7C2', font: 'serif', pos: 'top' } },
+{ id: 'glass-orchard', title: 'Glass Orchard', year: 2024, genre: 'Drama', runtime: '1h 52m', rating: 7.9, quality: '4K',
+plot: "Three sisters return to their late father's greenhouse farm and find the harvest, and the debts, larger than he let on.",
+cast: ['Nell Varga', 'Sofia Lind', 'Ama Boateng'], director: 'Petra Holm', scene: 'orchard',
+art: { motif: 'orbs', c: ['#E4EFE0', '#8DBF98', '#F2B1C3', '#2F5D4A'], ink: '#1E3B30', font: 'serif', pos: 'bottom' } },
+{ id: 'low-tide-motel', title: 'Low Tide Motel', year: 1997, genre: 'Neo-noir', runtime: '1h 48m', rating: 7.2, quality: 'HD',
+plot: 'A night clerk on the Gulf coast starts keeping a ledger of the guests who never check out.',
+cast: ['Dale Whitcombe', 'Rosa Ferrin'], director: 'Mark Tully', scene: 'motel',
+art: { motif: 'neon', c: ['#12051F', '#FF3D8B', '#3DD6FF', '#24092F'], ink: '#FFFFFF', font: 'condensed', pos: 'bottom' } },
+{ id: 'cartographers-daughter', title: "The Cartographer's Daughter", year: 2023, genre: 'Adventure', runtime: '2h 11m', rating: 7.4, quality: 'FHD',
+plot: 'A surveyor’s daughter follows her mother’s unfinished map into the mountains it was never meant to chart.',
+cast: ['Ilse Moreau', 'Kofi Mensah'], director: 'Arno Weiss',
+art: { motif: 'rings', c: ['#16222E', '#C8A15A', '#E7D7B0', '#3F5E70'], ink: '#E7D7B0', font: 'serif', pos: 'top' } },
+{ id: 'paper-lanterns', title: 'Paper Lanterns', year: 2022, genre: 'Romance', runtime: '1h 41m', rating: 6.9, quality: 'FHD',
+plot: 'Two rival lantern makers are forced to share a stall for the length of a festival.',
+cast: ['Mei Takara', 'Daniel Oduya'], director: 'Hana Ito',
+art: { motif: 'lanterns', c: ['#1E0F14', '#FF8A3D', '#FFC56B', '#7A2335'], ink: '#FFE2B8', font: 'serif-italic', pos: 'top' } },
+{ id: 'northbound', title: 'Northbound', year: 2024, genre: 'Road movie', runtime: '1h 57m', rating: 7.0, quality: 'FHD',
+plot: 'A retired trucker drives his granddaughter to university, two thousand miles and one secret away.',
+cast: ['Walt Brennan', 'Lucy Ahn'], director: 'Sam Corrigan',
+art: { motif: 'road', c: ['#0D1B2A', '#FFB000', '#E0E1DD', '#415A77'], ink: '#FFFFFF', font: 'condensed', pos: 'top' } },
+{ id: 'velvet-underpass', title: 'Velvet Underpass', year: 2021, genre: 'Crime', runtime: '2h 0m', rating: 6.8, quality: 'HD',
+plot: 'A jazz pianist launders money for the wrong club owner.',
+cast: ['Clive Marr', 'Odette Rains'], director: 'Jonah Pike',
+art: { motif: 'arch', c: ['#150B0B', '#8E1B2B', '#E8C1A0', '#3A0F18'], ink: '#E8C1A0', font: 'sans', pos: 'top' } },
+{ id: 'quiet-engine', title: 'A Quiet Engine', year: 2025, genre: 'Science fiction', runtime: '2h 18m', rating: 8.1, quality: '4K', isNew: true,
+plot: 'The last engineer aboard a generation ship discovers the engine has been off for a century.',
+cast: ['Ravi Anand', 'Greta Solberg'], director: 'Yusuf Kaya',
+art: { motif: 'planet', c: ['#05060A', '#5B6CFF', '#C9D1FF', '#1A1F4D'], ink: '#C9D1FF', font: 'mono', pos: 'bottom' } },
+{ id: 'saltwater-hymn', title: 'Saltwater Hymn', year: 2019, genre: 'Drama', runtime: '1h 46m', rating: 7.3, quality: 'FHD',
+plot: 'A choir in a fishing town loses its conductor the week before the regional final.',
+cast: ['Fiona Gale', 'Eamon Kerr'], director: 'Ciara Doyle',
+art: { motif: 'waves', c: ['#0B2E3A', '#2D7F8F', '#BFE3E0', '#F4F1E8'], ink: '#F4F1E8', font: 'serif', pos: 'top' } },
+{ id: 'ninth-floor', title: 'Ninth Floor', year: 2024, genre: 'Horror', runtime: '1h 34m', rating: 6.4, quality: 'HD', isNew: true,
+plot: 'The building has eight floors. The lift disagrees.',
+cast: ['Marta Ruiz', 'Owen Pryce'], director: 'Del Ashby',
+art: { motif: 'corridor', c: ['#0A0A0A', '#B3001B', '#262626', '#F0F0F0'], ink: '#F0F0F0', font: 'condensed', pos: 'bottom' } },
+{ id: 'copper-sky', title: 'Copper Sky', year: 2020, genre: 'Western', runtime: '2h 6m', rating: 7.1, quality: 'FHD',
+plot: 'A mining town hires a stranger to find out who keeps dynamiting the railway.',
+cast: ['Jack Toller', 'Inés Arroyo'], director: 'Ray Calder',
+art: { motif: 'sun', c: ['#2A1208', '#D2691E', '#F4B860', '#5C2A12'], ink: '#F4D9A6', font: 'serif', pos: 'top' } },
+{ id: 'long-thaw', title: 'The Long Thaw', year: 2025, genre: 'Drama', runtime: '2h 2m', rating: 7.7, quality: '4K', isNew: true,
+plot: 'When the lake ice breaks early, a village has three weeks to decide whether to leave.',
+cast: ['Aino Laine', 'Pekka Saari'], director: 'Sanna Virta',
+art: { motif: 'ice', c: ['#DCEBF5', '#8FB8D8', '#2C4A66', '#F7FBFF'], ink: '#1B3044', font: 'sans', pos: 'top' } },
+];
+const series = [
+{ id: 'harrowgate', title: 'Harrowgate', years: '2022–', genre: 'Mystery drama', seasons: 3, rating: 8.2, quality: 'FHD',
+plot: 'In a flood-prone market town, a river warden and a disgraced detective keep finding things the water was meant to hide.',
+cast: ['Orla Quinn', 'Callum Hart', 'Priya Nair'],
+art: { motif: 'river', c: ['#0E1A16', '#3E6B5A', '#C9D8C5', '#1D2E28'], ink: '#E3EDE0', font: 'serif', pos: 'top' },
+episodes: { 2: [
+{ n: 1, t: 'Low Water', len: '52m', done: true, d: 'A drought exposes a car that went into the river in 1989.' },
+{ n: 2, t: "The Ferryman's Ledger", len: '49m', done: true, d: 'Cass finds the ferry records have been rewritten by hand.' },
+{ n: 3, t: 'Lantern Night', len: '55m', done: true, d: 'The town festival goes ahead, despite the warnings.' },
+{ n: 4, t: 'Silt', len: '51m', done: true, d: 'Divers bring up more than the council bargained for.' },
+{ n: 5, t: 'The Weir', len: '54m', progress: 0.4, d: 'Tom is asked to sign off on the weir repairs, and refuses.' },
+{ n: 6, t: 'What the River Keeps', len: '50m', d: 'An old witness changes her statement.' },
+{ n: 7, t: 'Open Sluice', len: '53m', d: 'The storm arrives a day early.' },
+{ n: 8, t: 'Harrowgate', len: '61m', d: 'Season finale.' },
+] } },
+{ id: 'small-hours', title: 'Small Hours', years: '2024', genre: 'Thriller', seasons: 1, rating: 7.8, quality: 'FHD',
+plot: 'A late-night radio host realises one of her callers is describing crimes before they happen.',
+art: { motif: 'grid', c: ['#0A0F1E', '#7CF0C8', '#1E2A4A', '#E6FFF8'], ink: '#7CF0C8', font: 'mono', pos: 'bottom' } },
+{ id: 'foxglove-finch', title: 'Foxglove & Finch', years: '2023–', genre: 'Comedy', seasons: 2, rating: 7.5, quality: 'HD',
+plot: 'Two florists, one shop, no shared opinions.',
+art: { motif: 'orbs', c: ['#F7D6E0', '#7B2D5B', '#F2A7C3', '#2E1A2B'], ink: '#4A1838', font: 'serif-italic', pos: 'bottom' } },
+{ id: 'meridian-line', title: 'Meridian Line', years: '2021–', genre: 'Science fiction', seasons: 2, rating: 7.9, quality: '4K',
+plot: 'A survey crew maps a line across a planet that keeps moving it.',
+art: { motif: 'rings', c: ['#030712', '#38BDF8', '#E0F2FE', '#0F2A44'], ink: '#E0F2FE', font: 'condensed', pos: 'bottom' } },
+{ id: 'understudies', title: 'The Understudies', years: '2025', genre: 'Comedy drama', seasons: 1, rating: 7.2, quality: 'FHD', isNew: true,
+plot: 'The second cast of a West End musical waits for their turn.',
+art: { motif: 'arch', c: ['#2B0A12', '#F25C54', '#F7B267', '#1B0509'], ink: '#F7B267', font: 'sans', pos: 'top' } },
+];
+const byId = (list, id) => list.find((x) => x.id === id);
+const continueWatching = [
+{ kind: 'movie', ref: 'glass-orchard', progress: 0.72, left: '31 min left' },
+{ kind: 'episode', ref: 'harrowgate', season: 2, episode: 5, epTitle: 'The Weir', progress: 0.4, left: '32 min left' },
+{ kind: 'movie', ref: 'long-thaw', progress: 0.15, left: '1 h 44 min left' },
+{ kind: 'episode', ref: 'small-hours', season: 1, episode: 3, epTitle: 'Static', progress: 0.88, left: '6 min left' },
+{ kind: 'movie', ref: 'low-tide-motel', progress: 0.55, left: '49 min left' },
+].map((c) => ({ ...c, item: byId(c.kind === 'movie' ? movies : series, c.ref) }));
+// Raw provider strings -> what SilkCast shows. The heart of the "clean titles" backlog item.
+const cleanup = [
+{ raw: 'US| HARBOR NEWS 24 ᴴᴰ/ᴿᴬᵂ', kind: 'Channel', clean: 'Harbor News 24', tags: ['US', 'HD'] },
+{ raw: 'UK| ARC SPORTS 1 FHD ⁶⁰ᶠᵖˢ', kind: 'Channel', clean: 'Arc Sports 1', tags: ['UK', 'FHD', '60 fps'] },
+{ raw: '##### US ENTERTAINMENT #####', kind: 'Separator', clean: null, note: 'Hidden. It is a divider row, not a channel.' },
+{ raw: '4K-A+ - Glass Orchard (2024)', kind: 'Movie', clean: 'Glass Orchard', year: 2024, tags: ['4K'] },
+{ raw: '123.Low.Tide.Motel.1997', kind: 'Movie', clean: 'Low Tide Motel', year: 1997, tags: [] },
+{ raw: 'UK| SPORTS ⁴ᴷ ³⁸⁴⁰ᴾ', kind: 'Group', clean: 'Sports', tags: ['UK', '4K'] },
+];
+const nowNext = (ch) => {
+const i = ch.sched.findIndex((p) => min(p.s) <= NOW && NOW < min(p.e));
+return { now: ch.sched[i], next: ch.sched[i + 1], later: ch.sched.slice(i + 2) };
+};
+const progress = (p) => Math.max(0, Math.min(1, (NOW - min(p.s)) / (min(p.e) - min(p.s))));
+const left = (p) => {
+const m = min(p.e) - NOW;
+return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min left` : `${m} min left`;
+};
+const fmt = (n) => n.toLocaleString('en-US');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+return {
+clock: { label: '18:42', day: 'Sun 26 Oct', minutes: NOW },
+sources, groups, countries, channels, movies, series, continueWatching, cleanup,
+channel: (id) => byId(channels, id), movie: (id) => byId(movies, id), show: (id) => byId(series, id),
+min, nowNext, progress, left, fmt, esc,
+};
+})();
+</script>
+<script>
+/* SilkCast mockups — generated placeholder art (posters, backdrops, live "video" scenes, channel logos).
+All pure CSS; no real artwork. Every function returns an HTML string that fills its positioned parent. */
+const ART = (() => {
+const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`;
+const FONTS = {
+serif: "700 1em/0.95 Georgia, 'Times New Roman', serif",
+'serif-italic': "italic 700 1em/0.95 Georgia, 'Times New Roman', serif",
+sans: "900 1em/0.9 'Arial Black', 'Segoe UI Black', Arial, sans-serif",
+condensed: "400 1em/0.88 Impact, Haettenschweiler, 'Arial Narrow', sans-serif",
+mono: "700 1em/1 'Courier New', Courier, monospace",
+round: "800 1em/1 'Trebuchet MS', 'Segoe UI', sans-serif",
+wide: "300 1em/1 'Segoe UI', Arial, sans-serif",
+};
+const css = `
+.art{position:absolute;inset:0;overflow:hidden;container-type:inline-size;isolation:isolate}
+.art::after{content:"";position:absolute;inset:0;background:${GRAIN};opacity:.16;mix-blend-mode:overlay;pointer-events:none}
+.art>i{position:absolute;display:block}
+.art-title{position:absolute;left:8%;right:8%;text-wrap:balance;font-size:13cqw;letter-spacing:-.01em;z-index:2}
+.art-title.pos-top{top:7%}.art-title.pos-bottom{bottom:8%}
+.art-title small{display:block;font:600 4.2cqw/1.2 'Segoe UI',Arial,sans-serif;letter-spacing:.18em;opacity:.75;margin-top:3cqw;text-transform:uppercase}
+.art-title.f-mono{text-transform:uppercase;letter-spacing:.12em;font-size:10cqw}
+.art-title.f-condensed{text-transform:uppercase;font-size:16cqw}
+.art-logo{position:relative;display:grid;place-items:center;width:100%;height:100%;container-type:size;overflow:hidden;border-radius:inherit}
+.art-logo b{display:block;white-space:nowrap;font-size:calc(min(40cqh,30cqw) * var(--fs,1));letter-spacing:-.02em}
+.art-logo .bar{position:absolute;left:18%;right:18%;bottom:16%;height:7%;border-radius:2px}
+.art-logo sup{position:absolute;right:9%;top:8%;font:800 calc(min(20cqh,16cqw))/1 'Segoe UI',Arial,sans-serif;letter-spacing:.02em}
+.art-logo.s-circle{border-radius:50%}
+.art-logo.s-pill b{letter-spacing:-.04em}
+.art-logo.s-slant b{font-style:italic;transform:skewX(-8deg)}
+.art-logo.f-wide b{letter-spacing:.22em;font-weight:300}
+.art-logo.f-mono b{letter-spacing:0}
+`;
+if (!document.getElementById('art-css')) {
+const st = document.createElement('style');
+st.id = 'art-css';
+st.textContent = css;
+document.head.appendChild(st);
+}
+// ---- Motifs: background layers keyed by name, c = [base, a, b, c]
+const motif = {
+beam: (c) => `conic-gradient(from 238deg at 54% 40%, transparent 0deg, ${c[3]}55 6deg, ${c[2]}22 22deg, transparent 30deg),
+radial-gradient(circle at 54% 40%, ${c[3]} 0 1.2%, ${c[2]}aa 2%, transparent 9%),
+linear-gradient(180deg, transparent 0 68%, #020a0d 68%),
+radial-gradient(ellipse 70% 40% at 50% 68%, ${c[1]} 0%, transparent 70%),
+linear-gradient(180deg, ${c[0]} 0%, ${c[1]} 68%)`,
+orbs: (c) => `radial-gradient(circle at 30% 40%, ${c[1]} 0 21%, transparent 21.5%),
+radial-gradient(circle at 70% 54%, ${c[2]} 0 25%, transparent 25.5%),
+radial-gradient(circle at 76% 20%, ${c[3]} 0 9%, transparent 9.5%), ${c[0]}`,
+neon: (c) => `radial-gradient(ellipse 55% 22% at 50% 36%, ${c[1]}77, transparent 70%),
+linear-gradient(180deg, transparent 0 64%, ${c[3]} 64%),
+repeating-linear-gradient(90deg, transparent 0 11%, ${c[2]}14 11% 11.6%),
+linear-gradient(180deg, ${c[0]}, #2a0c3c 64%)`,
+rings: (c) => `repeating-radial-gradient(circle at 46% 40%, ${c[1]}cc 0 1px, transparent 1.6px 11px),
+radial-gradient(circle at 46% 40%, ${c[3]} 0%, ${c[0]} 72%)`,
+lanterns: (c) => `radial-gradient(circle at 26% 34%, ${c[2]} 0 6%, ${c[1]}88 7%, transparent 15%),
+radial-gradient(circle at 64% 44%, ${c[2]} 0 5%, ${c[1]}88 6%, transparent 13%),
+radial-gradient(circle at 74% 58%, ${c[2]} 0 7%, ${c[1]}77 8%, transparent 17%),
+radial-gradient(circle at 38% 70%, ${c[2]} 0 4%, ${c[1]}77 5%, transparent 11%),
+radial-gradient(ellipse at 50% 120%, ${c[3]}, ${c[0]} 70%)`,
+road: (c) => `radial-gradient(ellipse 36% 9% at 50% 50%, ${c[1]}cc, transparent 70%),
+conic-gradient(from 179deg at 50% 50%, ${c[1]} 0 2deg, transparent 2deg),
+conic-gradient(from 156deg at 50% 50%, #2b2f36 0 48deg, transparent 48deg),
+linear-gradient(180deg, ${c[0]} 0%, ${c[3]} 50%, #0b0d10 50%)`,
+arch: (c) => `radial-gradient(ellipse 26% 40% at 50% 100%, ${c[2]} 0 98%, transparent 100%),
+radial-gradient(ellipse 38% 56% at 50% 100%, ${c[1]} 0 98%, transparent 100%),
+radial-gradient(ellipse 50% 72% at 50% 100%, ${c[3]} 0 98%, transparent 100%), ${c[0]}`,
+planet: (c) => `radial-gradient(circle at 42% 40%, ${c[2]} 0%, ${c[1]} 14%, ${c[3]} 30%, transparent 30.6%),
+radial-gradient(1.5px 1.5px at 18% 20%, #fff, transparent), radial-gradient(1px 1px at 80% 14%, #fff, transparent),
+radial-gradient(1px 1px at 70% 80%, #fff, transparent), radial-gradient(1.5px 1.5px at 12% 70%, #fff, transparent),
+radial-gradient(1px 1px at 88% 52%, #fff, transparent), ${c[0]}`,
+waves: (c) => `repeating-radial-gradient(ellipse 120% 60% at 50% 110%, ${c[1]} 0 9px, ${c[0]} 9px 18px),
+linear-gradient(180deg, ${c[2]} 0 46%, transparent 46%)`,
+corridor: (c) => `radial-gradient(ellipse 7% 12% at 50% 48%, ${c[1]} 0 98%, transparent 100%),
+repeating-conic-gradient(from 0deg at 50% 48%, ${c[0]} 0 9deg, ${c[2]} 9deg 18deg)`,
+sun: (c) => `linear-gradient(180deg, transparent 0 64%, ${c[3]} 64%),
+repeating-linear-gradient(180deg, transparent 0 46%, ${c[1]} 46% 47.5%, transparent 47.5% 52%, ${c[1]} 52% 54%, transparent 54% 58%, ${c[1]} 58% 61%, transparent 61%),
+radial-gradient(circle at 50% 56%, ${c[2]} 0 19%, transparent 19.5%),
+linear-gradient(180deg, ${c[0]} 0%, ${c[1]} 64%)`,
+ice: (c) => `linear-gradient(104deg, transparent 49.7%, ${c[2]} 49.7% 50.1%, transparent 50.1%),
+linear-gradient(180deg, ${c[3]} 0 34%, ${c[0]} 34% 56%, ${c[1]} 56% 74%, ${c[2]} 74%)`,
+river: (c) => `radial-gradient(ellipse 28% 60% at 30% 100%, ${c[2]}cc 0 30%, transparent 31%),
+radial-gradient(ellipse 22% 40% at 64% 62%, ${c[2]}99 0 26%, transparent 27%),
+radial-gradient(ellipse 18% 30% at 44% 30%, ${c[2]}66 0 22%, transparent 23%),
+linear-gradient(170deg, ${c[3]} 0%, ${c[0]} 60%, ${c[1]} 100%)`,
+grid: (c) => `radial-gradient(circle at 50% 40%, ${c[1]}55, transparent 40%),
+repeating-linear-gradient(0deg, ${c[1]}33 0 1px, transparent 1px 22px),
+repeating-linear-gradient(90deg, ${c[1]}33 0 1px, transparent 1px 22px),
+linear-gradient(180deg, ${c[0]}, ${c[2]})`,
+};
+const bg = (art) => (motif[art.motif] || motif.orbs)(art.c);
+function poster(item, { title = true } = {}) {
+const a = item.art;
+const sub = item.year || item.years || '';
+// Size the title so its longest word fits the poster width.
+const longest = Math.max(...item.title.split(' ').map((w) => w.length));
+const k = { serif: 0.56, 'serif-italic': 0.52, sans: 0.76, condensed: 0.44, mono: 0.74 }[a.font] || 0.6;
+const base = a.font === 'condensed' ? 16 : a.font === 'mono' ? 10 : 13;
+const size = Math.min(base, 84 / (longest * k)).toFixed(1);
+const t = title
+? `<div class="art-title pos-${a.pos || 'top'} f-${a.font}" style="font:${FONTS[a.font] || FONTS.serif};font-size:${size}cqw;color:${a.ink}">${SC.esc(item.title)}<small>${sub}</small></div>`
+: '';
+return `<div class="art" style="background:${bg(a)}">${t}</div>`;
+}
+// ---- Scenes: stand-ins for live video frames and backdrops (16:9 or wider)
+const scenes = {
+lighthouse: () => `<div class="art" style="background:
+radial-gradient(1px 1px at 12% 18%, #fff8, transparent), radial-gradient(1px 1px at 30% 8%, #fff6, transparent),
+radial-gradient(1.5px 1.5px at 46% 22%, #fff9, transparent), radial-gradient(1px 1px at 84% 12%, #fff7, transparent),
+radial-gradient(1px 1px at 92% 30%, #fff5, transparent), radial-gradient(1px 1px at 22% 34%, #fff5, transparent),
+conic-gradient(from 248deg at 71% 37%, transparent 0deg, #fce7c255 4deg, #f2a54122 16deg, transparent 22deg),
+conic-gradient(from 84deg at 71% 37%, transparent 0deg, #fce7c222 3deg, transparent 10deg),
+radial-gradient(ellipse 60% 30% at 70% 72%, #0f5361, transparent 70%),
+linear-gradient(180deg, #030f14 0%, #08303a 60%, #0d4652 72%, #041217 72.4%, #06191f 100%)">
+<i style="left:69.2%;top:38%;width:3.6%;height:34.6%;background:linear-gradient(90deg,#0b0f12,#1b2328 60%,#0b0f12);clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)"></i>
+<i style="left:69.6%;top:33.5%;width:2.8%;height:5%;background:radial-gradient(circle at 50% 60%,#fff3d6 0 30%,#f2a541 55%,#7a4a10 80%);border-radius:40% 40% 0 0"></i>
+<i style="left:64%;top:71%;width:14%;height:3%;background:#05090b;border-radius:50% 50% 0 0"></i>
+<i style="left:0;right:0;top:74%;height:26%;background:repeating-linear-gradient(180deg,transparent 0 6px,#ffffff06 6px 7px)"></i>
+</div>`,
+studio: () => `<div class="art" style="background:
+repeating-linear-gradient(90deg, #ffffff0a 0 2px, transparent 2px 64px),
+radial-gradient(ellipse 60% 50% at 50% 30%, #2b6cb066, transparent 70%),
+linear-gradient(180deg, #081a33 0%, #0f3462 58%, #0a1f3d 100%)">
+<i style="left:12%;right:12%;top:20%;height:34%;background:linear-gradient(135deg,#1c5ea8,#0b2c57);border:1px solid #5d9cff55;border-radius:4px"></i>
+<i style="left:44%;top:34%;width:12%;height:21%;background:#0a1626;border-radius:50% 50% 0 0/60% 60% 0 0"></i>
+<i style="left:47%;top:26%;width:6%;height:11%;background:#0a1626;border-radius:50%"></i>
+<i style="left:6%;right:6%;top:58%;bottom:0;background:linear-gradient(180deg,#1f5597,#0c2a52);border-top:2px solid #7fb2ff"></i>
+</div>`,
+world: () => `<div class="art" style="background:
+repeating-radial-gradient(ellipse 18% 46% at 50% 50%, transparent 0 22px, #8ec5ff22 22px 23px),
+repeating-linear-gradient(180deg, transparent 0 24px, #8ec5ff1a 24px 25px),
+radial-gradient(circle at 50% 50%, #1d4f8a 0 30%, transparent 30.4%),
+radial-gradient(circle at 50% 50%, #0d2a4a, #050d18 70%)"></div>`,
+pitch: () => `<div class="art" style="background:
+radial-gradient(ellipse 18% 14% at 14% 0%, #fffbe0cc, transparent 70%),
+radial-gradient(ellipse 18% 14% at 86% 0%, #fffbe0cc, transparent 70%),
+repeating-linear-gradient(90deg, #ffffff10 0 3px, transparent 3px 9px),
+linear-gradient(180deg, #0b1016 0%, #1b2532 30%, #0e1319 33%)">
+<i style="left:-20%;right:-20%;top:33%;bottom:-30%;transform:perspective(380px) rotateX(48deg);transform-origin:top;background:
+linear-gradient(90deg, transparent 49.7%, #ffffffcc 49.7% 50.3%, transparent 50.3%),
+linear-gradient(90deg, transparent 21.8%, #ffffff99 21.8% 22.2%, transparent 22.2% 77.8%, #ffffff99 77.8% 78.2%, transparent 78.2%),
+repeating-linear-gradient(90deg, #2f8a3c 0 6.25%, #2a7b35 6.25% 12.5%)"></i>
+<i style="left:46%;top:56%;width:1.6%;height:5%;background:#e8e2d0;border-radius:40%"></i>
+<i style="left:58%;top:52%;width:1.4%;height:4.6%;background:#c62828;border-radius:40%"></i>
+<i style="left:36%;top:60%;width:1.6%;height:5%;background:#e8e2d0;border-radius:40%"></i>
+</div>`,
+court: () => `<div class="art" style="background:linear-gradient(180deg,#0e1b2b 0 26%,#1a3e66 26%)">
+<i style="left:-10%;right:-10%;top:26%;bottom:-20%;transform:perspective(400px) rotateX(46deg);transform-origin:top;background:
+linear-gradient(90deg, transparent 18%, #fff 18% 18.5%, transparent 18.5% 81.5%, #fff 81.5% 82%, transparent 82%),
+linear-gradient(180deg, transparent 48%, #fff 48% 49%, transparent 49%),
+linear-gradient(90deg, transparent 49.75%, #fff 49.75% 50.25%, transparent 50.25%) 0 0/100% 48% no-repeat,
+linear-gradient(90deg, #2d6fb6 0 14%, #3a82cc 14% 86%, #2d6fb6 86%)"></i>
+<i style="left:0;right:0;top:44%;height:1.2%;background:repeating-linear-gradient(90deg,#ddd 0 2px,#999 2px 4px)"></i>
+</div>`,
+hardwood: () => `<div class="art" style="background:
+radial-gradient(ellipse 50% 30% at 50% 0%, #fff3d655, transparent 70%),
+linear-gradient(180deg,#120d0a 0 30%,transparent 30%),
+repeating-linear-gradient(90deg,#c98b4f 0 5%,#b97a41 5% 10%,#d39a5e 10% 15%)">
+<i style="left:30%;right:30%;top:48%;height:52%;border:3px solid #fff8;border-bottom:0;border-radius:50% 50% 0 0/40% 40% 0 0"></i>
+<i style="left:0;right:0;top:30%;height:2px;background:#fff6"></i>
+</div>`,
+motel: () => `<div class="art" style="background:
+radial-gradient(ellipse 40% 26% at 50% 36%, #ff3d8b55, transparent 70%),
+linear-gradient(180deg, #12051f 0%, #2a0c3c 62%, #160a1c 62%)">
+<i style="left:31%;right:31%;top:24%;height:20%;border:3px solid #ff3d8b;border-radius:6px;box-shadow:0 0 18px #ff3d8b,inset 0 0 12px #ff3d8b88"></i>
+<i style="left:34%;right:34%;top:29%;height:10%;background:repeating-linear-gradient(90deg,#3dd6ff 0 12%,transparent 12% 20%);opacity:.9;filter:drop-shadow(0 0 6px #3dd6ff)"></i>
+<i style="left:10%;right:10%;top:62%;height:16%;background:repeating-linear-gradient(90deg,#23102d 0 9%,#ffd38a66 9% 11%,#23102d 11% 20%)"></i>
+</div>`,
+orchard: () => `<div class="art" style="background:
+radial-gradient(circle at 18% 58%, #2f5d4a 0 7%, transparent 7.4%), radial-gradient(circle at 34% 56%, #3c6f58 0 8%, transparent 8.4%),
+radial-gradient(circle at 52% 58%, #2f5d4a 0 7%, transparent 7.4%), radial-gradient(circle at 70% 56%, #3c6f58 0 8%, transparent 8.4%),
+radial-gradient(circle at 86% 58%, #2f5d4a 0 7%, transparent 7.4%),
+repeating-linear-gradient(90deg, transparent 0 7%, #ffffff40 7% 7.3%),
+linear-gradient(180deg, #f3d9de 0%, #e4efe0 48%, #8dbf98 66%, #4d7f63 100%)"></div>`,
+kids: () => `<div class="art" style="background:
+radial-gradient(circle at 78% 22%, #fff3b0 0 9%, transparent 9.5%),
+radial-gradient(ellipse 60% 30% at 30% 100%, #5fbf6a 0 70%, transparent 71%),
+radial-gradient(ellipse 60% 26% at 80% 100%, #49a957 0 70%, transparent 71%),
+linear-gradient(180deg, #7fd3ff, #c8f0ff)">
+<i style="left:24%;top:46%;width:14%;height:22%;background:#ff8a3d;border-radius:50% 50% 40% 40%"></i>
+<i style="left:44%;top:52%;width:10%;height:16%;background:#8a8fa6;border-radius:50%"></i>
+</div>`,
+salt: () => `<div class="art" style="background:
+linear-gradient(180deg, #c9dbe6 0%, #eef2f1 52%, #f6f3ec 52.4%, #dcd6c8 100%)">
+<i style="left:40%;top:44%;width:24%;height:8%;background:repeating-linear-gradient(90deg,#5b4a3a 0 3%,transparent 3% 7%);opacity:.7"></i>
+<i style="left:0;right:0;top:52%;height:1px;background:#a69c88"></i>
+</div>`,
+ferns: () => `<div class="art" style="background:
+repeating-conic-gradient(from 200deg at 30% 110%, #2e6b3a 0 3deg, #1d4d2a 3deg 7deg),
+radial-gradient(ellipse at 70% 20%, #a7d99a, #1e4d2b 70%)">
+<i style="inset:0;background:repeating-conic-gradient(from 120deg at 80% 105%, #3b8048aa 0 4deg, transparent 4deg 9deg)"></i>
+</div>`,
+stage: () => `<div class="art" style="background:
+radial-gradient(ellipse 22% 60% at 50% 100%, #ffe3ef55, transparent 70%),
+repeating-linear-gradient(90deg, #5a1234 0 3%, #7a1e48 3% 6%),
+#3a0a20">
+<i style="left:44%;top:46%;width:12%;height:54%;background:#14060d;border-radius:50% 50% 0 0/22% 22% 0 0"></i>
+<i style="left:47.5%;top:36%;width:5%;height:12%;background:#14060d;border-radius:50%"></i>
+</div>`,
+noir: () => `<div class="art" style="background:
+repeating-linear-gradient(162deg, #00000099 0 16px, transparent 16px 34px),
+radial-gradient(ellipse at 70% 30%, #c9a36b, #3a2a18 70%)">
+<i style="left:24%;top:30%;width:14%;height:70%;background:#120c06;border-radius:40% 40% 0 0/12% 12% 0 0"></i>
+<i style="left:22%;top:26%;width:18%;height:6%;background:#120c06;border-radius:50% 50% 10% 10%"></i>
+</div>`,
+concert: () => `<div class="art" style="background:
+conic-gradient(from 160deg at 30% 0%, transparent 0, #8af3ff44 8deg, transparent 18deg),
+conic-gradient(from 176deg at 70% 0%, transparent 0, #ff6ad544 8deg, transparent 18deg),
+conic-gradient(from 170deg at 50% 0%, transparent 0, #ffffff33 6deg, transparent 14deg),
+linear-gradient(180deg, #0a0a12 0 72%, #000 72%)">
+<i style="left:0;right:0;bottom:0;height:22%;background:radial-gradient(circle at 10% 0,#000 0 9%,transparent 9.5%) 0 0/9% 100%"></i>
+</div>`,
+kitchen: () => `<div class="art" style="background:
+radial-gradient(ellipse 30% 20% at 50% 78%, #ffb347, #e8452c 40%, transparent 70%),
+radial-gradient(ellipse 50% 40% at 50% 80%, #6b2a12, transparent 70%),
+linear-gradient(180deg, #1b130e, #2c1c12)">
+<i style="left:30%;right:30%;top:58%;height:8%;background:repeating-linear-gradient(90deg,#222 0 3%,#555 3% 4%);border-radius:2px"></i>
+</div>`,
+skyline: () => `<div class="art" style="background:linear-gradient(180deg, #24304f 0%, #a65d6e 55%, #f2a65a 72%, #1a1f2e 72%)">
+<i style="left:0;right:0;top:40%;bottom:28%;background:#141824;clip-path:polygon(0 70%,6% 70%,6% 40%,12% 40%,12% 60%,18% 60%,18% 20%,23% 20%,23% 55%,30% 55%,30% 35%,36% 35%,36% 65%,44% 65%,44% 10%,48% 10%,48% 0,50% 0,50% 10%,54% 10%,54% 60%,62% 60%,62% 30%,70% 30%,70% 50%,78% 50%,78% 25%,84% 25%,84% 62%,92% 62%,92% 45%,100% 45%,100% 100%,0 100%)"></i>
+<i style="left:0;right:0;top:72%;bottom:0;background:repeating-linear-gradient(180deg,#f2a65a22 0 2px,transparent 2px 7px)"></i>
+</div>`,
+};
+function scene(name) { return (scenes[name] || scenes.studio)(); }
+// Backdrop for a movie/series: its scene if it has one, otherwise its poster motif without the title.
+function backdrop(item) { return item.scene ? scene(item.scene) : poster(item, { title: false }); }
+function logo(ch) {
+const l = ch.logo;
+const font = FONTS[l.font] || FONTS.sans;
+return `<span class="art-logo s-${l.shape} f-${l.font}" style="background:${l.bg};color:${l.fg};--fs:${l.fs || 1}">` +
+`<b style="font:${font};font-size:calc(min(40cqh, 30cqw) * var(--fs, 1))">${SC.esc(l.mark)}</b>` +
+(l.bar ? `<span class="bar" style="background:${l.bar}"></span>` : '') +
+(l.sub ? `<sup>${SC.esc(l.sub)}</sup>` : '') + `</span>`;
+}
+return { poster, backdrop, scene, logo, sceneNames: Object.keys(scenes) };
+})();
+</script>
+<script>
+/* Mock scaffolding: scales 1280x800 .screen elements to the column width, adds an
+"Actual size" toggle, applies direction tokens, and renders the spec section. */
+const SCF = (() => {
+const W = 1280;
+function parseHex(hex) {
+let h = hex.trim().replace('#', '');
+if (h.length === 3 || h.length === 4) h = h.split('').map((x) => x + x).join('');
+const n = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+return { rgb: n, a };
+}
+function hexToOklch(hex) {
+if (!/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex.trim())) return hex;
+const { rgb, a } = parseHex(hex);
+const [r, g, b] = rgb.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+const C = Math.hypot(A, B);
+let H = (Math.atan2(B, A) * 180) / Math.PI;
+if (H < 0) H += 360;
+const alpha = a < 1 ? ` / ${Math.round(a * 100)}%` : '';
+return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${C < 0.003 ? 0 : H.toFixed(1)}${alpha})`;
+}
+function applyTokens(el, tokens) {
+for (const [k, v] of Object.entries(tokens)) el.style.setProperty(k, v);
+}
+function fit(mock) {
+const vp = mock.querySelector('.mock-viewport');
+const screen = mock.querySelector('.screen');
+const actual = mock.classList.contains('actual');
+const w = vp.clientWidth || W;
+screen.style.zoom = actual ? 1 : Math.min(1, w / W);
+}
+function mount(root = document) {
+const forceActual = new URLSearchParams(location.search).has('actual');
+root.querySelectorAll('.mock').forEach((mock) => {
+if (mock.dataset.mounted) return;
+mock.dataset.mounted = '1';
+const screen = mock.querySelector('.screen');
+const bar = document.createElement('div');
+bar.className = 'mock-bar';
+bar.innerHTML = `<div class="mock-label">${mock.dataset.label || ''}${mock.dataset.sub ? `<span>${mock.dataset.sub}</span>` : ''}</div>
+<button class="mock-toggle" type="button" aria-pressed="false">Actual size</button>`;
+const vp = document.createElement('div');
+vp.className = 'mock-viewport';
+screen.before(vp);
+vp.appendChild(screen);
+vp.before(bar);
+const btn = bar.querySelector('button');
+btn.addEventListener('click', () => {
+const on = mock.classList.toggle('actual');
+btn.textContent = on ? 'Fit to width' : 'Actual size';
+btn.setAttribute('aria-pressed', String(on));
+fit(mock);
+});
+if (forceActual) mock.classList.add('actual');
+new ResizeObserver(() => fit(mock)).observe(mock);
+fit(mock);
+});
+}
+const KEY_TOKENS = ['--background', '--card', '--popover', '--secondary', '--foreground', '--muted-foreground', '--primary', '--accent', '--border', '--ring', '--destructive'];
+function swatches(tokens, roles = {}, keys = KEY_TOKENS) {
+return keys
+.filter((k) => tokens[k])
+.map((k) => `<div class="swatch"><i style="background:${tokens[k]}"></i><div><b>${k}</b><code>${tokens[k]}</code>${roles[k] ? `<small>${roles[k]}</small>` : ''}</div></div>`)
+.join('');
+}
+function tokensCss(selector, tokens) {
+const lines = Object.entries(tokens).map(([k, v]) => {
+const ok = hexToOklch(v);
+return `  ${k}: ${ok};${ok !== v ? ` <span class="c">/* ${v} */</span>` : ''}`;
+});
+return `${selector} {\n${lines.join('\n')}\n}`;
+}
+/* spec = { tokens, tokensDark?, selector?, selectorDark?, extras?, roles?, type: [{role, family, sample, style, meta}], structure: [html], built: [html] } */
+function renderSpec(el, spec) {
+const extrasKeys = Object.keys(spec.extras || {});
+const all = { ...spec.tokens, ...(spec.extras || {}) };
+el.innerHTML = `
+<h2>Palette</h2>
+<div class="swatches">${swatches(all, spec.roles, [...KEY_TOKENS, ...extrasKeys])}</div>
+<div class="tokens">
+<pre>${tokensCss(spec.selector || '.dark', { ...spec.tokens, ...(spec.extras || {}) })}</pre>
+${spec.tokensDark ? `<pre>${tokensCss(spec.selectorDark || '.dark', spec.tokensDark)}</pre>` : ''}
+</div>
+<h2>Typography</h2>
+<div class="type-rows">${spec.type
+.map((t) => `<div class="type-row"><div class="meta">${t.role} · ${t.family}${t.meta ? ` · ${t.meta}` : ''}</div><div class="sample" style="${t.style}">${t.sample}</div></div>`)
+.join('')}</div>
+<h2>What changes from today</h2>
+<ul>${spec.structure.map((s) => `<li>${s}</li>`).join('')}</ul>
+<h2>How it maps to shadcn/ui</h2>
+<ul>${spec.built.map((s) => `<li>${s}</li>`).join('')}</ul>`;
+}
+return { hexToOklch, applyTokens, mount, fit, renderSpec, tokensCss };
+})();
+</script>
+<script>
+const SPEC = {
+selector: '.dark',
+tokens: {
+'--radius': '0.75rem',
+'--background': '#0E0A0F', '--foreground': '#F3EAE2',
+'--card': '#181119', '--card-foreground': '#F3EAE2',
+'--popover': '#1F1621', '--popover-foreground': '#F3EAE2',
+'--primary': '#D2447F', '--primary-foreground': '#FFF6F9',
+'--secondary': '#261B28', '--secondary-foreground': '#F3EAE2',
+'--muted': '#211723', '--muted-foreground': '#A9969F',
+'--accent': '#2C1F2E', '--accent-foreground': '#F8EFF3',
+'--destructive': '#F0605A',
+'--border': '#F3EAE217', '--input': '#F3EAE21F', '--ring': '#E46F9C',
+'--sidebar': '#181119', '--sidebar-foreground': '#F3EAE2',
+'--sidebar-primary': '#D2447F', '--sidebar-primary-foreground': '#FFF6F9',
+'--sidebar-accent': '#2C1F2E', '--sidebar-accent-foreground': '#F8EFF3',
+'--sidebar-border': '#F3EAE217', '--sidebar-ring': '#E46F9C',
+},
+extras: {
+'--thread': '#E46F9C',
+'--sheen': '#E9CBA0',
+'--ok': '#86D3AA',
+'--scrim': 'linear-gradient(90deg, #0E0A0F 0%, #0E0A0FD9 28%, #0E0A0F00 64%)',
+},
+roles: {
+'--background': 'Plum-black night, never neutral grey',
+'--card': 'Rows, cards, schedule slots',
+'--popover': 'Menus and pickers',
+'--secondary': 'Glass buttons over art',
+'--foreground': 'Warm ivory text',
+'--muted-foreground': 'Meta, times, labels',
+'--primary': 'Mulberry: Play, Watch, selection',
+'--accent': 'Hover and selected rows',
+'--border': 'Hairlines (9 % ivory)',
+'--ring': 'Keyboard focus',
+'--destructive': 'Errors',
+'--thread': 'Progress thread and bead',
+'--sheen': 'Champagne: ratings, New, warnings',
+'--ok': 'Healthy source dot',
+'--scrim': 'Hero and backdrop scrim',
+},
+type: [
+{ role: 'Display', family: 'Bodoni Moda', meta: 'italic 500, opsz auto · hero, detail titles, wordmark only · @fontsource-variable/bodoni-moda', style: "font:italic 500 60px/1 'Bodoni Moda',Georgia,serif;letter-spacing:-.03em", sample: 'Signal Fire' },
+{ role: 'UI and body', family: 'Onest', meta: '400–700 · everything else · @fontsource-variable/onest', style: "font:600 20px/1.3 'Onest',sans-serif;letter-spacing:-.01em", sample: 'Premier Rugby: Northport v Kingsbridge' },
+{ role: 'Body', family: 'Onest', meta: '400, 15px / 1.55', style: "font:400 15px/1.55 'Onest',sans-serif", sample: 'A night clerk on the Gulf coast starts keeping a ledger of the guests who never check out.' },
+{ role: 'Numbers', family: 'Onest', meta: 'tabular-nums · times, counts, durations', style: "font:500 15px/1.4 'Onest',sans-serif;font-variant-numeric:tabular-nums", sample: '17:30 – 19:30 · 48 min left · 14,830 channels' },
+{ role: 'Coverage', family: 'Onest', meta: 'Latin + Cyrillic, which many IPTV catalogs need', style: "font:500 15px/1.4 'Onest',sans-serif", sample: 'Северный экран · Ålesund Sport · Çay Saati' },
+],
+structure: [
+'<b>No sidebar.</b> A 64px top bar with tabs (Home · Live TV · Movies · Series), global search with Ctrl K, the source switcher, and help/settings icons. It floats over the hero on Home and on details pages.',
+'<b>Refresh source / Refresh guide move into the source switcher</b>, next to "Synced 2 h ago". Live TV also shows "Guide updated 12 min ago" with its own refresh.',
+'<b>Home becomes hero + rails:</b> Featured (new VOD), Continue watching, On now (favorite and recent channels with live EPG), Recently added. Recents folds in here; the catalog-count tiles go away, and the counts live in the source switcher.',
+'<b>Live TV:</b> the group column becomes a searchable group picker, the channel list becomes a right column, and a preview stage with Now / Next / Later fills the rest.',
+'<b>New movie and series details page</b> with a backdrop, resume point, credits and More like this.',
+'<b>Clean titles everywhere</b>; provider prefixes become country and quality badges.',
+'<b>Bahnschrift becomes Bodoni Moda + Onest</b>, bundled through Fontsource so they work offline.',
+'<b>One progress component</b> (the thread) shared by Home, Live TV, details and the player scrubber.',
+],
+built: [
+'Top bar: <code>Tabs</code> (line variant) or <code>NavigationMenu</code>, <code>Input</code> + <code>Kbd</code>, <code>DropdownMenu</code> for the source switcher, icon <code>Button</code>s.',
+'Group picker: <code>Popover</code> + <code>Command</code> (cmdk), which gives typeahead over 189 groups for free.',
+'Rails: horizontal <code>ScrollArea</code> of <code>Card</code>s; posters and backdrops in <code>AspectRatio</code>.',
+'Thread: a restyled <code>Progress</code> with a bead pseudo-element; the player scrubber is the same look on <code>Slider</code>.',
+'Channel list: the existing virtualized list, with rows built from <code>Item</code> and badges from <code>Badge variant="outline"</code>. Filter chips use <code>ToggleGroup</code>.',
+'Buttons: <code>Button</code> default = mulberry pill, <code>secondary</code> = glass (<code>backdrop-blur</code>), <code>outline</code> for Open in MPV. Set <code>--radius</code> to 0.75rem; pills use <code>rounded-full</code>.',
+'Tokens go in <code>App.css</code> under <code>.dark</code>; the extras (<code>--thread</code>, <code>--sheen</code>, <code>--ok</code>) are registered in <code>@theme inline</code> as <code>--color-thread</code> etc. so Tailwind gets <code>bg-thread</code>.',
+],
+};
+/* ---------- icons (lucide paths) ---------- */
+const P = {
+search: '<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+chev: '<path d="m6 9 6 6 6-6"/>',
+help: '<circle cx="12" cy="12" r="9.5"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+play: '<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>',
+heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+ext: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+refresh: '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>',
+restart: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+info: '<circle cx="12" cy="12" r="9.5"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+grid: '<rect width="7" height="7" x="3" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="14" rx="1.5"/><rect width="7" height="7" x="3" y="14" rx="1.5"/>',
+check: '<path d="M20 6 9 17l-5-5"/>',
+plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+eyeoff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/>',
+pause: '<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor" stroke="none"/>',
+vol: '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
+max: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+};
+const ic = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+/* ---------- small builders ---------- */
+const e = SC.esc;
+const thread = (p, cls = '') => `<div class="thread ${cls}${p === 0 ? ' empty' : ''}" style="--p:${p.toFixed(3)}"><i></i></div>`;
+const badges = (ch) => [ch.country, ...ch.tags].map((t) => `<span class="bdg">${e(t)}</span>`).join('');
+const short = (s) => s.replace(' left', '');
+const src = SC.sources[0];
+const topbar = (active, over) => `<header class="tb ${over ? 'over' : 'solid'}">
+<div class="wm">SilkCast</div>
+<nav class="nav">${['Home', 'Live TV', 'Movies', 'Series'].map((n) => `<a class="${n === active ? 'on' : ''}">${n}</a>`).join('')}</nav>
+<div class="tb-r">
+<div class="search">${ic('search', 16)}<span>Search channels, movies and series</span><kbd>Ctrl K</kbd></div>
+<div class="src"><span class="av">T</span>${src.name}<span class="dot"></span>${ic('chev', 15)}</div>
+<button class="ib" aria-label="Help">${ic('help')}</button>
+<button class="ib" aria-label="Settings">${ic('gear')}</button>
+</div></header>`;
+const cwCard = (c) => {
+const sub = c.kind === 'episode' ? `S${c.season} · E${c.episode} · ${c.epTitle}` : `${c.item.genre} · ${c.item.year}`;
+return `<article><div class="cw-img">${ART.backdrop(c.item)}${thread(c.progress)}</div>
+<div class="cw-t"><b class="clip">${e(c.item.title)}</b><span>${c.left}</span></div><div class="cw-s clip">${e(sub)}</div></article>`;
+};
+const onCard = (ch) => {
+const { now } = SC.nowNext(ch);
+return `<article class="onc"><div class="lg">${ART.logo(ch)}</div><div class="on-b">
+<div class="on-c"><span class="clip">${e(ch.name)}</span>${now.live ? '<span class="live">Live</span>' : ''}</div>
+<div class="on-p clip">${e(now.t)}</div>
+<div class="th-row">${thread(SC.progress(now), now.live ? 'pulse' : '')}<span>${short(SC.left(now))}</span></div></div></article>`;
+};
+const poster = (m) => `<div class="pst">${ART.poster(m)}</div>`;
+/* ---------- Home ---------- */
+const sf = SC.movie('signal-fire');
+document.getElementById('s-home').innerHTML = `
+<div class="hero">${ART.scene('lighthouse')}<div class="scrim"></div>
+<div class="hero-c">
+<div class="eyebrow">New in Movies · ${sf.year}</div>
+<h1>${sf.title}</h1>
+<div class="meta">${sf.genre}<i>·</i>${sf.runtime}<i>·</i><span class="star">★ ${sf.rating}</span><i>·</i><span class="bdg">${sf.quality}</span></div>
+<p>${e(sf.plot)}</p>
+<div class="acts"><button class="btn pri">${ic('play', 16)}Play</button><button class="btn sec">${ic('info', 17)}Details</button><button class="btn sec round" aria-label="Add to favorites">${ic('heart', 18)}</button></div>
+</div>
+<div class="pager">${thread(0.62)}${thread(0)}${thread(0)}${thread(0)}</div>
+</div>
+${topbar('Home', true)}
+<div class="rails">
+<div class="sh"><h3>Continue watching</h3></div>
+<div class="rail cw-row">${SC.continueWatching.map(cwCard).join('')}</div>
+<div class="sh" style="margin-top:28px"><h3>On now</h3><span>Favorites and recent channels</span></div>
+<div class="rail on-row">${['arc1', 'harbor', 'northline', 'kestrel'].map((id) => onCard(SC.channel(id))).join('')}</div>
+</div>`;
+/* ---------- Live TV ---------- */
+const arc = SC.channel('arc1');
+const nn = SC.nowNext(arc);
+const listRow = (ch) => {
+const { now } = SC.nowNext(ch);
+const cls = ch.id === 'arc1' ? 'sel' : ch.id === 'arc2' ? 'kf' : '';
+return `<div class="row ${cls}"><div class="lg">${ART.logo(ch)}</div><div class="row-b">
+<div class="row-n"><b class="clip">${e(ch.name)}</b>${badges(ch)}</div>
+<div class="row-p">${now.live ? '<span class="live">Live</span>' : ''}<span class="clip">${e(now.t)}</span></div>
+${thread(SC.progress(now), ch.id === 'arc1' ? 'pulse' : 'quiet')}</div>
+<div class="row-r">${short(SC.left(now))}</div></div>`;
+};
+const slot = (label, p, cls = '') => `<div class="slot ${cls}"><div class="slot-h">${label}<span>${p.s} – ${p.e}</span></div><b class="clip">${e(p.t)}</b>${p.d ? `<p>${e(p.d)}</p>` : `<p>${label === 'Next' ? 'Starts in ' + (SC.min(p.s) - SC.clock.minutes) + ' min' : 'Starts at ' + p.s}</p>`}</div>`;
+document.getElementById('s-live').innerHTML = `
+${topbar('Live TV', false)}
+<div class="lv">
+<div>
+<div class="stage">${ART.scene(arc.scene)}<div class="st-sc"></div>
+<div class="st-top"><span class="pill-live">Live</span><span>Playing muted · Space to watch</span></div>
+<div class="st-b">
+<div class="st-ch"><div class="lg">${ART.logo(arc)}</div><div style="min-width:0">
+<div class="st-cn"><b>${arc.name}</b>${badges(arc)}</div>
+<h2 class="st-t">${e(nn.now.t)}</h2></div></div>
+<div class="st-time"><span>${nn.now.s} – ${nn.now.e}</span><span>${SC.left(nn.now)}</span></div>
+${thread(SC.progress(nn.now), 'pulse')}
+</div>
+</div>
+<div class="lv-acts">
+<button class="btn pri">${ic('play', 16)}Watch</button>
+<button class="btn sec">${ic('heart', 17)}Add to favorites</button>
+<button class="btn ghost">${ic('ext', 16)}Open in MPV</button>
+<div class="upd">Guide updated 12 min ago<button class="ib" aria-label="Refresh guide">${ic('refresh', 15)}</button></div>
+</div>
+<div class="sched">${slot('Now', nn.now, 'now')}${slot('Next', nn.next)}${slot('Later', nn.later[0])}</div>
+</div>
+<div class="side">
+<div class="gp">${ic('grid', 17)}<b>All channels</b><em>${SC.fmt(SC.groups[0].count)}</em>${ic('chev', 16)}</div>
+<div class="fin">${ic('search', 15)}Filter channels</div>
+<div class="chips"><span class="chip on">All</span><span class="chip">${ic('heart', 13)}Favorites</span><span class="chip">UK</span><span class="chip">US</span><span class="chip">4K</span></div>
+<div class="list">${SC.channels.map(listRow).join('')}</div>
+</div>
+</div>`;
+/* ---------- Details ---------- */
+const lt = SC.movie('low-tide-motel');
+document.getElementById('s-detail').innerHTML = `
+<div class="bd"><div class="bd-art">${ART.scene(lt.scene)}</div><div class="scrim"></div></div>
+${topbar('Movies', true)}
+<div class="dt">
+${poster(lt)}
+<div class="dt-i">
+<div class="eyebrow">Movies · Classics</div>
+<h1>${lt.title}</h1>
+<div class="meta">${lt.year}<i>·</i>${lt.genre}<i>·</i>${lt.runtime}<i>·</i><span class="star">★ ${lt.rating}</span><i>·</i><span class="bdg">${lt.quality}</span></div>
+<p>${e(lt.plot)} Over one long hurricane season, the ledger starts writing back.</p>
+<div class="cred"><span>Director</span><b>${lt.director}</b><span>Cast</span><b>${lt.cast.join(', ')}, June Abara</b></div>
+<div class="acts"><button class="btn pri">${ic('play', 16)}Resume · 49 min left</button><button class="btn sec">${ic('restart', 16)}Play from start</button><button class="btn ghost">${ic('ext', 16)}Open in MPV</button><button class="btn sec round" aria-label="Add to favorites">${ic('heart', 18)}</button></div>
+<div class="resume">${thread(0.55)}<span>Stopped at 59:24 of 1:48:00</span></div>
+</div>
+</div>
+<div class="more"><div class="sh"><h3>More like this</h3><span>Neo-noir and crime</span></div>
+<div class="rail ra-row">${['velvet-underpass', 'ninth-floor', 'northbound', 'quiet-engine', 'copper-sky', 'saltwater-hymn', 'cartographers-daughter', 'paper-lanterns'].map((id) => poster(SC.movie(id))).join('')}</div></div>`;
+/* ---------- Callouts ---------- */
+const others = SC.sources.slice(1);
+const avCls = { northgate: 'n', home: 'h', cobalt: 'c' };
+document.getElementById('c-src').innerHTML = `
+<div class="src" style="display:inline-flex;margin:0"><span class="av">T</span>${src.name}<span class="dot"></span>${ic('chev', 15)}</div>
+<div class="pop">
+<div class="pop-h"><span class="av">T</span><div><b>${src.name}</b><small>${src.kind} · ${SC.fmt(src.counts.live)} channels · ${SC.fmt(src.counts.movies)} movies · ${SC.fmt(src.counts.series)} series</small></div></div>
+<div class="stat"><span class="dot"></span>Synced ${src.synced} · Guide updated ${src.epg}</div>
+<div class="mi">${ic('refresh', 16)}Refresh source</div>
+<div class="mi hl">${ic('refresh', 16)}Refresh guide</div>
+<div class="sep"></div>
+<div class="lab">Switch source</div>
+${others.map((s) => `<div class="mi"><span class="av ${avCls[s.id]}">${s.name[0]}</span><div class="grow"><span>${s.name}</span>${s.status === 'warn' ? `<small class="warn">${s.note}</small>` : `<small>${s.kind} · synced ${s.synced}</small>`}</div>${s.status === 'warn' ? '<span class="dot warn"></span>' : ''}</div>`).join('')}
+<div class="sep"></div>
+<div class="mi">${ic('list', 16)}Manage sources…</div>
+<div class="mi">${ic('plus', 16)}Add source…</div>
+</div>`;
+const g = SC.groups;
+document.getElementById('c-grp').innerHTML = `
+<div class="gp" style="width:316px">${ic('grid', 17)}<b>All channels</b><em>${SC.fmt(g[0].count)}</em>${ic('chev', 16)}</div>
+<div class="pop">
+<div class="fin">${ic('search', 15)}Filter 189 groups</div>
+<div class="lab">Pinned</div>
+<div class="mi hl"><span class="grow">All channels</span><span class="n">${SC.fmt(g[0].count)}</span>${ic('check', 15)}</div>
+${[g[1], g[3], g[2]].map((x) => `<div class="mi">${x.fav ? ic('heart', 15) : ''}<span class="grow">${x.name}</span><span class="n">${SC.fmt(x.count)}</span></div>`).join('')}
+<div class="sep"></div>
+<div class="lab">All groups</div>
+${[g[6], g[7], g[5], g[10]].map((x) => `<div class="mi"><span class="grow">${x.name}</span><span class="n">${SC.fmt(x.count)}</span></div>`).join('')}
+</div>`;
+document.getElementById('c-clean').innerHTML = SC.cleanup.map((r) => `<div class="cl-row">
+<span class="cl-k">${r.kind}</span><code class="cl-raw">${e(r.raw)}</code><span class="cl-ar">→</span>
+<div class="cl-out">${r.clean
+? `<b>${e(r.clean)}</b>${r.year ? `<span class="cl-y">${r.year}</span>` : ''}${(r.tags || []).map((t) => `<span class="bdg">${t}</span>`).join('')}`
+: `<span class="cl-hid">${ic('eyeoff', 15)}Hidden</span><span class="cl-note">${e(r.note.replace(/^Hidden\.\s*/, ''))}</span>`}</div></div>`).join('');
+const hg = SC.continueWatching[1];
+document.getElementById('c-sig').innerHTML = `<div class="sig">
+<figure style="width:232px">${cwCard(hg)}<figcaption>Continue watching: the bead marks where you stopped</figcaption></figure>
+<figure style="width:290px">${onCard(arc)}<figcaption>On now: live progress, and the bead pulses</figcaption></figure>
+<figure><div class="mp">${ART.scene('motel')}<div class="mp-c"><div class="mp-t"><span>59:24</span><span>−48:36</span></div>${thread(0.55, 'big')}<div class="mp-i">${ic('pause', 16)}${ic('vol', 16)}<span style="flex:1"></span>${ic('max', 16)}</div></div></div><figcaption>Player scrubber: same thread, larger bead to grab</figcaption></figure>
+</div>`;
+/* ---------- tokens, mount, spec ---------- */
+document.querySelectorAll('.app').forEach((el) => SCF.applyTokens(el, { ...SPEC.tokens, ...SPEC.extras }));
+SCF.mount();
+SCF.renderSpec(document.getElementById('spec'), SPEC);
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { ChannelRecord, Phase1Settings } from '@/components/app/types';
+import { displayTitle } from '@/lib/catalog/cleanName';
 import { useAppStore } from '@/store/appStore';
 
 type UseMediaCatalogPlaybackArgs = {
@@ -50,7 +51,7 @@ export function useMediaCatalogPlayback({
         if (preferredPlayer === 'web') {
           navigateToPlayer();
         } else {
-          toast.success(`Playing "${item.name}" in MPV`);
+          toast.success(`Playing "${displayTitle(item.name)}" in MPV`);
         }
       } catch (err) {
         reportError(String(err));

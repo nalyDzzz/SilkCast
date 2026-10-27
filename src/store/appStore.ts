@@ -13,6 +13,7 @@ import * as playbackApi from '../lib/api/playbackApi';
 import * as recentsApi from '../lib/api/recentsApi';
 import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
+import { displayTitle } from '../lib/catalog/cleanName';
 
 const LAST_SELECTED_SOURCE_KEY = 'silkcast:lastSelectedSourceId';
 const THEME_PREFERENCE_KEY = 'silkcast:theme';
@@ -84,23 +85,14 @@ const writeLastSelectedSourceId = (sourceId: number | null) => {
   );
 };
 
+// SilkCast is dark-first (it's a media app); light is an explicit choice in Settings.
 const readStoredThemePreference = (): AppTheme => {
   if (typeof window === 'undefined') {
-    return 'light';
+    return 'dark';
   }
 
   const storedTheme = window.localStorage.getItem(THEME_PREFERENCE_KEY);
-  if (isAppTheme(storedTheme)) {
-    return storedTheme;
-  }
-
-  if (typeof window.matchMedia === 'function') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
-  }
-
-  return 'light';
+  return isAppTheme(storedTheme) ? storedTheme : 'dark';
 };
 
 const writeThemePreference = (theme: AppTheme) => {
@@ -139,6 +131,8 @@ type AppState = {
   sources: SourceRecord[];
   selectedSourceId: number | null;
   hasPersistedSourceSelection: boolean;
+  /** Set while the user is on the sources page by choice; stops the startup redirect. */
+  managingSources: boolean;
   groups: { name: string; channel_count: number }[];
   selectedGroup: string;
   channels: ChannelRecord[];
@@ -223,6 +217,8 @@ type AppActions = {
   seekPlayback: (seconds: number) => Promise<void>;
   saveSettings: () => Promise<void>;
   logout: () => void;
+  /** Lets the sources page open without the startup redirect to the dashboard. */
+  manageSources: () => void;
 };
 
 type AppStore = AppState & AppActions;
@@ -231,6 +227,7 @@ const initialState: AppState = {
   sources: [],
   selectedSourceId: initialSelectedSourceId,
   hasPersistedSourceSelection: initialSelectedSourceId !== null,
+  managingSources: false,
   groups: [],
   selectedGroup: ALL_GROUPS,
   channels: [],
@@ -263,6 +260,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       selectedSourceId: normalizedSourceId,
       hasPersistedSourceSelection: false,
+      managingSources: false,
     });
   },
   setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
@@ -351,7 +349,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ error: null });
     try {
       await playbackApi.openExternalWindow(channel.stream_url, {
-        title: channel.name,
+        title: displayTitle(channel.name),
         startSeconds: options.startSeconds ?? null,
       });
       set({ activeChannel: null });
@@ -537,7 +535,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       if (get().settings.preferred_player === 'mpv') {
         await playbackApi.openExternalWindow(channel.stream_url, {
-          title: channel.name,
+          title: displayTitle(channel.name),
         });
         set({ activeChannel: null });
       } else {
@@ -556,7 +554,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       if (get().settings.preferred_player === 'mpv') {
         await playbackApi.openExternalWindow(channel.stream_url, {
-          title: channel.name,
+          title: displayTitle(channel.name),
         });
         set({ activeChannel: null });
       } else {
@@ -701,6 +699,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ error: String(err) });
     }
   },
+
+  manageSources: () => set({ hasPersistedSourceSelection: false, managingSources: true }),
 
   logout: () => {
     writeLastSelectedSourceId(null);

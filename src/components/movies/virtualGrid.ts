@@ -1,4 +1,4 @@
-const GRID_GAP_PX = 16;
+const GRID_GAP_PX = 20;
 
 /** Posters stay at least this wide; the grid adds columns as space allows. */
 const MIN_CARD_WIDTH_PX = 160;
@@ -20,6 +20,6 @@ export function estimateMovieCardRowHeight(
     (Math.max(width, 0) - GRID_GAP_PX * (safeColumns - 1)) / safeColumns
   );
   const posterHeight = cardWidth * 1.5;
-  const metadataHeight = 44;
+  const metadataHeight = 52;
   return posterHeight + metadataHeight + GRID_GAP_PX;
 }

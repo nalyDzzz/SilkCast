@@ -108,7 +108,7 @@ export function VirtualizedMovieGrid<TItem>({
               }}
             >
               <section
-                className="grid gap-4 pb-4"
+                className="grid gap-5 pb-5"
                 style={{
                   gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                 }}

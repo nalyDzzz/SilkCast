@@ -28,6 +28,7 @@ import {
 import type { StreamSource } from '@/lib/player/streamController';
 import { buildPlaybackUrl, planStream } from '@/lib/player/streamSource';
 import { cn } from '@/lib/utils';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 const SEEK_STEP_SECONDS = 10;
 const VOLUME_STEP = 0.05;
@@ -157,7 +158,7 @@ export function PlayerScreen({
     }
     setQueueOpen(false);
     onSelectItem(item);
-    showNotice(item.name);
+    showNotice(displayTitle(item.name));
   };
 
   const togglePlay = () => {

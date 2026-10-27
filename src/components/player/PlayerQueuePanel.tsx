@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { displayTitle } from '@/lib/catalog/cleanName';
 
 const ROW_HEIGHT_PX = 52;
 
@@ -83,9 +84,9 @@ function QueueList({
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{item.name}</span>
+                <span className="block truncate font-medium">{displayTitle(item.name)}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {item.group_name}
+                  {displayTitle(item.group_name)}
                 </span>
               </span>
               {isActive ? (
@@ -113,7 +114,11 @@ export function PlayerQueuePanel({
     if (!normalized) {
       return items;
     }
-    return items.filter((item) => item.name.toLowerCase().includes(normalized));
+    return items.filter(
+      (item) =>
+        item.name.toLowerCase().includes(normalized) ||
+        displayTitle(item.name).toLowerCase().includes(normalized)
+    );
   }, [items, query]);
 
   return (

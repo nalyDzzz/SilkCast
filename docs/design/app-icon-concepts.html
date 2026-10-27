@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SilkCast · App icon concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@1,6..96,500;1,6..96,600&family=Big+Shoulders+Display:wght@800&display=swap" rel="stylesheet">
+<style>
+.doc{font-family:var(--font-sans,system-ui,sans-serif);color:var(--foreground,#e8e8e8);font-size:14px;line-height:1.55}
+.doc *{box-sizing:border-box}
+.eyebrow,.doc h2{font:600 11px/1.2 var(--font-mono,ui-monospace,monospace);letter-spacing:.14em;text-transform:uppercase;color:var(--muted-foreground,#9a9a9a)}
+.doc h1{font:italic 500 40px/1.05 'Bodoni Moda',Georgia,serif;letter-spacing:-.01em;margin:10px 0 8px}
+.lede{color:var(--muted-foreground,#9a9a9a);max-width:66ch;margin:0;font-size:15px}
+.doc h2{margin:40px 0 14px}
+.muted{color:var(--muted-foreground,#9a9a9a)}
+.concepts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:28px 20px;margin-top:26px}
+.concept svg.hero{display:block;width:100%;max-width:168px;aspect-ratio:1;filter:drop-shadow(0 18px 28px #0007)}
+.concept .name{display:flex;align-items:center;gap:8px;margin:16px 0 4px;font-weight:600;font-size:15px}
+.concept p{margin:0;color:var(--muted-foreground,#9a9a9a);font-size:13.5px}
+.tag{font:600 10.5px/1 var(--font-sans,system-ui);letter-spacing:.04em;padding:4px 7px;border-radius:999px;color:#fff;background:#C23A73}
+.ramp{display:grid;gap:10px}
+.ramp-row{display:grid;grid-template-columns:96px 1fr 1fr;gap:10px;align-items:stretch}
+.ramp-row>.lbl{align-self:center;font-weight:600;font-size:13px}
+.chip{border-radius:var(--radius,10px);padding:16px;display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.chip.dark{background:#202020;color:#cfcfcf}
+.chip.light{background:#F3F3F3;color:#555;border:1px solid #0000000f}
+.chip figure{margin:0;display:grid;justify-items:center;gap:6px}
+.chip figure span{font:10.5px/1 var(--font-mono,ui-monospace,monospace);opacity:.7}
+.chip svg,.chip img{display:block}
+.ctx{display:grid;grid-template-columns:96px repeat(4,minmax(0,1fr));gap:10px;align-items:stretch}
+.ctx .head{font-size:12px;color:var(--muted-foreground,#9a9a9a);align-self:end}
+.ctx .lbl{align-self:center;font-weight:600;font-size:13px}
+.cell{border-radius:var(--radius,10px);padding:16px;display:flex;align-items:center;min-width:0;overflow:hidden}
+.taskbar{gap:6px;justify-content:center}
+.taskbar.dark{background:#1F1F1F}
+.taskbar.light{background:#EEEEEE;border:1px solid #0000000f}
+.tb-slot{position:relative;width:34px;height:34px;display:grid;place-items:center;border-radius:5px;flex:none}
+.tb-slot.on.dark{background:#ffffff14}.tb-slot.on.light{background:#0000000d}
+.tb-slot.on::after{content:"";position:absolute;bottom:1px;left:50%;width:14px;height:3px;margin-left:-7px;border-radius:2px;background:#4CC2FF}
+.tb-slot.light.on::after{background:#005FB8}
+.ph{width:22px;height:22px;border-radius:6px}
+.dark .ph{background:#4a4a4a}.light .ph{background:#c4c4c4}
+.titlebar{background:#202020;color:#e6e6e6;gap:8px;font:12px/1 'Segoe UI',system-ui,sans-serif;padding:0 0 0 12px;height:auto;align-items:stretch}
+.titlebar .t{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:16px 0}
+.titlebar .caps{display:flex;align-items:stretch;color:#cfcfcf;font-size:11px;letter-spacing:.02em}
+.titlebar .caps i{font-style:normal;width:24px;display:grid;place-items:center}
+.cell svg,.cell img{flex:none}
+.appbar{background:#0E0A0F;gap:10px}
+.appbar .wm{font:italic 600 21px/1 'Bodoni Moda',Georgia,serif;color:#F3EAE2;letter-spacing:-.01em;white-space:nowrap}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:8px 28px}
+.notes ul{margin:0;padding-left:18px}.notes li{margin:0 0 6px}
+.notes li::marker{color:var(--muted-foreground,#9a9a9a)}
+@media (max-width:620px){
+.ramp-row{grid-template-columns:1fr}
+.ctx{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ctx .head{display:none}
+.ctx .lbl{grid-column:1/-1;margin-top:8px}
+}
+</style></head>
+<body>
+<!-- Icon artwork: one master drawing per concept (1024 grid) plus a simplified small-size drawing for 16–32 px. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<defs>
+<linearGradient id="g-plum" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2D1733"/><stop offset="1" stop-color="#0E0A0F"/></linearGradient>
+<radialGradient id="g-glow" cx=".26" cy=".1" r=".95"><stop offset="0" stop-color="#D2447F" stop-opacity=".34"/><stop offset=".55" stop-color="#D2447F" stop-opacity="0"/></radialGradient>
+<linearGradient id="g-satin" x1="0" y1="0" x2="1" y2="1"><stop offset=".3" stop-color="#fff" stop-opacity="0"/><stop offset=".47" stop-color="#fff" stop-opacity=".07"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<linearGradient id="g-thread" gradientUnits="userSpaceOnUse" x1="700" y1="200" x2="320" y2="820"><stop offset="0" stop-color="#F7B0CD"/><stop offset=".42" stop-color="#E4558F"/><stop offset="1" stop-color="#B42F69"/></linearGradient>
+<linearGradient id="g-tail" gradientUnits="userSpaceOnUse" x1="704" y1="312" x2="872" y2="168"><stop offset="0" stop-color="#F7B0CD"/><stop offset="1" stop-color="#F7B0CD" stop-opacity="0"/></linearGradient>
+<radialGradient id="g-bead" cx=".38" cy=".32" r=".72"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#FCEEDC"/><stop offset="1" stop-color="#E9CBA0"/></radialGradient>
+<radialGradient id="g-beadglow"><stop offset="0" stop-color="#FF86B5" stop-opacity=".8"/><stop offset=".35" stop-color="#D2447F" stop-opacity=".38"/><stop offset="1" stop-color="#D2447F" stop-opacity="0"/></radialGradient>
+<!-- Thread: an italic S drawn as one continuous thread -->
+<path id="p-s" d="M704 312 C668 244 596 212 512 212 C404 212 324 270 324 362 C324 468 430 492 512 512 C598 532 700 560 700 662 C700 756 616 812 512 812 C430 812 356 780 318 712"/>
+<mask id="m-s" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><use href="#p-s" fill="none" stroke="#fff" stroke-width="94" stroke-linecap="round"/></mask>
+<symbol id="tile" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" rx="236" fill="url(#g-plum)"/>
+<rect width="1024" height="1024" rx="236" fill="url(#g-glow)"/>
+<rect width="1024" height="1024" rx="236" fill="url(#g-satin)"/>
+<rect x="6" y="6" width="1012" height="1012" rx="230" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width="12"/>
+</symbol>
+<symbol id="tile-s" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" rx="220" fill="url(#g-plum)"/>
+<rect width="1024" height="1024" rx="220" fill="url(#g-glow)"/>
+</symbol>
+<symbol id="c1" viewBox="0 0 1024 1024">
+<use href="#tile"/>
+<g transform="translate(80 0) skewX(-9)">
+<path d="M704 312 C736 262 784 214 872 168" fill="none" stroke="url(#g-tail)" stroke-width="12" stroke-linecap="round"/>
+<use href="#p-s" fill="none" stroke="url(#g-thread)" stroke-width="94" stroke-linecap="round"/>
+<g mask="url(#m-s)"><use href="#p-s" transform="translate(-20 -16)" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="20" stroke-linecap="round"/></g>
+<circle cx="318" cy="712" r="132" fill="url(#g-beadglow)" opacity=".85"/>
+<circle cx="318" cy="712" r="62" fill="url(#g-bead)"/>
+</g>
+</symbol>
+<symbol id="c1s" viewBox="0 0 1024 1024">
+<use href="#tile-s"/>
+<g transform="translate(512 512) scale(1.1) translate(-512 -512) translate(80 0) skewX(-9)">
+<use href="#p-s" fill="none" stroke="#E4558F" stroke-width="150" stroke-linecap="round"/>
+<circle cx="318" cy="712" r="96" fill="#FCEEDC"/>
+</g>
+</symbol>
+<!-- Cocoon: a play mark wound from thread around a glowing core -->
+<symbol id="c2" viewBox="0 0 1024 1024">
+<use href="#tile"/>
+<g transform="translate(22 0)" fill="none" stroke-linejoin="round" stroke-linecap="round">
+<polygon points="372,282 372,742 770,512" stroke="url(#g-thread)" stroke-width="34" stroke-opacity=".55"/>
+<polygon points="417.2,360 417.2,664 680,512" stroke="url(#g-thread)" stroke-width="34" stroke-opacity=".85"/>
+<circle cx="512" cy="512" r="170" fill="url(#g-beadglow)" stroke="none"/>
+<polygon points="463,428 463,596 607,512" fill="url(#g-bead)" stroke="#FCEEDC" stroke-width="30"/>
+</g>
+</symbol>
+<symbol id="c2s" viewBox="0 0 1024 1024">
+<use href="#tile-s"/>
+<g transform="translate(30 0)" fill="none" stroke-linejoin="round">
+<polygon points="352,248 352,776 806,512" stroke="#E4558F" stroke-width="76"/>
+<polygon points="455,425 455,599 606,512" fill="#FCEEDC" stroke="#FCEEDC" stroke-width="56"/>
+</g>
+</symbol>
+<!-- On Air: a broadcast-style channel bug, signage S with an on-air tally light -->
+<symbol id="c3" viewBox="0 0 1024 1024">
+<use href="#tile"/>
+<text x="476" y="790" text-anchor="middle" font-family="'Big Shoulders Display', Impact, sans-serif" font-weight="800" font-size="780" fill="#F3EAE2" letter-spacing="-10">S</text>
+<circle cx="772" cy="262" r="150" fill="url(#g-beadglow)"/>
+<circle cx="772" cy="262" r="62" fill="#E4558F"/>
+<circle cx="752" cy="244" r="20" fill="#fff" fill-opacity=".55"/>
+</symbol>
+<symbol id="c3s" viewBox="0 0 1024 1024">
+<use href="#tile-s"/>
+<text x="460" y="830" text-anchor="middle" font-family="'Big Shoulders Display', Impact, sans-serif" font-weight="800" font-size="860" fill="#F3EAE2">S</text>
+<circle cx="790" cy="246" r="104" fill="#E4558F"/>
+</symbol>
+</defs>
+</svg>
+<main class="doc">
+<div class="eyebrow">SilkCast · App icon · Mulberry + On Air</div>
+<h1>Three icon concepts</h1>
+<p class="lede">Each one uses the Mulberry palette and is drawn twice: a detailed master for 48 px and up, and a simplified drawing for 16–32 px. That's where the taskbar, title bar and tray actually show it.</p>
+<section class="concepts">
+<article class="concept">
+<svg class="hero" viewBox="0 0 1024 1024" role="img" aria-label="Thread concept"><use href="#c1"/></svg>
+<div class="name">1 · Thread <span class="tag">Recommended</span></div>
+<p>A silk thread pulled from a hairline into an italic S. It ends in the glowing bead the app uses on every progress bar, so the icon and the UI share one signature. It's a direct descendant of today's ribbon.</p>
+</article>
+<article class="concept">
+<svg class="hero" viewBox="0 0 1024 1024" role="img" aria-label="Cocoon concept"><use href="#c2"/></svg>
+<div class="name">2 · Cocoon</div>
+<p>A play mark wound from thread around a lit core, like a silk cocoon. The rings also read as a signal going out. It's the most obviously a video app, and it's the closest to every other player's icon.</p>
+</article>
+<article class="concept">
+<svg class="hero" viewBox="0 0 1024 1024" role="img" aria-label="On Air concept"><use href="#c3"/></svg>
+<div class="name">3 · On Air</div>
+<p>A channel bug: a broadcast-signage S with an on-air tally light, taken from the B wordmark. It's the most legible at 16 px and the most TV, but it has the least silk in it.</p>
+</article>
+</section>
+<h2>Small sizes, actual pixels</h2>
+<div class="ramp" id="ramp"></div>
+<h2>Where Windows and the app show it</h2>
+<div class="ctx" id="ctx"></div>
+<h2>If we go ahead</h2>
+<div class="notes">
+<ul>
+<li>The master becomes an SVG in the repo, exported to a 1024 px PNG. Then <code>npx tauri icon</code> generates the <code>.ico</code>, <code>.icns</code> and Store PNGs in <code>src-tauri/icons</code>.</li>
+<li>The hand-simplified 16/24/32 px drawings get packed into <code>icon.ico</code> next to the generated sizes. <code>tauri icon</code> would otherwise just shrink the master, and the bead and highlight would turn to mush.</li>
+</ul>
+<ul>
+<li>The same mark becomes the in-app wordmark (icon + Bodoni italic "SilkCast"), the favicon, and the tray icon.</li>
+<li>It's a full-bleed rounded tile, so it holds up on any wallpaper or taskbar. Today's grey ribbon all but disappears on a light taskbar.</li>
+</ul>
+</div>
+</main>
+<script>
+const TODAY_BIG = '../../src-tauri/icons/128x128@2x.png';
+const TODAY_SMALL = '../../src-tauri/icons/32x32.png';
+const rows = [
+{ label: 'Today', today: true },
+{ label: 'Thread', id: 'c1' },
+{ label: 'Cocoon', id: 'c2' },
+{ label: 'On Air', id: 'c3' },
+];
+const icon = (r, px) => r.today
+? `<img src="${px <= 32 ? TODAY_SMALL : TODAY_BIG}" width="${px}" height="${px}" alt="">`
+: `<svg width="${px}" height="${px}" viewBox="0 0 1024 1024" aria-hidden="true"><use href="#${px <= 32 ? r.id + 's' : r.id}"/></svg>`;
+const sizes = [16, 24, 32, 48, 64];
+document.getElementById('ramp').innerHTML = rows.map((r) => {
+const figs = sizes.map((s) => `<figure>${icon(r, s)}<span>${s}</span></figure>`).join('');
+return `<div class="ramp-row"><div class="lbl">${r.label}</div><div class="chip dark">${figs}</div><div class="chip light">${figs}</div></div>`;
+}).join('');
+const taskbar = (r, mode) => `<div class="cell taskbar ${mode}">
+<div class="tb-slot ${mode}"><i class="ph"></i></div><div class="tb-slot ${mode}"><i class="ph"></i></div>
+<div class="tb-slot on ${mode}">${icon(r, 24)}</div><div class="tb-slot ${mode}"><i class="ph"></i></div></div>`;
+const titlebar = (r) => `<div class="cell titlebar"><div class="t">${icon(r, 16)}<span>SilkCast</span></div><div class="caps"><i>—</i><i>✕</i></div></div>`;
+const appbar = (r) => `<div class="cell appbar">${icon(r, 28)}<span class="wm">SilkCast</span></div>`;
+document.getElementById('ctx').innerHTML =
+`<div></div><div class="head">Taskbar, dark · 24 px</div><div class="head">Taskbar, light · 24 px</div><div class="head">Title bar · 16 px</div><div class="head">App top bar · 28 px</div>` +
+rows.map((r) => `<div class="lbl">${r.label}</div>${taskbar(r, 'dark')}${taskbar(r, 'light')}${titlebar(r)}${appbar(r)}`).join('');
+</script>
+</body></html>

@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/store/appStore';
+import { PageHeader } from '@/components/layouts/PageHeader';
+import { Wordmark } from '@/components/brand/BrandMark';
 
 type ImportSourceType = 'm3u' | 'xtream';
 
@@ -78,6 +80,7 @@ export function HomePage() {
     sources,
     selectedSourceId,
     hasPersistedSourceSelection,
+    managingSources,
     m3uName,
     m3uLocation,
     setError,
@@ -98,6 +101,7 @@ export function HomePage() {
       sources: state.sources,
       selectedSourceId: state.selectedSourceId,
       hasPersistedSourceSelection: state.hasPersistedSourceSelection,
+      managingSources: state.managingSources,
       m3uName: state.m3uName,
       m3uLocation: state.m3uLocation,
       setError: state.setError,
@@ -130,6 +134,7 @@ export function HomePage() {
 
   useEffect(() => {
     const hasValidRememberedSource =
+      !managingSources &&
       hasPersistedSourceSelection &&
       selectedSourceId !== null &&
       sources.some((source) => source.id === selectedSourceId);
@@ -137,7 +142,7 @@ export function HomePage() {
     if (hasValidRememberedSource) {
       navigate('/dashboard');
     }
-  }, [hasPersistedSourceSelection, navigate, selectedSourceId, sources]);
+  }, [hasPersistedSourceSelection, managingSources, navigate, selectedSourceId, sources]);
 
   useEffect(() => {
     if (
@@ -279,12 +284,12 @@ export function HomePage() {
   return (
     <main className="min-h-screen p-4 md:p-8">
       <section className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-        <header className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">SilkCast</h1>
-          <p className="text-muted-foreground">
-            Import an M3U playlist or connect an Xtream provider, then open the
-            dashboard with the source you want to watch.
-          </p>
+        <header className="space-y-5">
+          <Wordmark className="[&>span:last-child]:text-[26px]" />
+          <PageHeader
+            title="Sources"
+            description="Connect an Xtream provider or import an M3U playlist, then pick the source you want to watch."
+          />
         </header>
 
         <Card>

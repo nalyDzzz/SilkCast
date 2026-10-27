@@ -45,6 +45,9 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
   },
 });
 
+// jsdom has no layout; cmdk scrolls the active item into view.
+Element.prototype.scrollIntoView = vi.fn();
+
 // Polyfill ResizeObserver for jsdom
 (globalThis as any).ResizeObserver = class ResizeObserver {
   observe() {}

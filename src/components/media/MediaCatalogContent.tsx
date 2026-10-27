@@ -2,7 +2,6 @@ import {
   ChannelRecord,
   SeriesEpisodeRecord,
 } from '@/components/app/types';
-import { VirtualizedLiveChannelList } from '@/components/live/VirtualizedLiveChannelList';
 import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
 import {
   readScrollOffset,
@@ -11,12 +10,13 @@ import {
 import { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
 import { MovieCard } from '@/components/movies/MovieCard';
 import { VirtualizedMovieGrid } from '@/components/movies/VirtualizedMovieGrid';
+import { resumeKeyFor } from '@/components/player/hooks/useResumeTracking';
+import { getResumeEntries } from '@/lib/player/playerStorage';
+import { useMemo } from 'react';
 
 type MediaCatalogContentProps = {
   mediaKind: MediaCatalogKind;
   items: ChannelRecord[];
-  liveNowByChannelId: Record<number, string>;
-  activeItemId: number | null;
   playingItemId: number | null;
   lastPlayedItemId: number | null;
   brokenPosterIds: Record<number, true>;
@@ -40,8 +40,6 @@ type MediaCatalogContentProps = {
 export function MediaCatalogContent({
   mediaKind,
   items,
-  liveNowByChannelId,
-  activeItemId,
   playingItemId,
   lastPlayedItemId,
   brokenPosterIds,
@@ -60,23 +58,8 @@ export function MediaCatalogContent({
   onBackToSeriesCatalog,
   onPosterError,
 }: MediaCatalogContentProps) {
-  if (mediaKind === 'live') {
-    return (
-      <div className="h-full min-h-0 overflow-hidden rounded-xl border bg-card/80 p-2 backdrop-blur">
-        <VirtualizedLiveChannelList
-          key={scrollKey}
-          initialScrollOffset={readScrollOffset(scrollKey)}
-          onScrollOffsetChange={(offset) => writeScrollOffset(scrollKey, offset)}
-          channels={items}
-          epgNowByChannelId={liveNowByChannelId}
-          activeChannelId={activeItemId}
-          playingChannelId={playingItemId}
-          onPlay={(nextItem) => void onPlayItem(nextItem)}
-          onToggleFavorite={(nextItem) => void onToggleFavorite(nextItem)}
-        />
-      </div>
-    );
-  }
+  // Read once per list; positions are saved while the player is open.
+  const resumeEntries = useMemo(() => getResumeEntries(), [items]);
 
   if (isViewingSeriesEpisodes && selectedSeriesItem) {
     return (
@@ -94,6 +77,11 @@ export function MediaCatalogContent({
     );
   }
 
+  const resumeProgress = (item: ChannelRecord) => {
+    const entry = resumeEntries[resumeKeyFor(item)];
+    return entry && entry.duration > 0 ? Math.min(entry.position / entry.duration, 1) : null;
+  };
+
   return (
     <VirtualizedMovieGrid
       key={scrollKey}
@@ -107,6 +95,7 @@ export function MediaCatalogContent({
           isPlaying={playingItemId === item.id}
           isLastPlayed={lastPlayedItemId === item.id}
           isPosterBroken={Boolean(brokenPosterIds[item.id])}
+          progress={mediaKind === 'movie' ? resumeProgress(item) : null}
           onPlay={(nextItem) =>
             mediaKind === 'series'
               ? void onOpenSeries(nextItem)

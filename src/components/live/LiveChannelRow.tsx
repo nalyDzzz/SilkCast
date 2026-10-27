@@ -1,98 +1,80 @@
 import { memo } from 'react';
-import { Heart, Play, Tv } from 'lucide-react';
-import { ChannelRecord } from '@/components/app/types';
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
-} from '@/components/ui/item';
-import { Button } from '@/components/ui/button';
+import { Heart, Tv } from 'lucide-react';
+import type { ChannelRecord } from '@/components/app/types';
+import { ThreadProgress } from '@/components/brand/ThreadProgress';
+import { TagBadges } from '@/components/catalog/TagBadges';
+import { cleanName } from '@/lib/catalog/cleanName';
+import { type EpgProgramme, formatTimeLeft, programmeProgress } from '@/lib/epg/schedule';
+import { cn } from '@/lib/utils';
 
 type LiveChannelRowProps = {
   channel: ChannelRecord;
-  epgNowTitle?: string | null;
-  isActive: boolean;
-  isPlaying: boolean;
-  onPlay: (channel: ChannelRecord) => void;
-  onToggleFavorite: (channel: ChannelRecord) => void;
+  programme: EpgProgramme | null;
+  nowSeconds: number;
+  selected: boolean;
+  playing: boolean;
+  onSelect: (channel: ChannelRecord) => void;
+  onWatch: (channel: ChannelRecord) => void;
 };
 
 export const LiveChannelRow = memo(function LiveChannelRow({
   channel,
-  epgNowTitle,
-  isActive,
-  isPlaying,
-  onPlay,
-  onToggleFavorite,
+  programme,
+  nowSeconds,
+  selected,
+  playing,
+  onSelect,
+  onWatch,
 }: LiveChannelRowProps) {
-  const favoriteLabel = channel.is_favorite
-    ? `Remove ${channel.name} from favorites`
-    : `Add ${channel.name} to favorites`;
+  const { title, tags } = cleanName(channel.name);
 
   return (
-    <Item
-      variant={isActive ? 'outline-selected' : 'outline'}
-      className="gap-3 rounded-lg bg-card/85 px-3 py-2 transition-colors hover:bg-accent/60 sm:flex-nowrap"
+    <div
+      id={`live-channel-${channel.id}`}
+      role="option"
+      aria-selected={selected}
+      aria-label={title}
+      onClick={() => onSelect(channel)}
+      onDoubleClick={() => onWatch(channel)}
+      className={cn(
+        'relative flex h-[72px] cursor-pointer items-center gap-3 rounded-xl border px-3 transition-colors',
+        selected
+          ? 'border-thread/35 bg-primary/12 before:absolute before:inset-y-3 before:-left-px before:w-[3px] before:rounded-full before:bg-thread'
+          : 'border-transparent hover:bg-foreground/[0.04]'
+      )}
     >
-      <ItemMedia
-        variant={channel.logo ? 'image' : 'icon'}
-        className={
-          channel.logo
-            ? 'size-11 rounded-md border bg-muted/30 [&_img]:object-contain'
-            : 'size-11 rounded-md border bg-muted/40 text-muted-foreground'
-        }
-      >
+      <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-foreground/[0.06]">
         {channel.logo ? (
-          <img src={channel.logo} alt="" loading="lazy" />
+          <img src={channel.logo} alt="" loading="lazy" className="size-full object-contain p-0.5" />
         ) : (
-          <Tv size={16} aria-hidden="true" />
+          <Tv className="size-4 text-muted-foreground" />
         )}
-      </ItemMedia>
-
-      <ItemContent
-        className="min-w-0 cursor-pointer"
-        onClick={() => onPlay(channel)}
-      >
-        <ItemTitle className="w-full min-w-0">
-          <span className="truncate">{channel.name}</span>
-        </ItemTitle>
-        <ItemDescription className="truncate">
-          {epgNowTitle ? (
-            <span className="text-emerald-600 dark:text-emerald-400">
-              Now: {epgNowTitle}
-            </span>
-          ) : (
-            channel.group_name || 'Ungrouped'
-          )}
-        </ItemDescription>
-      </ItemContent>
-
-      <ItemActions className="ml-auto">
-        <Button
-          type="button"
-          size="sm"
-          variant={isActive ? 'secondary' : 'outline'}
-          disabled={isPlaying}
-          onClick={() => onPlay(channel)}
-        >
-          <Play size={14} />
-          {isPlaying ? 'Opening...' : isActive ? 'Playing' : 'Play'}
-        </Button>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          className="group hover:text-red-500"
-          data-is-favorite={channel.is_favorite}
-          aria-label={favoriteLabel}
-          onClick={() => onToggleFavorite(channel)}
-        >
-          <Heart className="group-data-[is-favorite=true]:fill-red-500 group-data-[is-favorite=true]:text-red-500" />
-        </Button>
-      </ItemActions>
-    </Item>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-semibold">{title}</span>
+          <TagBadges tags={tags} max={2} />
+          {channel.is_favorite ? (
+            <Heart className="size-3 shrink-0 fill-thread text-thread" aria-label="Favorite" />
+          ) : null}
+        </span>
+        <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+          {playing ? (
+            <span className="shrink-0 text-[10px] font-bold tracking-wider text-thread">PLAYING</span>
+          ) : programme ? (
+            <span className="size-1.5 shrink-0 rounded-full bg-live" aria-hidden="true" />
+          ) : null}
+          <span className="truncate">{programme ? programme.title : cleanName(channel.group_name).title}</span>
+        </span>
+        {programme ? (
+          <ThreadProgress value={programmeProgress(programme, nowSeconds)} bead={false} className="mt-1.5 max-w-60" />
+        ) : null}
+      </span>
+      {programme ? (
+        <span className="shrink-0 self-start pt-3.5 text-xs text-muted-foreground tabular-nums">
+          {formatTimeLeft(programme.end, nowSeconds).replace(' left', '')}
+        </span>
+      ) : null}
+    </div>
   );
 });

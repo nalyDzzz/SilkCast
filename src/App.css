@@ -1,56 +1,104 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@import '@fontsource-variable/onest';
+@import '@fontsource-variable/bodoni-moda/opsz-italic.css';
 
 @custom-variant dark (&:is(.dark *));
+
+/*
+ * SilkCast "Mulberry" design tokens. See docs/design/README.md.
+ * Dark is the primary theme; light keeps the same accent on warm white.
+ * Extra brand tokens:
+ *   --thread  progress thread and the bead's glow
+ *   --sheen   champagne highlight for ratings and "New" labels, used sparingly
+ *   --live    on-air markers and the guide's NOW line
+ */
 :root {
-  font-family: 'Bahnschrift', 'Aptos', 'Segoe UI', sans-serif;
   font-size: 16px;
   line-height: 1.45;
   font-weight: 400;
-  color: #122033;
-  background: radial-gradient(circle at 5% -10%, #ffd8ab 0%, transparent 40%),
-    radial-gradient(circle at 100% 0%, #b8f2e6 0%, transparent 45%),
-    linear-gradient(140deg, #f5f8fc 0%, #eef3f8 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.75rem;
+  --background: #faf6f7;
+  --foreground: #1d1320;
+  --card: #ffffff;
+  --card-foreground: #1d1320;
+  --popover: #ffffff;
+  --popover-foreground: #1d1320;
+  --primary: #c23a73;
+  --primary-foreground: #fff6f9;
+  --secondary: #f1e8ec;
+  --secondary-foreground: #1d1320;
+  --muted: #f3ecef;
+  --muted-foreground: #6e5a66;
+  --accent: #f4e4eb;
+  --accent-foreground: #5c1736;
+  --destructive: #d63b3b;
+  --border: #e7dce1;
+  --input: #dfd2d8;
+  --ring: #c23a73;
+  --thread: #c23a73;
+  --sheen: #a8742c;
+  --live: #c23a73;
+  --chart-1: #c23a73;
+  --chart-2: #2f7d8c;
+  --chart-3: #a8742c;
+  --chart-4: #6b4fa3;
+  --chart-5: #3f8a5c;
+  --sidebar: #f6eff2;
+  --sidebar-foreground: #1d1320;
+  --sidebar-primary: #c23a73;
+  --sidebar-primary-foreground: #fff6f9;
+  --sidebar-accent: #f1e5ea;
+  --sidebar-accent-foreground: #1d1320;
+  --sidebar-border: #e7dce1;
+  --sidebar-ring: #c23a73;
+}
+
+.dark {
+  --background: #0e0a0f;
+  --foreground: #f3eae2;
+  --card: #181119;
+  --card-foreground: #f3eae2;
+  --popover: #1f1621;
+  --popover-foreground: #f3eae2;
+  --primary: #d2447f;
+  --primary-foreground: #fff6f9;
+  --secondary: #261b28;
+  --secondary-foreground: #f3eae2;
+  --muted: #211723;
+  --muted-foreground: #a9969f;
+  --accent: #2c1f2e;
+  --accent-foreground: #f8eff3;
+  --destructive: #f0605a;
+  --border: #f3eae217;
+  --input: #f3eae21f;
+  --ring: #e46f9c;
+  --thread: #e46f9c;
+  --sheen: #e9cba0;
+  --live: #e4558f;
+  --chart-1: #e46f9c;
+  --chart-2: #5cc1d0;
+  --chart-3: #e9cba0;
+  --chart-4: #a58bea;
+  --chart-5: #7cc98f;
+  --sidebar: #120c13;
+  --sidebar-foreground: #f3eae2;
+  --sidebar-primary: #d2447f;
+  --sidebar-primary-foreground: #fff6f9;
+  --sidebar-accent: #2c1f2e;
+  --sidebar-accent-foreground: #f8eff3;
+  --sidebar-border: #f3eae217;
+  --sidebar-ring: #e46f9c;
 }
 
 @theme inline {
+  --font-sans: 'Onest Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Bodoni Moda Variable', Georgia, 'Times New Roman', serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -76,6 +124,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-thread: var(--thread);
+  --color-sheen: var(--sheen);
+  --color-live: var(--live);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -91,46 +142,50 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
 
+  html {
+    @apply bg-background font-sans;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     @apply m-0 bg-background text-foreground;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+}
+
+@utility font-display-italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes thread-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklab, var(--thread) 28%, transparent),
+      0 0 10px var(--thread);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in oklab, var(--thread) 14%, transparent),
+      0 0 16px var(--thread);
   }
 }

@@ -14,13 +14,16 @@ Core source import, catalog browsing, playback, recents, and settings are implem
 
 - Import and manage M3U playlist sources (URL or local file)
 - Import and manage Xtream sources (server URL, username, password)
-- Edit, refresh, and delete sources
-- Home dashboard with catalog totals, continue watching, recent and favorite channels
-- Browse `Live TV`, `Movies`, and `Series` with a group column, search, and favorites
-- Browsing state (filters, open series, scroll position) survives opening the player
-- Series episode browsing by season for Xtream sources, with per-episode progress
-- Live EPG now/next for Xtream live channels, in the catalog and in the player
-- Recents view split by media type
+- Edit, refresh, and delete sources; switch sources and refresh the source or its guide from the top-bar source menu
+- Clean titles everywhere: provider noise like `UK| ARC SPORTS 1 FHD ⁶⁰ᶠᵖˢ` or `4K-A+ - Title (2024)` shows as a clean name, year, and country/quality tags, and divider rows like `##### SPORTS #####` are hidden
+- Ctrl K command palette: search channels, movies, series, and groups across the catalog, and run actions like Refresh guide
+- Home: resume what you were watching, see what's on now on favorite and recent channels, and jump into the library
+- Live TV with two views:
+  - **Channels**: pick a channel to see its current programme, time left, and Now / Next / Later (arrow keys move, Enter watches)
+  - **Guide**: a three-hour timeline per channel, cut by a NOW line
+- Movies and Series poster grids with a searchable group picker, favorites, and resume progress
+- Series details with seasons, numbered episodes, and per-episode progress
+- Watch history by media type
 - In-app player for HLS, raw MPEG-TS, MP4, MKV, and WebM streams:
   - channel zapping (buttons, Page Up/Down, or the channel panel) without leaving the player
   - automatic reconnect when a live stream drops, plus a stall watchdog
@@ -28,13 +31,14 @@ Core source import, catalog browsing, playback, recents, and settings are implem
   - audio track, quality, and speed menus; keyboard shortcuts (press `?` in the player)
   - clear error messages (expired account, connection limits, unsupported formats) with one-click hand-off to MPV
 - MPV pop-out playback (keeps the current position and title; honors the hardware decode setting)
-- Built-in guide (`Guide` in the sidebar) covering setup, playback, shortcuts, and troubleshooting
-- Settings for default player, startup behavior, MPV hardware decode, and theme
+- Built-in help (`?` in the top bar) covering setup, playback, shortcuts, and troubleshooting
+- Settings for default player, startup behavior, MPV hardware decode, and theme (dark by default, light available)
 - Local persistence with SQLite, plus logs and crash reports
 
 ## Tech Stack
 
 - Frontend: React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui, Zustand
+- Design: the Mulberry theme (tokens in `src/App.css`, direction in `docs/design/`), Onest and Bodoni Moda (self-hosted via Fontsource)
 - Desktop runtime: Tauri v2
 - Backend: Rust
 - Storage: SQLite (`rusqlite` bundled)
@@ -109,6 +113,7 @@ For full desktop behavior, use `npm run tauri dev` instead of only `npm run dev`
 - `npm run tauri dev` - Run the full desktop app in development
 - `npm run build` - Build frontend assets
 - `npm run tauri build` - Build desktop bundles
+- `npm run build:icons` - Regenerate every app icon from `src-tauri/icons/source/*.svg`
 - `npm run prepare:mpv-runtime` - Validate/copy Windows MPV runtime DLLs into bundle resources
 - `npm run build:windows:exe` - Build NSIS installer (`.exe`)
 - `npm run build:windows:installers` - Build NSIS + MSI installers

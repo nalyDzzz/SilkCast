@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:desktop": "npm run tauri build",
+    "build:icons": "node scripts/build-icons.mjs",
     "prepare:mpv-runtime": "node scripts/prepare-mpv-runtime.mjs",
     "prepare:mpv-runtime:strict": "node scripts/prepare-mpv-runtime.mjs --strict",
     "build:windows:exe": "npm run prepare:mpv-runtime && npm run tauri build -- --bundles nsis",
@@ -22,6 +23,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@fontsource-variable/bodoni-moda": "^5.3.0",
+    "@fontsource-variable/onest": "^5.3.1",
     "@tailwindcss/vite": "^4.2.0",
     "@tanstack/react-virtual": "^3.13.21",
     "@tauri-apps/api": "^2",
@@ -30,10 +33,12 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "cn": "^0.5.0",
     "hls.js": "^1.6.15",
     "lucide-react": "^0.574.0",
     "mpegts.js": "^1.8.2",
-    "radix-ui": "^1.4.3",
+    "radix-ui": "^1.8.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^7.13.0",
@@ -43,6 +48,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

@@ -62,7 +62,7 @@ describe('MoviesPage', () => {
     });
     expect(screen.getByRole('heading', { name: 'Movies' })).toBeInTheDocument();
     await screen.findByText(
-      'No movies matched these filters for the selected source.'
+      'No movies match these filters.'
     );
   });
 
@@ -72,9 +72,9 @@ describe('MoviesPage', () => {
     });
 
     expect(screen.getByPlaceholderText('Search movies')).toBeInTheDocument();
-    expect(screen.getByLabelText('Favorites only')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Favorites' })).toBeInTheDocument();
     await screen.findByText(
-      'No movies matched these filters for the selected source.'
+      'No movies match these filters.'
     );
   });
 
@@ -110,7 +110,7 @@ describe('MoviesPage', () => {
 
     expect(
       await screen.findByText(
-        'No movies matched these filters for the selected source.'
+        'No movies match these filters.'
       )
     ).toBeInTheDocument();
   });

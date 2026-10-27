@@ -106,13 +106,13 @@ describe('HomePage', () => {
 
   it('renders the SilkCast heading', async () => {
     await renderHomePage();
-    expect(screen.getByRole('heading', { name: 'SilkCast' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument();
   });
 
   it('renders the import description text', async () => {
     await renderHomePage();
     expect(
-      screen.getByText(/Import an M3U playlist or connect an Xtream provider/)
+      screen.getByText(/Connect an Xtream provider or import an M3U playlist/)
     ).toBeInTheDocument();
   });
 

@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/item';
 import { useBackendEvents } from '@/hooks/useBackendEvents';
 import { useAppStore } from '@/store/appStore';
+import { displayTitle } from '@/lib/catalog/cleanName';
+import { PageHeader } from '@/components/layouts/PageHeader';
 
 type RecentMediaKind = 'live' | 'movie' | 'series';
 
@@ -129,14 +131,14 @@ export function RecentsPage() {
     <main className="box-border h-full overflow-hidden p-4 md:p-6">
       <section className="flex min-h-0 flex-col gap-4">
         <header className="space-y-3">
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-            Recents
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {selectedSourceId === null
-              ? 'Select a source to view recents.'
-              : `Showing recents for ${selectedSource?.name ?? 'selected source'}.`}
-          </p>
+          <PageHeader
+            title="Watch history"
+            description={
+              selectedSourceId === null
+                ? 'Select a source to see what you watched.'
+                : `What you watched on ${selectedSource?.name ?? 'this source'}, newest first.`
+            }
+          />
           <div className="flex flex-wrap gap-2">
             {(Object.entries(RECENT_MEDIA) as Array<
               [RecentMediaKind, RecentMediaCopy]
@@ -178,9 +180,10 @@ export function RecentsPage() {
                     className="cursor-pointer"
                     onClick={() => void handlePlayRecent(recent)}
                   >
-                    <ItemTitle>{recent.channel.name}</ItemTitle>
+                    <ItemTitle>{displayTitle(recent.channel.name)}</ItemTitle>
                     <ItemDescription>
-                      {formatPlayedAt(recent.played_at)} · {recent.channel.group_name}
+                      {formatPlayedAt(recent.played_at)} ·{' '}
+                      {displayTitle(recent.channel.group_name)}
                     </ItemDescription>
                   </ItemContent>
                 </Item>

@@ -16,6 +16,8 @@ export function useAppBootstrap() {
 
     const bootstrap = async () => {
       await Promise.all([
+        // The top bar's source switcher needs the list on every page.
+        store.loadSources().catch((err) => store.setError(String(err))),
         store.loadSettings().catch((err) => store.setError(String(err))),
         store.loadPlayerEnvironment(),
         store.loadRecents().catch(() => undefined),

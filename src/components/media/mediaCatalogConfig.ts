@@ -35,3 +35,9 @@ export const MEDIA_COPY: Record<MediaCatalogKind, MediaCatalogCopy> = {
     searchPlaceholder: 'Search series',
   },
 };
+
+export const MEDIA_PATH: Record<MediaCatalogKind, string> = {
+  live: '/dashboard/live',
+  movie: '/dashboard/movies',
+  series: '/dashboard/series',
+};
