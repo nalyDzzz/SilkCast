@@ -46,16 +46,16 @@ function SlotCard({
         current ? 'border-thread/35 bg-primary/10' : 'border-border bg-card'
       )}
     >
-      <p className="flex items-baseline justify-between gap-2 text-[11px] font-semibold tracking-[0.12em] uppercase">
-        <span className={current ? 'text-thread' : 'text-muted-foreground'}>{label}</span>
-        {programme ? (
-          <span className={cn('tracking-normal tabular-nums', current ? 'text-thread' : 'text-muted-foreground')}>
-            {formatClockTime(programme.start)} – {formatClockTime(programme.end)}
-          </span>
-        ) : null}
+      <p className={cn('text-[11px] font-semibold tracking-[0.12em] uppercase', current ? 'text-thread' : 'text-muted-foreground')}>
+        {label}
       </p>
-      <p className="mt-1.5 truncate font-semibold">{programme ? programme.title : 'Nothing listed'}</p>
-      {detail ? <p className="mt-1 line-clamp-2 text-[13px] text-muted-foreground">{detail}</p> : null}
+      <p className="mt-1 truncate font-semibold">{programme ? programme.title : 'Nothing listed'}</p>
+      {programme ? (
+        <p className="truncate text-xs text-muted-foreground tabular-nums">
+          {formatClockTime(programme.start)} – {formatClockTime(programme.end)}
+        </p>
+      ) : null}
+      {detail ? <p className="mt-1.5 line-clamp-2 text-[13px] text-muted-foreground">{detail}</p> : null}
     </div>
   );
 }
@@ -99,11 +99,11 @@ export function LivePreview({
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_80%_70%_at_70%_20%,color-mix(in_oklab,var(--primary)_18%,transparent),transparent_70%)]" />
         <div className="absolute inset-0 -z-10 bg-linear-to-t from-black/85 via-black/30 to-transparent" />
 
-        <span className="absolute top-1/2 left-1/2 grid size-[min(34%,180px)] -translate-1/2 place-items-center rounded-3xl bg-white/[0.07] p-6 ring-1 ring-white/10 backdrop-blur-sm">
+        <span className="absolute top-4 right-4 aspect-square w-[min(22%,132px)] rounded-2xl bg-white/[0.07] ring-1 ring-white/10 backdrop-blur-sm">
           {channel.logo ? (
-            <img src={channel.logo} alt="" className="size-full object-contain" />
+            <img src={channel.logo} alt="" className="absolute inset-[14%] size-[72%] object-contain" />
           ) : (
-            <Tv className="size-12 text-white/50" />
+            <Tv className="absolute inset-1/4 size-1/2 text-white/50" />
           )}
         </span>
 
