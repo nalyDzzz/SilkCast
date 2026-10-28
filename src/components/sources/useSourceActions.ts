@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
 import type { BackendEvent, GuideProgress, SourceRecord } from '@/components/app/types';
@@ -16,16 +16,9 @@ export function sourceKindLabel(source: SourceRecord) {
   return source.source_type === 'xtream' ? 'Xtream provider' : 'M3U playlist';
 }
 
-function mediaKindForPath(pathname: string) {
-  if (pathname.startsWith('/dashboard/movies')) return 'movie' as const;
-  if (pathname.startsWith('/dashboard/series')) return 'series' as const;
-  return 'live' as const;
-}
-
 /** Source switching and refresh actions, shared by the top bar and the palette. */
 export function useSourceActions() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { sources, selectedSourceId, setSelectedSourceId, manageSources } = useAppStore(
     useShallow((state) => ({
       sources: state.sources,
@@ -80,7 +73,7 @@ export function useSourceActions() {
     try {
       await useAppStore
         .getState()
-        .refreshSource(selectedSourceId, mediaKindForPath(location.pathname));
+        .refreshSource(selectedSourceId);
       const { error, importMessage } = useAppStore.getState();
       if (error) {
         toast.error("Couldn't refresh the source", { description: error });
@@ -90,7 +83,7 @@ export function useSourceActions() {
     } finally {
       activity.setRefreshingSource(null);
     }
-  }, [isRefreshingSource, location.pathname, selectedSourceId]);
+  }, [isRefreshingSource, selectedSourceId]);
 
   const refreshGuide = useCallback(async () => {
     if (selectedSourceId === null || !supportsGuide || isRefreshingGuide) {

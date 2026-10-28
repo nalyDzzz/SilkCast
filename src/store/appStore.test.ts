@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { useAppStore } from './appStore';
-import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
+import { DEFAULT_SETTINGS } from '../components/app/types';
 
 // Mock all API modules
 vi.mock('../lib/api/channelsApi', () => ({
@@ -82,9 +82,6 @@ function resetStore() {
     sources: [],
     selectedSourceId: null,
     hasPersistedSourceSelection: false,
-    groups: [],
-    selectedGroup: ALL_GROUPS,
-    channels: [],
     recentChannels: [],
     activeChannel: null,
     playback: null,
@@ -92,8 +89,6 @@ function resetStore() {
     theme: 'light',
     m3uName: '',
     m3uLocation: '',
-    searchQuery: '',
-    favoritesOnly: false,
     error: null,
     loading: false,
     importMessage: null,
@@ -112,16 +107,11 @@ describe('appStore', () => {
       const state = useAppStore.getState();
       expect(state.sources).toEqual([]);
       expect(state.selectedSourceId).toBeNull();
-      expect(state.groups).toEqual([]);
-      expect(state.selectedGroup).toBe(ALL_GROUPS);
-      expect(state.channels).toEqual([]);
       expect(state.recentChannels).toEqual([]);
       expect(state.activeChannel).toBeNull();
       expect(state.playback).toBeNull();
       expect(state.settings).toEqual(DEFAULT_SETTINGS);
       expect(state.theme).toBe('light');
-      expect(state.searchQuery).toBe('');
-      expect(state.favoritesOnly).toBe(false);
       expect(state.error).toBeNull();
       expect(state.loading).toBe(false);
       expect(state.importMessage).toBeNull();
@@ -141,21 +131,6 @@ describe('appStore', () => {
       );
     });
 
-    it('setSearchQuery updates searchQuery', () => {
-      useAppStore.getState().setSearchQuery('news');
-      expect(useAppStore.getState().searchQuery).toBe('news');
-    });
-
-    it('setFavoritesOnly updates favoritesOnly', () => {
-      useAppStore.getState().setFavoritesOnly(true);
-      expect(useAppStore.getState().favoritesOnly).toBe(true);
-    });
-
-    it('setSelectedGroup updates selectedGroup', () => {
-      useAppStore.getState().setSelectedGroup('Sports');
-      expect(useAppStore.getState().selectedGroup).toBe('Sports');
-    });
-
     it('setError updates error', () => {
       useAppStore.getState().setError('Something went wrong');
       expect(useAppStore.getState().error).toBe('Something went wrong');
@@ -172,31 +147,8 @@ describe('appStore', () => {
       expect(useAppStore.getState().theme).toBe('dark');
       expect(window.localStorage.getItem('silkcast:theme')).toBe('dark');
     });
-
-    it('clearSourceLists clears groups and channels', () => {
-      useAppStore.setState({
-        groups: [{ name: 'A', channel_count: 5 }],
-        channels: [
-          {
-            id: 1,
-            source_id: 1,
-            name: 'Ch1',
-            group_name: 'A',
-            logo: null,
-            tvg_id: null,
-            tvg_name: null,
-            stream_url: 'http://test',
-            media_kind: 'live',
-            is_favorite: false,
-          },
-        ],
-      });
-
-      useAppStore.getState().clearSourceLists();
-      expect(useAppStore.getState().groups).toEqual([]);
-      expect(useAppStore.getState().channels).toEqual([]);
-    });
   });
+
 
   describe('setSelectedSourceId', () => {
     it('updates selectedSourceId and persists to localStorage', () => {
@@ -334,75 +286,6 @@ describe('appStore', () => {
     });
   });
 
-  describe('loadGroups', () => {
-    it('sets groups from API response', async () => {
-      const api = await getSourcesApi();
-      api.listSourceGroups.mockResolvedValue([
-        { name: 'Sports', channel_count: 20 },
-        { name: 'News', channel_count: 10 },
-      ]);
-
-      await useAppStore.getState().loadGroups(1, 'live');
-      expect(useAppStore.getState().groups).toEqual([
-        { name: 'Sports', channel_count: 20 },
-        { name: 'News', channel_count: 10 },
-      ]);
-    });
-  });
-
-  describe('loadChannels', () => {
-    it('fetches channels with current filters', async () => {
-      const api = await getChannelsApi();
-      const channels = [
-        {
-          id: 1,
-          source_id: 1,
-          name: 'CNN',
-          group_name: 'News',
-          logo: null,
-          tvg_id: null,
-          tvg_name: null,
-          stream_url: 'http://cnn.m3u8',
-          media_kind: 'live' as const,
-          is_favorite: false,
-        },
-      ];
-      api.listSourceChannels.mockResolvedValue(channels);
-
-      useAppStore.setState({ selectedGroup: ALL_GROUPS, searchQuery: '' });
-      await useAppStore.getState().loadChannels(1, 'live');
-
-      expect(api.listSourceChannels).toHaveBeenCalledWith({
-        sourceId: 1,
-        mediaKind: 'live',
-        groupName: null,
-        query: null,
-        favoritesOnly: false,
-      });
-      expect(useAppStore.getState().channels).toEqual(channels);
-    });
-
-    it('passes group and search when set', async () => {
-      const api = await getChannelsApi();
-      api.listSourceChannels.mockResolvedValue([]);
-
-      useAppStore.setState({
-        selectedGroup: 'News',
-        searchQuery: 'cnn',
-        favoritesOnly: true,
-      });
-      await useAppStore.getState().loadChannels(1, 'live');
-
-      expect(api.listSourceChannels).toHaveBeenCalledWith({
-        sourceId: 1,
-        mediaKind: 'live',
-        groupName: 'News',
-        query: 'cnn',
-        favoritesOnly: true,
-      });
-    });
-  });
-
   describe('loadRecents', () => {
     it('fetches enough recents to cover all media kinds', async () => {
       const api = await getRecentsApi();
@@ -485,14 +368,15 @@ describe('appStore', () => {
           created_at: 3000,
         },
       ]);
-      sourcesApi.listSourceGroups.mockResolvedValue([]);
       const channelsApi = await getChannelsApi();
-      channelsApi.listSourceChannels.mockResolvedValue([]);
 
       useAppStore.setState({ m3uName: 'New', m3uLocation: 'http://new.m3u' });
       await useAppStore.getState().addM3uSource('New', 'http://new.m3u');
 
       const state = useAppStore.getState();
+      // Catalog pages load their own items; the whole catalog isn't fetched here.
+      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
+      expect(state.sources.map((source) => source.id)).toEqual([10]);
       expect(state.selectedSourceId).toBe(10);
       expect(state.importMessage).toBe('Imported 150 channels.');
       expect(state.m3uName).toBe('');
@@ -524,10 +408,6 @@ describe('appStore', () => {
           created_at: 3000,
         },
       ]);
-      sourcesApi.listSourceGroups.mockResolvedValue([]);
-      const channelsApi = await getChannelsApi();
-      channelsApi.listSourceChannels.mockResolvedValue([]);
-
       await useAppStore
         .getState()
         .addXtreamSource(
@@ -551,15 +431,13 @@ describe('appStore', () => {
   });
 
   describe('refreshSource', () => {
-    it('refreshes selected source and reloads filtered groups/channels', async () => {
+    it('refreshes the source without fetching its whole catalog', async () => {
       const sourcesApi = await getSourcesApi();
       const channelsApi = await getChannelsApi();
       sourcesApi.refreshRegisteredSource.mockResolvedValue({
         source_id: 10,
         imported_channels: 7,
       });
-      sourcesApi.listSourceGroups.mockResolvedValue([]);
-      channelsApi.listSourceChannels.mockResolvedValue([]);
 
       useAppStore.setState({
         selectedSourceId: 10,
@@ -573,47 +451,21 @@ describe('appStore', () => {
           },
         ],
       });
-      await useAppStore.getState().refreshSource(10, 'live');
+      await useAppStore.getState().refreshSource(10);
 
       expect(sourcesApi.refreshRegisteredSource).toHaveBeenCalledWith(10);
-      expect(sourcesApi.listSourceGroups).toHaveBeenCalledWith(10, 'live');
-      expect(channelsApi.listSourceChannels).toHaveBeenCalledWith({
-        sourceId: 10,
-        mediaKind: 'live',
-        groupName: null,
-        query: null,
-        favoritesOnly: false,
-      });
+      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
       expect(useAppStore.getState().importMessage).toBe(
         'Refreshed 7 channels.'
       );
     });
 
-    it('does not reload groups/channels when source is not selected', async () => {
-      const sourcesApi = await getSourcesApi();
-      const channelsApi = await getChannelsApi();
-      sourcesApi.refreshRegisteredSource.mockResolvedValue({
-        source_id: 10,
-        imported_channels: 5,
-      });
-
-      useAppStore.setState({ selectedSourceId: 5 });
-      await useAppStore.getState().refreshSource(10, 'movie');
-
-      expect(sourcesApi.refreshRegisteredSource).toHaveBeenCalledWith(10);
-      expect(sourcesApi.listSourceGroups).not.toHaveBeenCalled();
-      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
-    });
-
     it('uses xtream messaging for xtream sources', async () => {
       const sourcesApi = await getSourcesApi();
-      const channelsApi = await getChannelsApi();
       sourcesApi.refreshRegisteredSource.mockResolvedValue({
         source_id: 12,
         imported_channels: 99,
       });
-      sourcesApi.listSourceGroups.mockResolvedValue([]);
-      channelsApi.listSourceChannels.mockResolvedValue([]);
 
       useAppStore.setState({
         selectedSourceId: 12,
@@ -628,7 +480,7 @@ describe('appStore', () => {
         ],
       });
 
-      await useAppStore.getState().refreshSource(12, 'series');
+      await useAppStore.getState().refreshSource(12);
       expect(useAppStore.getState().importMessage).toBe(
         'Refreshed 99 catalog items.'
       );
@@ -636,7 +488,20 @@ describe('appStore', () => {
   });
 
   describe('deleteSource', () => {
-    it('reloads source data when deleting the selected source', async () => {
+    const oldChannel = {
+      id: 1,
+      source_id: 1,
+      name: 'Old Channel',
+      group_name: 'Sports',
+      logo: null,
+      tvg_id: null,
+      tvg_name: null,
+      stream_url: 'http://old',
+      media_kind: 'live' as const,
+      is_favorite: false,
+    };
+
+    it('moves to the next source when deleting the selected one', async () => {
       const sourcesApi = await getSourcesApi();
       const channelsApi = await getChannelsApi();
       sourcesApi.deleteRegisteredSource.mockResolvedValue(undefined);
@@ -647,23 +512,6 @@ describe('appStore', () => {
           name: 'Replacement',
           config: {},
           created_at: 2000,
-        },
-      ]);
-      sourcesApi.listSourceGroups.mockResolvedValue([
-        { name: 'All', channel_count: 1 },
-      ]);
-      channelsApi.listSourceChannels.mockResolvedValue([
-        {
-          id: 2,
-          source_id: 2,
-          name: 'Backup',
-          group_name: 'All',
-          logo: null,
-          tvg_id: null,
-          tvg_name: null,
-          stream_url: 'http://backup',
-          media_kind: 'live' as const,
-          is_favorite: false,
         },
       ]);
 
@@ -677,71 +525,20 @@ describe('appStore', () => {
       useAppStore.setState({
         sources: [source],
         selectedSourceId: 1,
-        selectedGroup: 'Sports',
-        groups: [{ name: 'Sports', channel_count: 4 }],
-        channels: [
-          {
-            id: 1,
-            source_id: 1,
-            name: 'Old Channel',
-            group_name: 'Sports',
-            logo: null,
-            tvg_id: null,
-            tvg_name: null,
-            stream_url: 'http://old',
-            media_kind: 'live',
-            is_favorite: false,
-          },
-        ],
-        activeChannel: {
-          id: 1,
-          source_id: 1,
-          name: 'Old Channel',
-          group_name: 'Sports',
-          logo: null,
-          tvg_id: null,
-          tvg_name: null,
-          stream_url: 'http://old',
-          media_kind: 'live',
-          is_favorite: false,
-        },
+        activeChannel: oldChannel,
       });
 
       await useAppStore.getState().deleteSource(source);
 
       const state = useAppStore.getState();
       expect(state.selectedSourceId).toBe(2);
-      expect(state.selectedGroup).toBe(ALL_GROUPS);
-      expect(state.groups).toEqual([{ name: 'All', channel_count: 1 }]);
-      expect(state.channels).toEqual([
-        {
-          id: 2,
-          source_id: 2,
-          name: 'Backup',
-          group_name: 'All',
-          logo: null,
-          tvg_id: null,
-          tvg_name: null,
-          stream_url: 'http://backup',
-          media_kind: 'live',
-          is_favorite: false,
-        },
-      ]);
       expect(state.activeChannel).toBeNull();
-      expect(sourcesApi.listSourceGroups).toHaveBeenCalledWith(2, null);
-      expect(channelsApi.listSourceChannels).toHaveBeenCalledWith({
-        sourceId: 2,
-        mediaKind: null,
-        groupName: null,
-        query: null,
-        favoritesOnly: false,
-      });
+      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
       expect(state.importMessage).toBe('Deleted "Old".');
     });
 
-    it('clears source data when deleting the last selected source', async () => {
+    it('clears the selection when deleting the last source', async () => {
       const sourcesApi = await getSourcesApi();
-      const channelsApi = await getChannelsApi();
       sourcesApi.deleteRegisteredSource.mockResolvedValue(undefined);
       sourcesApi.listRegisteredSources.mockResolvedValue([]);
 
@@ -755,46 +552,14 @@ describe('appStore', () => {
       useAppStore.setState({
         sources: [source],
         selectedSourceId: 1,
-        selectedGroup: 'News',
-        groups: [{ name: 'News', channel_count: 2 }],
-        channels: [
-          {
-            id: 1,
-            source_id: 1,
-            name: 'Only Channel',
-            group_name: 'News',
-            logo: null,
-            tvg_id: null,
-            tvg_name: null,
-            stream_url: 'http://only',
-            media_kind: 'live',
-            is_favorite: false,
-          },
-        ],
-        activeChannel: {
-          id: 1,
-          source_id: 1,
-          name: 'Only Channel',
-          group_name: 'News',
-          logo: null,
-          tvg_id: null,
-          tvg_name: null,
-          stream_url: 'http://only',
-          media_kind: 'live',
-          is_favorite: false,
-        },
+        activeChannel: oldChannel,
       });
 
       await useAppStore.getState().deleteSource(source);
 
       const state = useAppStore.getState();
       expect(state.selectedSourceId).toBeNull();
-      expect(state.selectedGroup).toBe(ALL_GROUPS);
-      expect(state.groups).toEqual([]);
-      expect(state.channels).toEqual([]);
       expect(state.activeChannel).toBeNull();
-      expect(channelsApi.listSourceChannels).not.toHaveBeenCalled();
-      expect(sourcesApi.listSourceGroups).not.toHaveBeenCalled();
       expect(state.importMessage).toBe('Deleted "Only".');
     });
   });
@@ -820,7 +585,7 @@ describe('appStore', () => {
       };
 
       useAppStore.setState({
-        channels: [channel],
+        recentChannels: [{ channel, played_at: 1 }],
         settings: { ...DEFAULT_SETTINGS, preferred_player: 'web' },
       });
 
@@ -881,7 +646,7 @@ describe('appStore', () => {
       };
 
       useAppStore.setState({
-        channels: [channel],
+        recentChannels: [{ channel, played_at: 1 }],
         settings: { ...DEFAULT_SETTINGS, preferred_player: 'mpv' },
       });
 
@@ -894,36 +659,9 @@ describe('appStore', () => {
     });
 
     it('sets error for unknown channelId', async () => {
-      useAppStore.setState({ channels: [], recentChannels: [] });
+      useAppStore.setState({ recentChannels: [] });
       await useAppStore.getState().playChannel(999);
       expect(useAppStore.getState().error).toContain('channel 999 not found');
-    });
-  });
-
-  describe('toggleFavorite', () => {
-    it('toggles favorite state and reloads channels', async () => {
-      const channelsApi = await getChannelsApi();
-      const recentsApi = await getRecentsApi();
-      channelsApi.setChannelFavoriteState.mockResolvedValue(undefined);
-      channelsApi.listSourceChannels.mockResolvedValue([]);
-      recentsApi.listRecentlyPlayed.mockResolvedValue([]);
-
-      const channel = {
-        id: 1,
-        source_id: 1,
-        name: 'Ch1',
-        group_name: 'A',
-        logo: null,
-        tvg_id: null,
-        tvg_name: null,
-        stream_url: 'http://test',
-        media_kind: 'live' as const,
-        is_favorite: false,
-      };
-
-      useAppStore.setState({ selectedSourceId: 1 });
-      await useAppStore.getState().toggleFavorite(channel);
-      expect(channelsApi.setChannelFavoriteState).toHaveBeenCalledWith(1, true);
     });
   });
 
@@ -955,7 +693,6 @@ describe('appStore', () => {
     it('resets selection state and clears localStorage', () => {
       useAppStore.setState({
         selectedSourceId: 5,
-        selectedGroup: 'Sports',
         activeChannel: {
           id: 1,
           source_id: 1,
@@ -968,8 +705,6 @@ describe('appStore', () => {
           media_kind: 'live',
           is_favorite: false,
         },
-        groups: [{ name: 'Sports', channel_count: 10 }],
-        channels: [],
       });
 
       window.localStorage.setItem('silkcast:lastSelectedSourceId', '5');
@@ -978,10 +713,7 @@ describe('appStore', () => {
       const state = useAppStore.getState();
       expect(state.selectedSourceId).toBeNull();
       expect(state.hasPersistedSourceSelection).toBe(false);
-      expect(state.selectedGroup).toBe(ALL_GROUPS);
       expect(state.activeChannel).toBeNull();
-      expect(state.groups).toEqual([]);
-      expect(state.channels).toEqual([]);
       expect(
         window.localStorage.getItem('silkcast:lastSelectedSourceId')
       ).toBeNull();
