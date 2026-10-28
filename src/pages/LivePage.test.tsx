@@ -10,6 +10,7 @@ import { listSourceChannels } from '../lib/api/channelsApi';
 import { listChannelsEpg } from '../lib/api/epgApi';
 import { subscribeBackendEvents } from '../lib/api/eventsApi';
 import { listSourceGroups } from '../lib/api/sourcesApi';
+import { sourceRecord } from '../test/sourceRecord';
 
 vi.mock('../lib/api/channelsApi', () => ({
   listSourceChannels: vi.fn(() => Promise.resolve([])),
@@ -45,7 +46,7 @@ const news = live(2, 'US| HARBOR NEWS 24 HD');
 
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
-    sources: [{ id: 12, source_type: 'xtream', name: 'Tidewater', config: {}, created_at: 0 }],
+    sources: [sourceRecord({ id: 12, source_type: 'xtream', name: 'Tidewater' })],
     selectedSourceId: 12,
     hasPersistedSourceSelection: false,
     groups: [],

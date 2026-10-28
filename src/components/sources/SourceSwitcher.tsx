@@ -125,7 +125,8 @@ export function SourceSwitcher() {
         {!supportsGuide ? (
           <p className="flex gap-2 px-2 pt-1.5 pb-1 text-xs text-muted-foreground">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-            Guide data is available for Xtream sources.
+            No guide: this playlist doesn't name one. Add a guide (XMLTV) URL under Manage
+            sources.
           </p>
         ) : null}
       </DropdownMenuContent>

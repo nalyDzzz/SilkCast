@@ -10,6 +10,7 @@ import { listSourceChannels } from '@/lib/api/channelsApi';
 import { listChannelsEpg } from '@/lib/api/epgApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
+import { sourceRecord } from '@/test/sourceRecord';
 import { DashboardHomePage } from './DashboardHomePage';
 
 vi.mock('@/lib/api/channelsApi', () => ({
@@ -88,7 +89,7 @@ describe('DashboardHomePage', () => {
         : []
     );
     useAppStore.setState({
-      sources: [{ id: 3, source_type: 'xtream', name: 'My Provider', config: {}, created_at: 1 }],
+      sources: [sourceRecord({ id: 3, source_type: 'xtream', name: 'My Provider' })],
       selectedSourceId: 3,
       recentChannels: [
         { channel: news, played_at: 30 },

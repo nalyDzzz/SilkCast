@@ -1,4 +1,4 @@
-use crate::foundation::ChannelInsertRecord;
+use crate::foundation::{ChannelInsertRecord, ChannelRecord};
 use base64::engine::general_purpose::{
     STANDARD as BASE64_STANDARD, STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD,
 };
@@ -73,6 +73,50 @@ pub fn normalize_server_url(raw: &str) -> Result<String, String> {
     }
 
     Ok(parsed.to_string().trim_end_matches('/').to_string())
+}
+
+/// The provider's full XMLTV guide (`xmltv.php`).
+pub fn xtream_xmltv_url(config: &XtreamConfig) -> String {
+    let mut url = Url::parse(&format!("{}/xmltv.php", config.server_url))
+        .expect("normalized xtream server URL is a valid base");
+    url.query_pairs_mut()
+        .append_pair("username", &config.username)
+        .append_pair("password", &config.password);
+    url.to_string()
+}
+
+/// The numeric Xtream stream id of a live channel, from its URL or `tvg_id`.
+pub fn extract_live_stream_id(channel: &ChannelRecord) -> Option<String> {
+    extract_stream_key_from_url(&channel.stream_url)
+        .and_then(|value| normalize_xtream_stream_id(&value))
+        .or_else(|| {
+            channel
+                .tvg_id
+                .as_deref()
+                .and_then(normalize_xtream_stream_id)
+        })
+}
+
+/// The last path segment of a stream URL without its extension.
+pub fn extract_stream_key_from_url(stream_url: &str) -> Option<String> {
+    let without_query = stream_url.split(['?', '#']).next().unwrap_or(stream_url);
+    let last_segment = without_query.rsplit('/').next()?;
+    let candidate = last_segment.split('.').next().unwrap_or("").trim();
+
+    if candidate.is_empty() {
+        None
+    } else {
+        Some(candidate.to_string())
+    }
+}
+
+fn normalize_xtream_stream_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(trimmed.to_string())
 }
 
 pub fn import_xtream_channels(config: &XtreamConfig) -> Result<Vec<ChannelInsertRecord>, String> {

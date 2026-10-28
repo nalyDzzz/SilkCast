@@ -14,6 +14,7 @@ import * as recentsApi from '../lib/api/recentsApi';
 import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
 import { displayTitle } from '../lib/catalog/cleanName';
+import { useSourceActivityStore } from './sourceActivityStore';
 
 const LAST_SELECTED_SOURCE_KEY = 'silkcast:lastSelectedSourceId';
 const THEME_PREFERENCE_KEY = 'silkcast:theme';
@@ -280,6 +281,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const sourceList = sourceListResponse
       .map(normalizeSourceRecord)
       .filter((source): source is SourceRecord => source !== null);
+    useSourceActivityStore.getState().syncGuideStatus(sourceList);
 
     set((state) => {
       if (sourceList.length === 0) {

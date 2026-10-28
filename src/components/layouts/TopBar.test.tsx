@@ -12,6 +12,7 @@ import { refreshSourceEpg } from '@/lib/api/epgApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
 import { useSourceActivityStore } from '@/store/sourceActivityStore';
+import { sourceRecord } from '@/test/sourceRecord';
 
 vi.mock('@/lib/api/channelsApi', () => ({
   listSourceChannels: vi.fn(),
@@ -21,8 +22,8 @@ vi.mock('@/lib/api/epgApi', () => ({ refreshSourceEpg: vi.fn() }));
 vi.mock('@/lib/api/sourcesApi', () => ({ listSourceGroups: vi.fn() }));
 
 const sources = [
-  { id: 7, source_type: 'xtream', name: 'Tidewater', config: {}, created_at: 0 },
-  { id: 8, source_type: 'm3u', name: 'Home playlist', config: {}, created_at: 0 },
+  sourceRecord({ id: 7, source_type: 'xtream', name: 'Tidewater' }),
+  sourceRecord({ id: 8, source_type: 'm3u', name: 'Home playlist' }),
 ];
 
 const channel = (id: number, name: string): ChannelRecord => ({

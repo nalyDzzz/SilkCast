@@ -1,7 +1,7 @@
 import {
   ChannelEpgRecord,
+  GuideRefreshStarted,
   LiveEpgEntryRecord,
-  SourceEpgRefreshResult,
 } from '@/components/app/types';
 import { tauriInvoke } from '../tauriClient';
 
@@ -32,8 +32,12 @@ export function refreshChannelEpg(channelId: number, limit = 2) {
   });
 }
 
+/**
+ * Starts refreshing a source's guide in the background. Progress arrives as
+ * `epg_progress` events and the result as `epg_updated`.
+ */
 export function refreshSourceEpg(sourceId: number) {
-  return tauriInvoke<SourceEpgRefreshResult>('refresh_source_epg', {
+  return tauriInvoke<GuideRefreshStarted>('refresh_source_epg', {
     sourceId,
   });
 }

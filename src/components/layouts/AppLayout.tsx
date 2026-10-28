@@ -2,13 +2,14 @@ import { type UIEvent, useState } from 'react';
 import { Outlet, useMatch } from 'react-router';
 import { CommandPalette } from '@/components/command/CommandPalette';
 import { TopBar } from '@/components/layouts/TopBar';
-import { useGuideRefreshEvents } from '@/components/sources/useSourceActions';
+import { useGuideAutoRefresh, useGuideRefreshEvents } from '@/components/sources/useSourceActions';
 
 /** Scroll distance after which the floating top bar turns solid. */
 const SOLID_AFTER_PX = 24;
 
 export function AppLayout() {
   useGuideRefreshEvents();
+  useGuideAutoRefresh();
   // Home's hero runs under a transparent top bar.
   const isHome = useMatch({ path: '/dashboard', end: true }) !== null;
   const [scrolled, setScrolled] = useState(false);

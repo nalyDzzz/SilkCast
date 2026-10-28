@@ -41,6 +41,37 @@ pub fn load_m3u_location(location: &str) -> Result<String, String> {
     fs::read_to_string(trimmed).map_err(|err| format!("failed to read m3u file: {err}"))
 }
 
+/// Guide (XMLTV) URLs a playlist advertises in its `#EXTM3U` header
+/// (`url-tvg`, `x-tvg-url` or `tvg-url`, each possibly comma-separated).
+pub fn parse_m3u_guide_urls(content: &str) -> Vec<String> {
+    let Some(header) = content
+        .lines()
+        .map(|line| line.trim_start_matches('\u{feff}').trim())
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.strip_prefix("#EXTM3U"))
+    else {
+        return Vec::new();
+    };
+
+    let attributes = parse_attributes(header);
+    let mut urls: Vec<String> = Vec::new();
+    for key in ["url-tvg", "x-tvg-url", "tvg-url"] {
+        for url in attributes
+            .get(key)
+            .map(String::as_str)
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+        {
+            if !urls.iter().any(|known| known == url) {
+                urls.push(url.to_string());
+            }
+        }
+    }
+    urls
+}
+
 pub fn parse_m3u_channels(content: &str) -> Vec<ChannelInsertRecord> {
     let mut channels = Vec::new();
     let mut pending_meta: Option<M3uMeta> = None;
@@ -423,6 +454,17 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
+    }
+
+    #[test]
+    fn parse_m3u_reads_guide_urls_from_the_header() {
+        let playlist = "\u{feff}#EXTM3U url-tvg=\"http://a/guide.xml, http://b/g.xml.gz\" x-tvg-url=\"http://a/guide.xml\"\n#EXTINF:-1,One\nhttp://s/1.ts\n";
+        assert_eq!(
+            parse_m3u_guide_urls(playlist),
+            vec!["http://a/guide.xml", "http://b/g.xml.gz"]
+        );
+        assert!(parse_m3u_guide_urls("#EXTM3U\n#EXTINF:-1,One\nhttp://s/1.ts").is_empty());
+        assert!(parse_m3u_guide_urls("#EXTINF:-1 url-tvg=\"http://x\",One").is_empty());
     }
 
     #[test]

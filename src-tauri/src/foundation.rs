@@ -26,6 +26,9 @@ pub struct SharedState {
     pub debug_mode: AtomicBool,
     pub playback: Mutex<PlaybackEngine>,
     source_registry: SourceRegistry,
+    /// Sources whose guide is refreshing, so a second request doesn't start
+    /// another download.
+    guide_refreshes: Mutex<HashSet<i64>>,
 }
 
 impl SharedState {
@@ -35,6 +38,21 @@ impl SharedState {
             debug_mode: AtomicBool::new(debug_mode),
             playback: Mutex::new(PlaybackEngine::new()),
             source_registry: SourceRegistry::with_defaults(),
+            guide_refreshes: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// Claims the guide refresh of a source; false if one is already running.
+    pub fn begin_guide_refresh(&self, source_id: i64) -> bool {
+        self.guide_refreshes
+            .lock()
+            .map(|mut running| running.insert(source_id))
+            .unwrap_or(false)
+    }
+
+    pub fn end_guide_refresh(&self, source_id: i64) {
+        if let Ok(mut running) = self.guide_refreshes.lock() {
+            running.remove(&source_id);
         }
     }
 
@@ -66,6 +84,15 @@ pub struct SourceRecord {
     pub name: String,
     pub config: Value,
     pub created_at: i64,
+    /// Xtream sources, and playlists with a configured or advertised guide URL.
+    pub supports_guide: bool,
+    /// Last successful guide refresh (unix seconds).
+    pub guide_refreshed_at: Option<i64>,
+    /// End of the last stored programme (unix seconds).
+    pub guide_covered_until: Option<i64>,
+    /// Why the last guide refresh failed, if it did.
+    pub guide_error: Option<String>,
+    pub guide_attempted_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,22 +130,6 @@ pub struct ChannelRecord {
 pub struct RecentChannelRecord {
     pub channel: ChannelRecord,
     pub played_at: i64,
-}
-
-#[derive(Debug, Clone)]
-pub struct StoredLiveEpgEntryRecord {
-    pub title: String,
-    pub description: Option<String>,
-    pub start: Option<String>,
-    pub end: Option<String>,
-    pub start_timestamp: Option<i64>,
-    pub end_timestamp: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StoredLiveEpgChannelEntries {
-    pub channel_id: i64,
-    pub entries: Vec<StoredLiveEpgEntryRecord>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -238,29 +249,6 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
             CREATE INDEX IF NOT EXISTS idx_recents_played_at
               ON recents(played_at DESC);
 
-            CREATE TABLE IF NOT EXISTS live_epg_entries (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              channel_id INTEGER NOT NULL,
-              title TEXT NOT NULL,
-              description TEXT,
-              start_at TEXT,
-              end_at TEXT,
-              start_timestamp INTEGER,
-              end_timestamp INTEGER,
-              fetched_at INTEGER NOT NULL,
-              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel
-              ON live_epg_entries(channel_id);
-            CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel_start
-              ON live_epg_entries(channel_id, start_timestamp);
-
-            CREATE TABLE IF NOT EXISTS live_epg_channel_refreshes (
-              channel_id INTEGER PRIMARY KEY,
-              fetched_at INTEGER NOT NULL,
-              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
-            );
             "#,
         )
         .map_err(|e| format!("db migration failed: {e}"))?;
@@ -271,7 +259,7 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
         [],
     );
 
-    Ok(())
+    crate::guide_store::init_guide_storage(&connection)
 }
 
 pub fn set_setting(db_path: &Path, key: &str, value: &str) -> Result<(), String> {
@@ -405,12 +393,19 @@ pub fn delete_source(db_path: &Path, source_id: i64) -> Result<(), String> {
     Ok(())
 }
 
+const SOURCE_SELECT: &str = r#"
+    SELECT s.id, s.source_type, s.name, s.config_json, s.created_at,
+           g.refreshed_at, g.covered_until, g.last_error, g.last_attempt_at, g.detected_url
+    FROM sources s
+    LEFT JOIN source_guides g ON g.source_id = s.id
+"#;
+
 pub fn list_sources(db_path: &Path) -> Result<Vec<SourceRecord>, String> {
     let connection = open_connection(db_path)?;
     let mut statement = connection
-        .prepare(
-            "SELECT id, source_type, name, config_json, created_at FROM sources ORDER BY created_at DESC, id DESC",
-        )
+        .prepare(&format!(
+            "{SOURCE_SELECT} ORDER BY s.created_at DESC, s.id DESC"
+        ))
         .map_err(|e| format!("prepare failed: {e}"))?;
 
     let mut rows = statement
@@ -427,9 +422,7 @@ pub fn list_sources(db_path: &Path) -> Result<Vec<SourceRecord>, String> {
 pub fn get_source_by_id(db_path: &Path, source_id: i64) -> Result<Option<SourceRecord>, String> {
     let connection = open_connection(db_path)?;
     let mut statement = connection
-        .prepare(
-            "SELECT id, source_type, name, config_json, created_at FROM sources WHERE id = ?1 LIMIT 1",
-        )
+        .prepare(&format!("{SOURCE_SELECT} WHERE s.id = ?1 LIMIT 1"))
         .map_err(|e| format!("prepare failed: {e}"))?;
 
     let mut rows = statement
@@ -949,236 +942,6 @@ pub fn list_recent_channels(
     Ok(recent_channels)
 }
 
-pub fn replace_live_epg_for_channel(
-    db_path: &Path,
-    channel_id: i64,
-    entries: &[StoredLiveEpgEntryRecord],
-) -> Result<(), String> {
-    replace_live_epg_for_channels(
-        db_path,
-        &[StoredLiveEpgChannelEntries {
-            channel_id,
-            entries: entries.to_vec(),
-        }],
-    )
-}
-
-pub fn replace_live_epg_for_channels(
-    db_path: &Path,
-    channel_entries: &[StoredLiveEpgChannelEntries],
-) -> Result<(), String> {
-    if channel_entries.is_empty() {
-        return Ok(());
-    }
-
-    let mut connection = open_connection(db_path)?;
-    let tx = connection
-        .transaction()
-        .map_err(|e| format!("transaction start failed: {e}"))?;
-    let fetched_at = unix_ts();
-
-    for channel_entry in channel_entries {
-        tx.execute(
-            "DELETE FROM live_epg_entries WHERE channel_id = ?1",
-            params![channel_entry.channel_id],
-        )
-        .map_err(|e| format!("delete live epg entries failed: {e}"))?;
-        tx.execute(
-            r#"
-            INSERT INTO live_epg_channel_refreshes(channel_id, fetched_at)
-            VALUES (?1, ?2)
-            ON CONFLICT(channel_id) DO UPDATE SET fetched_at = excluded.fetched_at
-            "#,
-            params![channel_entry.channel_id, fetched_at],
-        )
-        .map_err(|e| format!("upsert live epg refresh status failed: {e}"))?;
-    }
-
-    let mut statement = tx
-        .prepare(
-            r#"
-            INSERT INTO live_epg_entries(
-              channel_id,
-              title,
-              description,
-              start_at,
-              end_at,
-              start_timestamp,
-              end_timestamp,
-              fetched_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            "#,
-        )
-        .map_err(|e| format!("prepare insert live epg failed: {e}"))?;
-
-    for channel_entry in channel_entries {
-        for entry in &channel_entry.entries {
-            statement
-                .execute(params![
-                    channel_entry.channel_id,
-                    entry.title,
-                    entry.description,
-                    entry.start,
-                    entry.end,
-                    entry.start_timestamp,
-                    entry.end_timestamp,
-                    fetched_at,
-                ])
-                .map_err(|e| format!("insert live epg entry failed: {e}"))?;
-        }
-    }
-
-    drop(statement);
-    tx.commit()
-        .map_err(|e| format!("transaction commit failed: {e}"))?;
-
-    Ok(())
-}
-
-/// Up to `limit` programmes still on after `since` (unix seconds), oldest
-/// first. Finished programmes are skipped so they never crowd out later ones.
-pub fn list_live_epg_for_channel(
-    db_path: &Path,
-    channel_id: i64,
-    limit: usize,
-    since: i64,
-) -> Result<Vec<StoredLiveEpgEntryRecord>, String> {
-    let connection = open_connection(db_path)?;
-    let mut statement = connection
-        .prepare(
-            r#"
-            SELECT
-              title,
-              description,
-              start_at,
-              end_at,
-              start_timestamp,
-              end_timestamp
-            FROM live_epg_entries
-            WHERE channel_id = ?1
-              AND end_timestamp > ?3
-            ORDER BY start_timestamp ASC, id ASC
-            LIMIT ?2
-            "#,
-        )
-        .map_err(|e| format!("prepare failed: {e}"))?;
-
-    let rows = statement
-        .query_map(params![channel_id, limit as i64, since], |row| {
-            decode_live_epg_entry(row, 0)
-        })
-        .map_err(|e| format!("query failed: {e}"))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("read live epg row failed: {e}"))
-}
-
-/// Programmes overlapping `[from, to)` for several channels in one query,
-/// grouped per channel and ordered by start time. Channels without any
-/// programme in the window are omitted.
-pub fn list_live_epg_for_channels(
-    db_path: &Path,
-    channel_ids: &[i64],
-    from: i64,
-    to: i64,
-) -> Result<Vec<StoredLiveEpgChannelEntries>, String> {
-    if channel_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let connection = open_connection(db_path)?;
-    let ids_json = serde_json::to_string(channel_ids)
-        .map_err(|e| format!("encode channel ids failed: {e}"))?;
-    let mut statement = connection
-        .prepare(
-            r#"
-            SELECT
-              channel_id,
-              title,
-              description,
-              start_at,
-              end_at,
-              start_timestamp,
-              end_timestamp
-            FROM live_epg_entries
-            WHERE channel_id IN (SELECT value FROM json_each(?1))
-              AND end_timestamp > ?2
-              AND start_timestamp < ?3
-            ORDER BY channel_id, start_timestamp ASC, id ASC
-            "#,
-        )
-        .map_err(|e| format!("prepare batch live epg lookup failed: {e}"))?;
-
-    let rows = statement
-        .query_map(params![ids_json, from, to], |row| {
-            Ok((row.get::<_, i64>(0)?, decode_live_epg_entry(row, 1)?))
-        })
-        .map_err(|e| format!("query batch live epg lookup failed: {e}"))?;
-
-    let mut grouped: Vec<StoredLiveEpgChannelEntries> = Vec::new();
-    for row in rows {
-        let (channel_id, entry) = row.map_err(|e| format!("read live epg row failed: {e}"))?;
-        match grouped.last_mut() {
-            Some(last) if last.channel_id == channel_id => last.entries.push(entry),
-            _ => grouped.push(StoredLiveEpgChannelEntries {
-                channel_id,
-                entries: vec![entry],
-            }),
-        }
-    }
-    Ok(grouped)
-}
-
-fn decode_live_epg_entry(
-    row: &rusqlite::Row<'_>,
-    offset: usize,
-) -> rusqlite::Result<StoredLiveEpgEntryRecord> {
-    Ok(StoredLiveEpgEntryRecord {
-        title: row.get(offset)?,
-        description: row.get(offset + 1)?,
-        start: row.get(offset + 2)?,
-        end: row.get(offset + 3)?,
-        start_timestamp: row.get(offset + 4)?,
-        end_timestamp: row.get(offset + 5)?,
-    })
-}
-
-pub fn list_fresh_live_epg_channel_ids(
-    db_path: &Path,
-    source_id: i64,
-    min_fetched_at: i64,
-) -> Result<HashSet<i64>, String> {
-    let connection = open_connection(db_path)?;
-    let mut statement = connection
-        .prepare(
-            r#"
-            SELECT c.id
-            FROM channels c
-            JOIN live_epg_channel_refreshes r ON r.channel_id = c.id
-            WHERE c.source_id = ?1
-              AND c.media_kind = 'live'
-              AND r.fetched_at >= ?2
-            "#,
-        )
-        .map_err(|e| format!("prepare fresh live epg lookup failed: {e}"))?;
-
-    let mut rows = statement
-        .query(params![source_id, min_fetched_at])
-        .map_err(|e| format!("query fresh live epg lookup failed: {e}"))?;
-
-    let mut channel_ids = HashSet::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| format!("read fresh epg row failed: {e}"))?
-    {
-        channel_ids.insert(
-            row.get(0)
-                .map_err(|e| format!("decode fresh epg channel id failed: {e}"))?,
-        );
-    }
-
-    Ok(channel_ids)
-}
-
 pub fn append_log(log_path: &Path, level: &str, message: &str) -> Result<(), String> {
     let line = format!("[{}] [{}] {}\n", unix_ts(), level, message);
     append_line(log_path, &line)
@@ -1252,7 +1015,7 @@ fn unix_ts() -> i64 {
 /// "database is locked".
 const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn open_connection(db_path: &Path) -> Result<Connection, String> {
+pub(crate) fn open_connection(db_path: &Path) -> Result<Connection, String> {
     let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
     connection
         .busy_timeout(DB_BUSY_TIMEOUT)
@@ -1275,17 +1038,44 @@ fn decode_source_record(row: &rusqlite::Row<'_>) -> Result<SourceRecord, String>
         .map_err(|e| format!("decode config failed: {e}"))?;
     let config: Value =
         serde_json::from_str(&config_json).map_err(|e| format!("parse config failed: {e}"))?;
+    let source_type: String = row
+        .get(1)
+        .map_err(|e| format!("decode source_type failed: {e}"))?;
+    let detected_guide_url: Option<String> = row
+        .get(9)
+        .map_err(|e| format!("decode guide url failed: {e}"))?;
+    let supports_guide = source_type == "xtream"
+        || configured_guide_url(&config).is_some()
+        || detected_guide_url.is_some_and(|url| !url.trim().is_empty());
+    let guide_column = |index: usize| -> Result<Option<i64>, String> {
+        row.get(index)
+            .map_err(|e| format!("decode guide status failed: {e}"))
+    };
     Ok(SourceRecord {
         id: row.get(0).map_err(|e| format!("decode id failed: {e}"))?,
-        source_type: row
-            .get(1)
-            .map_err(|e| format!("decode source_type failed: {e}"))?,
+        source_type,
         name: row.get(2).map_err(|e| format!("decode name failed: {e}"))?,
         config,
         created_at: row
             .get(4)
             .map_err(|e| format!("decode created_at failed: {e}"))?,
+        supports_guide,
+        guide_refreshed_at: guide_column(5)?,
+        guide_covered_until: guide_column(6)?,
+        guide_error: row
+            .get(7)
+            .map_err(|e| format!("decode guide error failed: {e}"))?,
+        guide_attempted_at: guide_column(8)?,
     })
+}
+
+/// The guide URL a user set on a source (`epg_url`), overriding the default.
+pub fn configured_guide_url(config: &Value) -> Option<&str> {
+    config
+        .get("epg_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
 }
 
 fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, String> {
@@ -1707,7 +1497,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_keeps_the_guide_and_drops_only_removed_channels() {
+    fn refresh_updates_in_place_and_drops_only_removed_channels() {
         let root = make_temp_root();
         let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
         init_storage(&context.db_path).expect("failed to initialize storage");
@@ -1743,12 +1533,6 @@ mod tests {
         let before = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
             .expect("list failed");
         let id_of = |name: &str| before.iter().find(|c| c.name == name).expect(name).id;
-        replace_live_epg_for_channel(
-            &context.db_path,
-            id_of("News"),
-            &[programme("Headlines", 100, 200)],
-        )
-        .expect("guide store failed");
         set_channel_favorite(&context.db_path, id_of("Gone"), true).expect("favorite failed");
 
         replace_channels_for_source(
@@ -1783,11 +1567,7 @@ mod tests {
         old_twin_ids.sort();
         assert_eq!(twin_ids, old_twin_ids, "duplicates map one-to-one");
 
-        // The refreshed channel keeps its stored guide...
-        let guide =
-            list_live_epg_for_channel(&context.db_path, news.id, 10, 0).expect("guide read failed");
-        assert_eq!(guide.len(), 1);
-        // ...and the removed one takes its favorite with it.
+        // The removed channel takes its favorite with it.
         assert!(
             list_channels_for_source(&context.db_path, source_id, None, None, None, true)
                 .expect("favorites failed")
@@ -1872,156 +1652,6 @@ mod tests {
                 .expect("failed to filter favorites");
         assert_eq!(favorites.len(), 1);
         assert_eq!(favorites[0].id, all[0].id);
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn live_epg_roundtrip_replaces_per_channel_entries() {
-        let root = make_temp_root();
-        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
-        init_storage(&context.db_path).expect("failed to initialize storage");
-        let source_id = make_source_with_channels(&context.db_path);
-        let channels =
-            list_channels_for_source(&context.db_path, source_id, Some("live"), None, None, false)
-                .expect("failed to list channels");
-        let live_channel = channels
-            .into_iter()
-            .next()
-            .expect("expected at least one live channel");
-
-        replace_live_epg_for_channel(
-            &context.db_path,
-            live_channel.id,
-            &[
-                StoredLiveEpgEntryRecord {
-                    title: "Morning News".to_string(),
-                    description: Some("Headlines".to_string()),
-                    start: Some("2026-03-07 06:00:00".to_string()),
-                    end: Some("2026-03-07 07:00:00".to_string()),
-                    start_timestamp: Some(1700000000),
-                    end_timestamp: Some(1700003600),
-                },
-                StoredLiveEpgEntryRecord {
-                    title: "Noon Update".to_string(),
-                    description: None,
-                    start: Some("2026-03-07 07:00:00".to_string()),
-                    end: Some("2026-03-07 08:00:00".to_string()),
-                    start_timestamp: Some(1700003600),
-                    end_timestamp: Some(1700007200),
-                },
-            ],
-        )
-        .expect("failed to store initial live epg entries");
-
-        let first_read = list_live_epg_for_channel(&context.db_path, live_channel.id, 10, 0)
-            .expect("failed to read live epg entries");
-        assert_eq!(first_read.len(), 2);
-        assert_eq!(first_read[0].title, "Morning News");
-
-        let fresh_channel_ids =
-            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() - 60)
-                .expect("failed to list fresh epg channels");
-        assert!(fresh_channel_ids.contains(&live_channel.id));
-
-        let stale_channel_ids =
-            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() + 60)
-                .expect("failed to list stale epg channels");
-        assert!(!stale_channel_ids.contains(&live_channel.id));
-
-        replace_live_epg_for_channel(
-            &context.db_path,
-            live_channel.id,
-            &[StoredLiveEpgEntryRecord {
-                title: "Evening Show".to_string(),
-                description: Some("Prime time".to_string()),
-                start: Some("2026-03-07 20:00:00".to_string()),
-                end: Some("2026-03-07 21:00:00".to_string()),
-                start_timestamp: Some(1700050000),
-                end_timestamp: Some(1700053600),
-            }],
-        )
-        .expect("failed to replace live epg entries");
-
-        let second_read = list_live_epg_for_channel(&context.db_path, live_channel.id, 10, 0)
-            .expect("failed to read replaced live epg entries");
-        assert_eq!(second_read.len(), 1);
-        assert_eq!(second_read[0].title, "Evening Show");
-
-        replace_live_epg_for_channel(&context.db_path, live_channel.id, &[])
-            .expect("failed to store empty live epg refresh");
-        let fresh_empty_channel_ids =
-            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() - 60)
-                .expect("failed to list fresh empty epg channel");
-        assert!(fresh_empty_channel_ids.contains(&live_channel.id));
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    fn programme(title: &str, start: i64, end: i64) -> StoredLiveEpgEntryRecord {
-        StoredLiveEpgEntryRecord {
-            title: title.to_string(),
-            description: None,
-            start: None,
-            end: None,
-            start_timestamp: Some(start),
-            end_timestamp: Some(end),
-        }
-    }
-
-    #[test]
-    fn live_epg_reads_skip_finished_programmes() {
-        let root = make_temp_root();
-        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
-        init_storage(&context.db_path).expect("failed to initialize storage");
-        let source_id = make_source_with_channels(&context.db_path);
-        let channel_id =
-            list_channels_for_source(&context.db_path, source_id, Some("live"), None, None, false)
-                .expect("failed to list channels")[0]
-                .id;
-
-        // A guide stored hours ago: three shows are over, three are still to come.
-        let now = 10_000;
-        replace_live_epg_for_channel(
-            &context.db_path,
-            channel_id,
-            &[
-                programme("Done 1", now - 4000, now - 3000),
-                programme("Done 2", now - 3000, now - 2000),
-                programme("Done 3", now - 2000, now - 1000),
-                programme("On now", now - 1000, now + 1000),
-                programme("Next", now + 1000, now + 2000),
-                programme("Later", now + 2000, now + 3000),
-            ],
-        )
-        .expect("failed to store guide");
-
-        let titles = |entries: Vec<StoredLiveEpgEntryRecord>| {
-            entries
-                .into_iter()
-                .map(|entry| entry.title)
-                .collect::<Vec<_>>()
-        };
-
-        // The first three stored programmes are finished; they must not hide the rest.
-        let upcoming = list_live_epg_for_channel(&context.db_path, channel_id, 3, now)
-            .expect("failed to read guide");
-        assert_eq!(titles(upcoming), vec!["On now", "Next", "Later"]);
-
-        // A window read returns everything overlapping the window, in order.
-        let window = list_live_epg_for_channels(
-            &context.db_path,
-            &[channel_id, 999_999],
-            now - 1500,
-            now + 1500,
-        )
-        .expect("failed to read guide window");
-        assert_eq!(window.len(), 1, "channels without programmes are omitted");
-        assert_eq!(window[0].channel_id, channel_id);
-        assert_eq!(
-            titles(window[0].entries.clone()),
-            vec!["Done 3", "On now", "Next"]
-        );
 
         let _ = fs::remove_dir_all(root);
     }

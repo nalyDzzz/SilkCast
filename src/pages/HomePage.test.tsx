@@ -423,7 +423,7 @@ describe('HomePage', () => {
       expect(sourcesApi.updateRegisteredSource).toHaveBeenCalledWith(
         2,
         'Movies HD',
-        { location: 'https://example.com/movies-hd.m3u' }
+        { location: 'https://example.com/movies-hd.m3u', epg_url: '' }
       );
     });
 
