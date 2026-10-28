@@ -580,12 +580,22 @@ pub fn record_guide_failure(
 }
 
 /// Remembers the guide URL a playlist advertises in its `#EXTM3U` header.
+#[cfg(test)]
 pub fn set_detected_guide_url(
     db_path: &Path,
     source_id: i64,
     url: Option<&str>,
 ) -> Result<(), String> {
     let connection = open_connection(db_path)?;
+    write_detected_guide_url(&connection, source_id, url)
+}
+
+/// [`set_detected_guide_url`] on an open connection or transaction.
+pub fn write_detected_guide_url(
+    connection: &Connection,
+    source_id: i64,
+    url: Option<&str>,
+) -> Result<(), String> {
     connection
         .execute(
             r#"

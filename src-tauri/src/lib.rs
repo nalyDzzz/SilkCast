@@ -8,20 +8,19 @@ mod stream_proxy;
 mod xmltv;
 mod xtream;
 
-use crate::foundation::update_source;
 use foundation::{
-    append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
-    get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
-    install_crash_hook, list_channels_for_source, list_groups_for_source, list_recent_channels,
-    list_sources, load_phase1_settings, record_recent_play, redact_credentials,
-    replace_channels_for_source, save_phase1_settings, search_channels_for_source,
-    set_channel_favorite, set_setting, ChannelRecord, GroupRecord, Phase1Settings,
+    append_log, create_source_with_catalog, delete_source, emit_backend_event,
+    ensure_foundation_dirs, get_channel_by_id, get_setting, get_source_by_id, init_log_file,
+    init_storage, install_crash_hook, list_channels_for_source, list_groups_for_source,
+    list_recent_channels, list_sources, load_phase1_settings, record_recent_play,
+    redact_credentials, save_phase1_settings, search_channels_for_source, set_channel_favorite,
+    set_setting, store_source_catalog, ChannelRecord, FetchedCatalog, GroupRecord, Phase1Settings,
     RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
 };
 use guide_refresh::{refresh_source_guide, unix_now, GuideProgress, EPG_FETCH_LIMIT};
 use guide_store::{
     guide_key, list_programmes_for_channel, list_programmes_for_channels, record_guide_failure,
-    set_detected_guide_url, store_key_programmes, StoredProgramme,
+    store_key_programmes, StoredProgramme,
 };
 use m3u::{load_m3u_location, parse_m3u_channels, parse_m3u_guide_urls};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
@@ -1067,7 +1066,8 @@ fn playback_stop_embedded_surface_mode(
     )
 }
 
-fn import_m3u_source(state: &SharedState, source_id: i64, config: &Value) -> Result<usize, String> {
+/// Downloads and parses a playlist. Nothing is stored yet.
+fn fetch_m3u_catalog(config: &Value) -> Result<FetchedCatalog, String> {
     let location = config
         .get("location")
         .and_then(Value::as_str)
@@ -1081,44 +1081,39 @@ fn import_m3u_source(state: &SharedState, source_id: i64, config: &Value) -> Res
                 .to_string(),
         );
     }
-    let inserted = replace_channels_for_source(&state.context.db_path, source_id, &channels)?;
 
     let guide_urls: Vec<String> = parse_m3u_guide_urls(&content)
         .into_iter()
         .filter(|url| xmltv::is_remote_guide_url(url))
         .collect();
-    set_detected_guide_url(
-        &state.context.db_path,
-        source_id,
-        (!guide_urls.is_empty())
-            .then(|| guide_urls.join(","))
-            .as_deref(),
-    )?;
-
-    Ok(inserted)
+    Ok(FetchedCatalog {
+        channels,
+        detected_guide_url: (!guide_urls.is_empty()).then(|| guide_urls.join(",")),
+    })
 }
 
-fn import_xtream_source(
-    state: &SharedState,
-    source_id: i64,
-    config: &Value,
-) -> Result<usize, String> {
-    let xtream_config = XtreamConfig::from_value(config)?;
-    let channels = import_xtream_channels(&xtream_config)?;
-    replace_channels_for_source(&state.context.db_path, source_id, &channels)
+/// Downloads a source's catalog. Nothing is stored yet, so the slow part never
+/// leaves a half-imported source behind.
+fn fetch_source_catalog(source_type: &str, config: &Value) -> Result<FetchedCatalog, String> {
+    match source_type {
+        "m3u" => fetch_m3u_catalog(config),
+        "xtream" => Ok(FetchedCatalog {
+            channels: import_xtream_channels(&XtreamConfig::from_value(config)?)?,
+            detected_guide_url: None,
+        }),
+        _ => Err(format!("unsupported source type: {source_type}")),
+    }
 }
 
+/// Re-downloads an existing source's catalog and stores it.
 fn import_source_catalog(
     state: &SharedState,
     source_type: &str,
     source_id: i64,
     config: &Value,
 ) -> Result<usize, String> {
-    match source_type {
-        "m3u" => import_m3u_source(state, source_id, config),
-        "xtream" => import_xtream_source(state, source_id, config),
-        _ => Err(format!("unsupported source type: {source_type}")),
-    }
+    let catalog = fetch_source_catalog(source_type, config)?;
+    store_source_catalog(&state.context.db_path, source_id, None, &catalog)
 }
 
 /// Adds the optional user-set guide URL to a source config.
@@ -1138,18 +1133,12 @@ fn create_and_import_m3u_source(
     let config = with_guide_url(json!({ "location": location }), epg_url);
     state.source_kind_supported("m3u", &config)?;
 
-    let source_id = create_source(&state.context.db_path, "m3u", name, &config)?;
-    let imported_channels = match import_source_catalog(state, "m3u", source_id, &config) {
-        Ok(count) => count,
-        Err(err) => {
-            let _ = delete_source(&state.context.db_path, source_id);
-            return Err(err);
-        }
-    };
-
+    let catalog = fetch_source_catalog("m3u", &config)?;
+    let source_id =
+        create_source_with_catalog(&state.context.db_path, "m3u", name, &config, &catalog)?;
     Ok(SourceImportResult {
         source_id,
-        imported_channels,
+        imported_channels: catalog.channels.len(),
     })
 }
 
@@ -1176,18 +1165,12 @@ fn create_and_import_xtream_source(
     );
     state.source_kind_supported("xtream", &config)?;
 
-    let source_id = create_source(&state.context.db_path, "xtream", name, &config)?;
-    let imported_channels = match import_source_catalog(state, "xtream", source_id, &config) {
-        Ok(count) => count,
-        Err(err) => {
-            let _ = delete_source(&state.context.db_path, source_id);
-            return Err(err);
-        }
-    };
-
+    let catalog = fetch_source_catalog("xtream", &config)?;
+    let source_id =
+        create_source_with_catalog(&state.context.db_path, "xtream", name, &config, &catalog)?;
     Ok(SourceImportResult {
         source_id,
-        imported_channels,
+        imported_channels: catalog.channels.len(),
     })
 }
 
@@ -1235,26 +1218,14 @@ fn update_registered_source_core(
     let normalized_config = normalize_source_update_config(&source.source_type, config)?;
     state.source_kind_supported(&source.source_type, &normalized_config)?;
 
-    update_source(
+    // Fetch with the new details first: a failure leaves the source as it was.
+    let catalog = fetch_source_catalog(&source.source_type, &normalized_config)?;
+    let imported_channels = store_source_catalog(
         &state.context.db_path,
         source_id,
-        normalized_name,
-        &normalized_config,
+        Some((normalized_name, &normalized_config)),
+        &catalog,
     )?;
-
-    let imported_channels =
-        match import_source_catalog(state, &source.source_type, source_id, &normalized_config) {
-            Ok(count) => count,
-            Err(err) => {
-                let _ = update_source(
-                    &state.context.db_path,
-                    source_id,
-                    &source.name,
-                    &source.config,
-                );
-                return Err(err);
-            }
-        };
 
     Ok(SourceImportResult {
         source_id,
@@ -1672,6 +1643,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::foundation::{create_source, replace_channels_for_source};
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -1722,8 +1694,9 @@ https://stream.example/sports.m3u8
         .expect("failed to create source");
 
         let state = SharedState::new(context.clone(), false);
-        let inserted = import_m3u_source(
+        let inserted = import_source_catalog(
             &state,
+            "m3u",
             source_id,
             &json!({ "location": playlist_path.to_string_lossy().to_string() }),
         )
@@ -1797,8 +1770,9 @@ https://stream.example/1.m3u8
         .expect("failed to create source");
 
         let state = SharedState::new(context.clone(), false);
-        let err = import_m3u_source(
+        let err = import_source_catalog(
             &state,
+            "m3u",
             source_id,
             &json!({ "location": playlist_path.to_string_lossy().to_string() }),
         )
@@ -1824,7 +1798,7 @@ https://stream.example/1.m3u8
         .expect("failed to create source");
 
         let state = SharedState::new(context.clone(), false);
-        let err = import_m3u_source(&state, source_id, &json!({}))
+        let err = import_source_catalog(&state, "m3u", source_id, &json!({}))
             .expect_err("missing location should fail");
         assert!(err.contains("config missing `location`"));
 
@@ -1848,8 +1822,9 @@ https://stream.example/1.m3u8
         .expect("failed to create source");
 
         let state = SharedState::new(context.clone(), false);
-        let err = import_m3u_source(
+        let err = import_source_catalog(
             &state,
+            "m3u",
             source_id,
             &json!({ "location": missing_path.to_string_lossy().to_string() }),
         )
@@ -1860,7 +1835,7 @@ https://stream.example/1.m3u8
     }
 
     #[test]
-    fn create_and_import_m3u_source_rolls_back_source_when_import_fails() {
+    fn create_and_import_m3u_source_leaves_no_source_when_import_fails() {
         let root = make_temp_root();
         let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
         init_storage(&context.db_path).expect("failed to initialize storage");
@@ -1878,6 +1853,63 @@ https://stream.example/1.m3u8
 
         let sources = list_sources(&context.db_path).expect("failed to list sources");
         assert!(sources.is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_new_source_is_not_listed_until_its_catalog_is_stored() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        init_log_file(&context.log_path).expect("failed to initialize log");
+
+        // A slow provider: the playlist takes 600 ms to arrive.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("addr");
+        thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut buffer = [0u8; 2048];
+            let _ = stream.read(&mut buffer);
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            let body = "#EXTM3U\n#EXTINF:-1 tvg-id=\"one.uk\",One\nhttp://s/1.ts\n";
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        });
+
+        let state_context = context.clone();
+        let import = thread::spawn(move || {
+            let state = SharedState::new(state_context, false);
+            create_and_import_m3u_source(
+                &state,
+                "Slow",
+                &format!("http://{address}/list.m3u"),
+                None,
+            )
+        });
+
+        // While the catalog downloads, the source must not be visible (an
+        // automatic guide refresh would find no channels and give up).
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        assert!(list_sources(&context.db_path).expect("list").is_empty());
+
+        let result = import.join().expect("join").expect("import");
+        let sources = list_sources(&context.db_path).expect("list");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(
+            list_channels_for_source(&context.db_path, result.source_id, None, None, None, false)
+                .expect("channels")
+                .len(),
+            1
+        );
 
         let _ = fs::remove_dir_all(root);
     }

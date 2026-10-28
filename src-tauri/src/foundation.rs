@@ -119,13 +119,11 @@ pub struct ChannelRecord {
     pub name: String,
     pub group_name: String,
     pub logo: Option<String>,
-    /// Guide id and provider name: used by the backend (guide matching,
-    /// search, series lookup) but not sent to the UI, where they were a
-    /// fifth of every catalog list's bytes.
+    /// Guide id: used by the backend (guide matching, series lookup) but not
+    /// sent to the UI. With the provider name (searched in SQL, never read
+    /// here) it was a fifth of every catalog list's bytes.
     #[serde(skip_serializing, default)]
     pub tvg_id: Option<String>,
-    #[serde(skip_serializing, default)]
-    pub tvg_name: Option<String>,
     pub stream_url: String,
     pub media_kind: String,
     pub is_favorite: bool,
@@ -349,6 +347,7 @@ pub fn save_phase1_settings(db_path: &Path, settings: &Phase1Settings) -> Result
     Ok(())
 }
 
+#[cfg(test)]
 pub fn create_source(
     db_path: &Path,
     source_type: &str,
@@ -367,6 +366,7 @@ pub fn create_source(
     Ok(connection.last_insert_rowid())
 }
 
+#[cfg(test)]
 pub fn update_source(
     db_path: &Path,
     source_id: i64,
@@ -440,6 +440,93 @@ pub fn get_source_by_id(db_path: &Path, source_id: i64) -> Result<Option<SourceR
     }
 }
 
+/// A catalog downloaded from a provider, ready to store.
+pub struct FetchedCatalog {
+    pub channels: Vec<ChannelInsertRecord>,
+    /// The guide URL(s) a playlist's header names; `None` for Xtream sources
+    /// and playlists without one.
+    pub detected_guide_url: Option<String>,
+}
+
+/// Adds a source together with its catalog in one transaction, so nothing
+/// (the source list, an automatic guide refresh) ever sees a source whose
+/// channels aren't there yet.
+pub fn create_source_with_catalog(
+    db_path: &Path,
+    source_type: &str,
+    name: &str,
+    config: &Value,
+    catalog: &FetchedCatalog,
+) -> Result<i64, String> {
+    let config_json =
+        serde_json::to_string(config).map_err(|e| format!("encode config failed: {e}"))?;
+    let mut connection = open_connection(db_path)?;
+    let tx = connection
+        .transaction()
+        .map_err(|e| format!("transaction start failed: {e}"))?;
+    tx.execute(
+        "INSERT INTO sources(source_type, name, config_json, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![source_type, name, config_json, unix_ts()],
+    )
+    .map_err(|e| format!("insert source failed: {e}"))?;
+    let source_id = tx.last_insert_rowid();
+    sync_channels(&tx, source_id, &catalog.channels)?;
+    crate::guide_store::write_detected_guide_url(
+        &tx,
+        source_id,
+        catalog.detected_guide_url.as_deref(),
+    )?;
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+    Ok(source_id)
+}
+
+/// Stores a freshly fetched catalog for an existing source, and its new name
+/// and config when given (an edit), in one transaction.
+pub fn store_source_catalog(
+    db_path: &Path,
+    source_id: i64,
+    details: Option<(&str, &Value)>,
+    catalog: &FetchedCatalog,
+) -> Result<usize, String> {
+    let mut connection = open_connection(db_path)?;
+    let tx = connection
+        .transaction()
+        .map_err(|e| format!("transaction start failed: {e}"))?;
+    let exists = match details {
+        Some((name, config)) => {
+            let config_json =
+                serde_json::to_string(config).map_err(|e| format!("encode config failed: {e}"))?;
+            tx.execute(
+                "UPDATE sources SET name = ?1, config_json = ?2 WHERE id = ?3",
+                params![name, config_json, source_id],
+            )
+            .map_err(|e| format!("update source failed: {e}"))?
+                > 0
+        }
+        None => tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)",
+                params![source_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|e| format!("source lookup failed: {e}"))?,
+    };
+    if !exists {
+        // Deleted while its catalog downloaded.
+        return Err(format!("source {source_id} not found"));
+    }
+    let count = sync_channels(&tx, source_id, &catalog.channels)?;
+    crate::guide_store::write_detected_guide_url(
+        &tx,
+        source_id,
+        catalog.detected_guide_url.as_deref(),
+    )?;
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+    Ok(count)
+}
+
 /// Makes the stored catalog of a source match `channels`, keeping the id of
 /// every channel that is still there. Favorites, watch history and the stored
 /// guide all hang off channel ids, so a refresh must not churn them.
@@ -447,6 +534,7 @@ pub fn get_source_by_id(db_path: &Path, source_id: i64) -> Result<Option<SourceR
 /// Channels are matched by stream URL, then by stream id plus name (the URL
 /// changes when Xtream credentials or output formats change), then by name.
 /// Unmatched old channels are deleted; new ones are inserted.
+#[cfg(test)]
 pub fn replace_channels_for_source(
     db_path: &Path,
     source_id: i64,
@@ -456,8 +544,18 @@ pub fn replace_channels_for_source(
     let tx = connection
         .transaction()
         .map_err(|e| format!("transaction start failed: {e}"))?;
+    let count = sync_channels(&tx, source_id, channels)?;
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+    Ok(count)
+}
 
-    let mut existing = ExistingChannels::load(&tx, source_id)?;
+fn sync_channels(
+    tx: &rusqlite::Transaction<'_>,
+    source_id: i64,
+    channels: &[ChannelInsertRecord],
+) -> Result<usize, String> {
+    let mut existing = ExistingChannels::load(tx, source_id)?;
     let ts = unix_ts();
     let mut insert = tx
         .prepare(
@@ -530,9 +628,6 @@ pub fn replace_channels_for_source(
         )
         .map_err(|e| format!("delete removed channels failed: {e}"))?;
     }
-
-    tx.commit()
-        .map_err(|e| format!("transaction commit failed: {e}"))?;
 
     Ok(channels.len())
 }
@@ -1256,9 +1351,6 @@ fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, Strin
         tvg_id: row
             .get(5)
             .map_err(|e| format!("decode tvg_id failed: {e}"))?,
-        tvg_name: row
-            .get(6)
-            .map_err(|e| format!("decode tvg_name failed: {e}"))?,
         stream_url: row
             .get(7)
             .map_err(|e| format!("decode stream_url failed: {e}"))?,
@@ -2167,14 +2259,12 @@ mod tests {
             group_name: "TV".to_string(),
             logo: None,
             tvg_id: Some("news.uk".to_string()),
-            tvg_name: Some("News HD".to_string()),
             stream_url: "http://x/1.ts".to_string(),
             media_kind: "live".to_string(),
             is_favorite: false,
         };
         let json = serde_json::to_value(&record).expect("serialize");
         assert!(json.get("tvg_id").is_none());
-        assert!(json.get("tvg_name").is_none());
         assert_eq!(json["stream_url"], "http://x/1.ts");
     }
 
