@@ -69,6 +69,18 @@ fn current_unix_ts() -> i64 {
         .as_secs() as i64
 }
 
+/// Runs SQLite and network work on Tauri's blocking pool. Plain sync commands
+/// run on the main thread, so a slow provider would freeze the window.
+async fn run_blocking<T, F>(app: tauri::AppHandle, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&tauri::AppHandle) -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || work(&app))
+        .await
+        .map_err(|err| format!("background task failed: {err}"))?
+}
+
 #[derive(Clone)]
 struct SourceEpgRefreshJob {
     channel_id: i64,
@@ -92,239 +104,263 @@ fn get_runtime_info(state: State<SharedState>) -> RuntimeInfo {
 }
 
 #[tauri::command]
-fn set_debug_mode(enabled: bool, state: State<SharedState>) -> Result<(), String> {
-    set_setting(
-        &state.context.db_path,
-        "debug_mode",
-        if enabled { "true" } else { "false" },
-    )?;
-    state.set_debug_mode(enabled);
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!("debug mode updated to {enabled}"),
-    )
+async fn set_debug_mode(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        set_setting(
+            &state.context.db_path,
+            "debug_mode",
+            if enabled { "true" } else { "false" },
+        )?;
+        state.set_debug_mode(enabled);
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!("debug mode updated to {enabled}"),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_registered_sources(state: State<SharedState>) -> Result<Vec<SourceRecord>, String> {
-    list_sources(&state.context.db_path)
+async fn list_registered_sources(app: tauri::AppHandle) -> Result<Vec<SourceRecord>, String> {
+    run_blocking(app, |app| {
+        list_sources(&app.state::<SharedState>().context.db_path)
+    })
+    .await
+}
+
+/// Announces that a source's catalog (and possibly its row in the source list) changed.
+fn emit_catalog_changed(
+    app: &tauri::AppHandle,
+    source_id: i64,
+    sources_changed: bool,
+) -> Result<(), String> {
+    if sources_changed {
+        emit_backend_event(app, "sources_updated", json!({ "source_id": source_id }))?;
+    }
+    emit_backend_event(app, "groups_updated", json!({ "source_id": source_id }))?;
+    emit_backend_event(app, "channels_updated", json!({ "source_id": source_id }))
 }
 
 #[tauri::command]
-fn add_m3u_source(
+async fn add_m3u_source(
     name: String,
     location: String,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<SourceImportResult, String> {
-    let result = create_and_import_m3u_source(&state, &name, &location)?;
-    let source_id = result.source_id;
-
-    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
-
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!(
-            "registered m3u source {source_id}:{name} with {} channels",
-            result.imported_channels
-        ),
-    )?;
-
-    Ok(result)
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let result = create_and_import_m3u_source(&state, &name, &location)?;
+        let source_id = result.source_id;
+        emit_catalog_changed(app, source_id, true)?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!(
+                "registered m3u source {source_id}:{name} with {} channels",
+                result.imported_channels
+            ),
+        )?;
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
-fn add_xtream_source(
+async fn add_xtream_source(
     name: String,
     server_url: String,
     username: String,
     password: String,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<SourceImportResult, String> {
-    let result = create_and_import_xtream_source(&state, &name, &server_url, &username, &password)?;
-    let source_id = result.source_id;
-
-    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
-
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!(
-            "registered xtream source {source_id}:{name} with {} catalog items",
-            result.imported_channels
-        ),
-    )?;
-
-    Ok(result)
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let result =
+            create_and_import_xtream_source(&state, &name, &server_url, &username, &password)?;
+        let source_id = result.source_id;
+        emit_catalog_changed(app, source_id, true)?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!(
+                "registered xtream source {source_id}:{name} with {} catalog items",
+                result.imported_channels
+            ),
+        )?;
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
-fn update_registered_source(
+async fn update_registered_source(
     source_id: i64,
     name: String,
     config: Value,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<SourceImportResult, String> {
-    let result = update_registered_source_core(&state, source_id, &name, &config)?;
-
-    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
-
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!(
-            "updated source {source_id}:{name} with {} catalog items",
-            result.imported_channels
-        ),
-    )?;
-
-    Ok(result)
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let result = update_registered_source_core(&state, source_id, &name, &config)?;
+        emit_catalog_changed(app, source_id, true)?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!(
+                "updated source {source_id}:{name} with {} catalog items",
+                result.imported_channels
+            ),
+        )?;
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
-fn refresh_m3u_source(
+async fn refresh_m3u_source(
     source_id: i64,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<SourceImportResult, String> {
-    let result = refresh_m3u_source_core(&state, source_id)?;
-
-    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
-
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!(
-            "refreshed source {source_id} with {} channels",
-            result.imported_channels
-        ),
-    )?;
-
-    Ok(result)
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let result = refresh_m3u_source_core(&state, source_id)?;
+        emit_catalog_changed(app, source_id, false)?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!(
+                "refreshed source {source_id} with {} channels",
+                result.imported_channels
+            ),
+        )?;
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
-fn refresh_registered_source(
+async fn refresh_registered_source(
     source_id: i64,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<SourceImportResult, String> {
-    let result = refresh_registered_source_core(&state, source_id)?;
-
-    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
-
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!(
-            "refreshed source {source_id} with {} catalog items",
-            result.imported_channels
-        ),
-    )?;
-
-    Ok(result)
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let result = refresh_registered_source_core(&state, source_id)?;
+        emit_catalog_changed(app, source_id, false)?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!(
+                "refreshed source {source_id} with {} catalog items",
+                result.imported_channels
+            ),
+        )?;
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
-fn refresh_source_epg(
+async fn refresh_source_epg(
     source_id: i64,
     limit: Option<u32>,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<SourceEpgRefreshResult, String> {
-    validate_source_epg_refresh_request(&state.context.db_path, source_id)?;
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        validate_source_epg_refresh_request(&state.context.db_path, source_id)?;
 
-    let db_path = state.context.db_path.clone();
-    let log_path = state.context.log_path.clone();
-    let app_handle = app.clone();
+        let db_path = state.context.db_path.clone();
+        let log_path = state.context.log_path.clone();
+        let app_handle = app.clone();
 
-    append_log(
-        &log_path,
-        "INFO",
-        &format!("queued source epg refresh for source {source_id}"),
-    )?;
+        append_log(
+            &log_path,
+            "INFO",
+            &format!("queued source epg refresh for source {source_id}"),
+        )?;
 
-    thread::spawn(move || {
-        run_source_epg_refresh_job(app_handle, db_path, log_path, source_id, limit);
-    });
+        thread::spawn(move || {
+            run_source_epg_refresh_job(app_handle, db_path, log_path, source_id, limit);
+        });
 
-    Ok(SourceEpgRefreshResult {
-        source_id,
-        refreshed_channels: 0,
-        channels_with_listings: 0,
-        failed_channels: 0,
-        skipped_channels: 0,
+        Ok(SourceEpgRefreshResult {
+            source_id,
+            refreshed_channels: 0,
+            channels_with_listings: 0,
+            failed_channels: 0,
+            skipped_channels: 0,
+        })
     })
+    .await
 }
 
 #[tauri::command]
-fn delete_registered_source(
-    source_id: i64,
-    app: tauri::AppHandle,
-    state: State<SharedState>,
-) -> Result<(), String> {
-    let source = get_source_by_id(&state.context.db_path, source_id)?
-        .ok_or_else(|| format!("source {source_id} not found"))?;
-
-    delete_source(&state.context.db_path, source_id)?;
-
-    emit_backend_event(&app, "sources_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "groups_updated", json!({ "source_id": source_id }))?;
-    emit_backend_event(&app, "channels_updated", json!({ "source_id": source_id }))?;
-
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!("deleted source {source_id}:{}", source.name),
-    )
+async fn delete_registered_source(source_id: i64, app: tauri::AppHandle) -> Result<(), String> {
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let source = get_source_by_id(&state.context.db_path, source_id)?
+            .ok_or_else(|| format!("source {source_id} not found"))?;
+        delete_source(&state.context.db_path, source_id)?;
+        emit_catalog_changed(app, source_id, true)?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!("deleted source {source_id}:{}", source.name),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_source_groups(
+async fn list_source_groups(
     source_id: i64,
     media_kind: Option<String>,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<GroupRecord>, String> {
-    list_groups_for_source(&state.context.db_path, source_id, media_kind.as_deref())
+    run_blocking(app, move |app| {
+        list_groups_for_source(
+            &app.state::<SharedState>().context.db_path,
+            source_id,
+            media_kind.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_source_channels(
+async fn list_source_channels(
     source_id: i64,
     media_kind: Option<String>,
     group_name: Option<String>,
     query: Option<String>,
     favorites_only: bool,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<ChannelRecord>, String> {
-    list_channels_for_source(
-        &state.context.db_path,
-        source_id,
-        media_kind.as_deref(),
-        group_name.as_deref(),
-        query.as_deref(),
-        favorites_only,
-    )
+    run_blocking(app, move |app| {
+        list_channels_for_source(
+            &app.state::<SharedState>().context.db_path,
+            source_id,
+            media_kind.as_deref(),
+            group_name.as_deref(),
+            query.as_deref(),
+            favorites_only,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_series_episodes(
+async fn list_series_episodes(
     channel_id: i64,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<SeriesEpisodeRecord>, String> {
-    list_series_episodes_core(&state, channel_id)
+    run_blocking(app, move |app| {
+        list_series_episodes_core(&app.state::<SharedState>(), channel_id)
+    })
+    .await
 }
 
 fn list_series_episodes_core(
@@ -361,20 +397,26 @@ fn list_series_episodes_core(
 }
 
 #[tauri::command]
-fn list_channel_epg(
+async fn list_channel_epg(
     channel_id: i64,
     limit: Option<u32>,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<LiveEpgEntryRecord>, String> {
-    list_channel_epg_core(&state, channel_id, limit)
+    run_blocking(app, move |app| {
+        list_channel_epg_core(&app.state::<SharedState>(), channel_id, limit)
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_source_live_now_epg(
+async fn list_source_live_now_epg(
     source_id: i64,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<StoredLiveNowEpgRecord>, String> {
-    list_live_now_epg_for_source(&state.context.db_path, source_id)
+    run_blocking(app, move |app| {
+        list_live_now_epg_for_source(&app.state::<SharedState>().context.db_path, source_id)
+    })
+    .await
 }
 
 fn list_channel_epg_core(
@@ -407,12 +449,15 @@ fn list_channel_epg_core(
 }
 
 #[tauri::command]
-fn refresh_channel_epg(
+async fn refresh_channel_epg(
     channel_id: i64,
     limit: Option<u32>,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<LiveEpgEntryRecord>, String> {
-    refresh_channel_epg_core(&state, channel_id, limit)
+    run_blocking(app, move |app| {
+        refresh_channel_epg_core(&app.state::<SharedState>(), channel_id, limit)
+    })
+    .await
 }
 
 fn refresh_channel_epg_core(
@@ -475,34 +520,43 @@ fn stored_live_epg_to_api_record(entry: StoredLiveEpgEntryRecord) -> LiveEpgEntr
 }
 
 #[tauri::command]
-fn set_channel_favorite_state(
+async fn set_channel_favorite_state(
     channel_id: i64,
     favorite: bool,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<(), String> {
-    let channel = get_channel_by_id(&state.context.db_path, channel_id)?
-        .ok_or_else(|| format!("channel {channel_id} not found"))?;
-    set_channel_favorite(&state.context.db_path, channel_id, favorite)?;
-    emit_backend_event(
-        &app,
-        "channels_updated",
-        json!({ "source_id": channel.source_id }),
-    )?;
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!("favorite={} for channel {}", favorite, channel_id),
-    )
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let channel = get_channel_by_id(&state.context.db_path, channel_id)?
+            .ok_or_else(|| format!("channel {channel_id} not found"))?;
+        set_channel_favorite(&state.context.db_path, channel_id, favorite)?;
+        emit_backend_event(
+            app,
+            "channels_updated",
+            json!({ "source_id": channel.source_id }),
+        )?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!("favorite={} for channel {}", favorite, channel_id),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_recently_played(
+async fn list_recently_played(
     limit: Option<u32>,
-    state: State<SharedState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<RecentChannelRecord>, String> {
-    let normalized_limit = normalize_recent_limit(limit);
-    list_recent_channels(&state.context.db_path, normalized_limit)
+    run_blocking(app, move |app| {
+        let normalized_limit = normalize_recent_limit(limit);
+        list_recent_channels(
+            &app.state::<SharedState>().context.db_path,
+            normalized_limit,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -537,46 +591,52 @@ fn play_channel(
 }
 
 #[tauri::command]
-fn record_recent_channel_play(
-    channel_id: i64,
-    app: tauri::AppHandle,
-    state: State<SharedState>,
-) -> Result<(), String> {
-    let channel = get_channel_by_id(&state.context.db_path, channel_id)?
-        .ok_or_else(|| format!("channel {channel_id} not found"))?;
-    record_recent_play(&state.context.db_path, channel_id)?;
-    emit_backend_event(&app, "recents_updated", json!({}))?;
-    append_log(
-        &state.context.log_path,
-        "INFO",
-        &format!(
-            "recorded recent channel play {} ({})",
-            channel.name, channel_id
-        ),
-    )
+async fn record_recent_channel_play(channel_id: i64, app: tauri::AppHandle) -> Result<(), String> {
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        let channel = get_channel_by_id(&state.context.db_path, channel_id)?
+            .ok_or_else(|| format!("channel {channel_id} not found"))?;
+        record_recent_play(&state.context.db_path, channel_id)?;
+        emit_backend_event(app, "recents_updated", json!({}))?;
+        append_log(
+            &state.context.log_path,
+            "INFO",
+            &format!(
+                "recorded recent channel play {} ({})",
+                channel.name, channel_id
+            ),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn get_phase1_settings(state: State<SharedState>) -> Result<Phase1Settings, String> {
-    load_phase1_settings(&state.context.db_path)
+async fn get_phase1_settings(app: tauri::AppHandle) -> Result<Phase1Settings, String> {
+    run_blocking(app, |app| {
+        load_phase1_settings(&app.state::<SharedState>().context.db_path)
+    })
+    .await
 }
 
 #[tauri::command]
-fn set_phase1_settings(
+async fn set_phase1_settings(
     settings: Phase1Settings,
     app: tauri::AppHandle,
-    state: State<SharedState>,
 ) -> Result<(), String> {
-    save_phase1_settings(&state.context.db_path, &settings)?;
+    run_blocking(app, move |app| {
+        let state = app.state::<SharedState>();
+        save_phase1_settings(&state.context.db_path, &settings)?;
 
-    let _ = append_log(
-        &state.context.log_path,
-        "INFO",
-        "playback preferences updated (effective on next app launch)",
-    );
+        let _ = append_log(
+            &state.context.log_path,
+            "INFO",
+            "playback preferences updated (effective on next app launch)",
+        );
 
-    emit_backend_event(&app, "settings_updated", json!({ "phase": 1 }))?;
-    append_log(&state.context.log_path, "INFO", "phase1 settings saved")
+        emit_backend_event(app, "settings_updated", json!({ "phase": 1 }))?;
+        append_log(&state.context.log_path, "INFO", "phase1 settings saved")
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1524,16 +1584,30 @@ fn resolve_main_window_id(app: &tauri::AppHandle) -> Result<u64, String> {
     }
 }
 
+/// Debug builds can run against a throwaway data directory
+/// (`SILKCAST_DATA_DIR`), so testing never touches the real library.
+fn dev_data_dir_override() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var_os("SILKCAST_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
+            let app_data_dir = match dev_data_dir_override() {
+                Some(dir) => dir,
+                None => app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("failed to resolve app data dir: {e}"))?,
+            };
 
             let context = ensure_foundation_dirs(&app_data_dir)?;
             init_storage(&context.db_path)?;

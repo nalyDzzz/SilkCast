@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 
 use crate::playback::PlaybackEngine;
@@ -192,6 +192,8 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
     connection
         .execute_batch(
             r#"
+            PRAGMA journal_mode = WAL;
+
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL,
@@ -1172,13 +1174,22 @@ fn unix_ts() -> i64 {
     now.as_secs() as i64
 }
 
+/// How long a write waits for another connection's transaction (a catalog
+/// import or guide save on a background thread) instead of failing with
+/// "database is locked".
+const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn open_connection(db_path: &Path) -> Result<Connection, String> {
     let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
     connection
+        .busy_timeout(DB_BUSY_TIMEOUT)
+        .map_err(|e| format!("db busy timeout setup failed: {e}"))?;
+    // WAL is persistent and set once in `init_storage`; NORMAL sync is safe under WAL.
+    connection
         .execute_batch(
             r#"
-            PRAGMA journal_mode = WAL;
             PRAGMA foreign_keys = ON;
+            PRAGMA synchronous = NORMAL;
             "#,
         )
         .map_err(|e| format!("db pragma setup failed: {e}"))?;
@@ -1585,7 +1596,11 @@ mod tests {
 
         let after = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
             .expect("list failed");
-        assert_ne!(id_of(&before, "News"), id_of(&after, "News"), "ids should change");
+        assert_ne!(
+            id_of(&before, "News"),
+            id_of(&after, "News"),
+            "ids should change"
+        );
 
         let mut favorites: Vec<String> =
             list_channels_for_source(&context.db_path, source_id, None, None, None, true)
@@ -1961,6 +1976,42 @@ mod tests {
             load_phase1_settings(&context.db_path).expect_err("should reject invalid setting");
         assert!(err.contains("startup_behavior"));
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn writes_wait_for_another_connections_transaction() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        // A background import or guide save holding the write lock...
+        let mut holder = open_connection(&context.db_path).expect("open failed");
+        let tx = holder.transaction().expect("transaction failed");
+        tx.execute(
+            "INSERT INTO settings(key, value, updated_at) VALUES ('busy', '1', 0)",
+            [],
+        )
+        .expect("insert failed");
+
+        let db_path = context.db_path.clone();
+        let writer = std::thread::spawn(move || set_setting(&db_path, "debug_mode", "true"));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        tx.commit().expect("commit failed");
+
+        // ...makes a concurrent write wait, not fail with "database is locked".
+        writer
+            .join()
+            .expect("writer panicked")
+            .expect("write should wait for the lock");
+        assert_eq!(
+            get_setting(&context.db_path, "debug_mode")
+                .expect("read failed")
+                .as_deref(),
+            Some("true")
+        );
+
+        drop(holder);
         let _ = fs::remove_dir_all(root);
     }
 
