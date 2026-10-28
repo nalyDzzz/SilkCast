@@ -595,10 +595,10 @@ impl XtreamClient {
             .http
             .get(url)
             .send()
-            .map_err(|err| format!("xtream request failed: {err}"))?;
+            .map_err(|err| format!("xtream request failed: {}", err.without_url()))?;
         let mut response = response
             .error_for_status()
-            .map_err(|err| format!("xtream server returned an error: {err}"))?;
+            .map_err(|err| format!("xtream server returned an error: {}", err.without_url()))?;
         // Reading through `Read` applies the timeout to each read rather than
         // to the whole body (`text()` would), so big lists can finish.
         let mut body = Vec::new();

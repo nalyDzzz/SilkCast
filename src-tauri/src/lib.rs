@@ -13,9 +13,10 @@ use foundation::{
     append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
     install_crash_hook, list_channels_for_source, list_groups_for_source, list_recent_channels,
-    list_sources, load_phase1_settings, record_recent_play, replace_channels_for_source,
-    save_phase1_settings, set_channel_favorite, set_setting, ChannelRecord, GroupRecord,
-    Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
+    list_sources, load_phase1_settings, record_recent_play, redact_credentials,
+    replace_channels_for_source, save_phase1_settings, set_channel_favorite, set_setting,
+    ChannelRecord, GroupRecord, Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState,
+    SourceRecord,
 };
 use guide_refresh::{refresh_source_guide, unix_now, GuideProgress, EPG_FETCH_LIMIT};
 use guide_store::{
@@ -313,10 +314,12 @@ fn run_source_guide_refresh(app: tauri::AppHandle, source_id: i64) {
                 "channel_count": outcome.summary.channel_count,
                 "covered_until": outcome.summary.covered_until,
                 "refreshed_at": unix_now(),
-                "warning": outcome.warning,
+                "warning": outcome.warning.as_deref().map(redact_credentials),
             })
         }
         Err(err) => {
+            // Errors can quote request URLs, which carry provider credentials.
+            let err = redact_credentials(&err);
             let _ = record_guide_failure(db_path, source_id, &err, unix_now());
             let _ = append_log(
                 log_path,
@@ -1060,7 +1063,10 @@ fn import_m3u_source(state: &SharedState, source_id: i64, config: &Value) -> Res
     }
     let inserted = replace_channels_for_source(&state.context.db_path, source_id, &channels)?;
 
-    let guide_urls = parse_m3u_guide_urls(&content);
+    let guide_urls: Vec<String> = parse_m3u_guide_urls(&content)
+        .into_iter()
+        .filter(|url| xmltv::is_remote_guide_url(url))
+        .collect();
     set_detected_guide_url(
         &state.context.db_path,
         source_id,

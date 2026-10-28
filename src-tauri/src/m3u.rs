@@ -19,10 +19,10 @@ pub fn load_m3u_location(location: &str) -> Result<String, String> {
         let response = client
             .get(trimmed)
             .send()
-            .map_err(|err| format!("failed to fetch m3u URL: {err}"))?;
+            .map_err(|err| format!("failed to fetch m3u URL: {}", err.without_url()))?;
         let response = response
             .error_for_status()
-            .map_err(|err| format!("m3u URL returned non-success status: {err}"))?;
+            .map_err(|err| format!("m3u URL returned non-success status: {}", err.without_url()))?;
         return response
             .text()
             .map_err(|err| format!("failed to read m3u body: {err}"));

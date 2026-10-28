@@ -942,6 +942,53 @@ pub fn list_recent_channels(
     Ok(recent_channels)
 }
 
+/// Masks credentials in a message: `username=`/`password=` query values and
+/// `user:pass@` in URLs. Use before logging, storing or showing errors that
+/// may quote a provider URL.
+pub fn redact_credentials(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message;
+    loop {
+        let lower = rest.to_ascii_lowercase();
+        let query = ["username=", "password="]
+            .iter()
+            .filter_map(|marker| lower.find(marker).map(|at| (at, at + marker.len())))
+            .min();
+        let userinfo = lower.find("://").and_then(|scheme_end| {
+            let authority_start = scheme_end + 3;
+            let authority_len = rest[authority_start..]
+                .find(['/', ' ', '?', '#', ')', '"', '\''])
+                .unwrap_or(rest.len() - authority_start);
+            let at = rest[authority_start..authority_start + authority_len].rfind('@')?;
+            Some((authority_start, authority_start + at))
+        });
+        let next = match (query, userinfo) {
+            (Some(q), Some(u)) => Some(if u.0 < q.0 { (u, true) } else { (q, false) }),
+            (Some(q), None) => Some((q, false)),
+            (None, Some(u)) => Some((u, true)),
+            (None, None) => None,
+        };
+        let Some(((start, value_start), is_userinfo)) = next else {
+            out.push_str(rest);
+            return out;
+        };
+        if is_userinfo {
+            out.push_str(&rest[..start]);
+            out.push_str("***");
+            rest = &rest[value_start..];
+        } else {
+            out.push_str(&rest[..value_start]);
+            let value_len = rest[value_start..]
+                .find(|ch: char| ch == '&' || ch.is_whitespace() || ")\"'".contains(ch))
+                .unwrap_or(rest.len() - value_start);
+            if value_len > 0 {
+                out.push_str("***");
+            }
+            rest = &rest[value_start + value_len..];
+        }
+    }
+}
+
 pub fn append_log(log_path: &Path, level: &str, message: &str) -> Result<(), String> {
     let line = format!("[{}] [{}] {}\n", unix_ts(), level, message);
     append_line(log_path, &line)
@@ -1883,6 +1930,21 @@ mod tests {
 
         drop(holder);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn redact_credentials_masks_query_and_userinfo_secrets() {
+        assert_eq!(
+            redact_credentials(
+                "error sending request for url (http://h/xmltv.php?username=al+ice&Password=p%26ss): timed out"
+            ),
+            "error sending request for url (http://h/xmltv.php?username=***&Password=***): timed out"
+        );
+        assert_eq!(
+            redact_credentials("failed: https://bob:hunter2@host:8080/get.php then http://ok/x"),
+            "failed: https://***@host:8080/get.php then http://ok/x"
+        );
+        assert_eq!(redact_credentials("nothing secret"), "nothing secret");
     }
 
     #[test]

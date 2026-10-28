@@ -6,13 +6,14 @@
 //! request per guide id.
 
 use crate::foundation::{
-    append_log, configured_guide_url, get_source_by_id, list_channels_for_source, SourceRecord,
+    append_log, configured_guide_url, get_source_by_id, list_channels_for_source,
+    redact_credentials, SourceRecord,
 };
 use crate::guide_store::{
     finish_guide_refresh, get_detected_guide_url, guide_key, list_guide_keys, list_settled_keys,
     store_key_programmes, GuideStaging, GuideSummary, StoredProgramme,
 };
-use crate::xmltv::{open_xmltv, parse_xmltv, XmltvProgramme};
+use crate::xmltv::{is_remote_guide_url, open_xmltv, parse_xmltv, XmltvProgramme};
 use crate::xtream::{
     extract_live_stream_id, xtream_xmltv_url, LiveEpgEntryRecord, XtreamConfig, XtreamEpgSession,
 };
@@ -40,6 +41,8 @@ const NEEDED_AHEAD_SECONDS: i64 = 3 * 3600;
 /// Per-channel results saved per transaction, so the guide fills in as it goes.
 const PER_CHANNEL_SAVE_BATCH: usize = 200;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
+/// More than any real guide holds for a day of one source's channels.
+const MAX_STAGED_PROGRAMMES: usize = 2_000_000;
 const MAX_LOGGED_CHANNEL_FAILURES: usize = 20;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -69,17 +72,44 @@ pub fn unix_now() -> i64 {
         .as_secs() as i64
 }
 
+/// Where to read a guide from. Only locations the user typed may be local
+/// files; a playlist header or provider can only point at http(s).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideLocation {
+    pub url: String,
+    pub user_set: bool,
+}
+
 /// The XMLTV documents to read for a source, in order.
-pub fn guide_urls(source: &SourceRecord, detected: Option<&str>) -> Result<Vec<String>, String> {
-    let listed = configured_guide_url(&source.config)
-        .or(detected.map(str::trim).filter(|url| !url.is_empty()));
-    if let Some(list) = listed {
-        return Ok(split_guide_urls(list));
+pub fn guide_urls(
+    source: &SourceRecord,
+    detected: Option<&str>,
+) -> Result<Vec<GuideLocation>, String> {
+    if let Some(list) = configured_guide_url(&source.config) {
+        return Ok(split_guide_urls(list)
+            .into_iter()
+            .map(|url| GuideLocation {
+                url,
+                user_set: true,
+            })
+            .collect());
+    }
+    let advertised: Vec<GuideLocation> = split_guide_urls(detected.unwrap_or_default())
+        .into_iter()
+        .filter(|url| is_remote_guide_url(url))
+        .map(|url| GuideLocation {
+            url,
+            user_set: false,
+        })
+        .collect();
+    if !advertised.is_empty() {
+        return Ok(advertised);
     }
     if source.source_type == "xtream" {
-        return Ok(vec![xtream_xmltv_url(&XtreamConfig::from_value(
-            &source.config,
-        )?)]);
+        return Ok(vec![GuideLocation {
+            url: xtream_xmltv_url(&XtreamConfig::from_value(&source.config)?),
+            user_set: false,
+        }]);
     }
     Ok(Vec::new())
 }
@@ -139,9 +169,9 @@ pub fn refresh_source_guide(
             let _ = append_log(
                 log_path,
                 "WARN",
-                &format!(
+                &redact_credentials(&format!(
                     "xmltv guide unusable for source {source_id} ({problem}); fetching per channel"
-                ),
+                )),
             );
         }
         let summary = refresh_per_channel(db_path, log_path, &source, now, progress)?;
@@ -178,7 +208,7 @@ fn import_xmltv(
     db_path: &Path,
     log_path: &Path,
     source_id: i64,
-    urls: &[String],
+    urls: &[GuideLocation],
     keys: &HashSet<String>,
     now: i64,
     progress: &dyn Fn(GuideProgress),
@@ -188,12 +218,12 @@ fn import_xmltv(
     let mut failures = Vec::new();
     let mut throttle = Throttle(None);
 
-    for url in urls {
+    for location in urls {
         let bytes = Arc::new(AtomicU64::new(0));
         let total = Arc::new(AtomicU64::new(0));
         let reader = {
             let (bytes, total) = (Arc::clone(&bytes), Arc::clone(&total));
-            open_xmltv(url, move |read, size| {
+            open_xmltv(&location.url, location.user_set, move |read, size| {
                 bytes.store(read, Ordering::Relaxed);
                 total.store(size.unwrap_or(0), Ordering::Relaxed);
             })
@@ -236,6 +266,11 @@ fn import_xmltv(
                  title,
                  description,
              }| {
+                if accepted.get() >= MAX_STAGED_PROGRAMMES {
+                    return Err(format!(
+                        "the guide lists more than {MAX_STAGED_PROGRAMMES} programmes for this source"
+                    ));
+                }
                 accepted.set(accepted.get() + 1);
                 staging.push(
                     guide_key(&channel),
@@ -256,10 +291,10 @@ fn import_xmltv(
                 let _ = append_log(
                     log_path,
                     "WARN",
-                    &format!(
+                    &redact_credentials(&format!(
                         "guide for source {source_id} ended early; kept {} programmes: {err}",
                         outcome.programmes
-                    ),
+                    )),
                 );
             }
         }
@@ -390,7 +425,10 @@ fn refresh_per_channel(
                     let _ = append_log(
                         log_path,
                         "WARN",
-                        &format!("guide fetch failed for channel {}: {err}", job.channel_name),
+                        &redact_credentials(&format!(
+                            "guide fetch failed for channel {}: {err}",
+                            job.channel_name
+                        )),
                     );
                 }
             }
@@ -633,6 +671,43 @@ mod tests {
         assert_eq!(outcome.summary.programme_count, 1);
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn only_user_set_guide_urls_may_be_local() {
+        let mut source = list_sources_fixture();
+        let detected = r"http://a/g.xml, \\host\share\g.xml, C:/g.xml";
+        assert_eq!(
+            guide_urls(&source, Some(detected)).expect("urls"),
+            vec![GuideLocation {
+                url: "http://a/g.xml".to_string(),
+                user_set: false
+            }]
+        );
+
+        source.config = json!({ "location": "x", "epg_url": "C:/guides/mine.xml" });
+        assert_eq!(
+            guide_urls(&source, Some(detected)).expect("urls"),
+            vec![GuideLocation {
+                url: "C:/guides/mine.xml".to_string(),
+                user_set: true
+            }]
+        );
+    }
+
+    fn list_sources_fixture() -> SourceRecord {
+        SourceRecord {
+            id: 1,
+            source_type: "m3u".to_string(),
+            name: "List".to_string(),
+            config: json!({ "location": "x" }),
+            created_at: 0,
+            supports_guide: true,
+            guide_refreshed_at: None,
+            guide_covered_until: None,
+            guide_error: None,
+            guide_attempted_at: None,
+        }
     }
 
     #[test]
