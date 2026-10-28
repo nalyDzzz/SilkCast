@@ -1904,7 +1904,14 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("silkcast-lib-test-{ts}"));
+        // Parallel tests can read the same clock tick on Windows (100 ns), so
+        // a counter keeps every test on its own database.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "silkcast-lib-test-{}-{ts}-{seq}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
     }

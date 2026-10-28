@@ -10,7 +10,8 @@ const CATALOG_CHANGE_EVENTS = new Set([
 
 /**
  * Keeps cached catalog state honest app-wide. Refreshing, editing, or deleting
- * a source re-imports its channels with new ids, wherever the user is.
+ * a source changes its channels (ids stay stable for channels that remain),
+ * wherever the user is.
  */
 export function useCatalogInvalidation() {
   useBackendEvents((event) => {
