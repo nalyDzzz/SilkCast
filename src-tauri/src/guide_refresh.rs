@@ -674,6 +674,101 @@ mod tests {
     }
 
     #[test]
+    fn xtream_without_xmltv_falls_back_to_one_request_per_guide_id() {
+        let root = temp_root();
+        let context = ensure_foundation_dirs(&root).expect("dirs");
+        init_storage(&context.db_path).expect("init");
+
+        let now = unix_now();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("addr");
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&requests);
+        thread::spawn(move || {
+            for stream in listener.incoming().take(3) {
+                let Ok(mut stream) = stream else { return };
+                let mut buffer = [0u8; 4096];
+                let read = stream.read(&mut buffer).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                log.lock().expect("lock").push(path.clone());
+                let (status, body) = if path.starts_with("/xmltv.php") {
+                    ("404 Not Found", String::new())
+                } else {
+                    let title = if path.contains("stream_id=1&") || path.ends_with("stream_id=1") {
+                        "News"
+                    } else {
+                        "Sport"
+                    };
+                    (
+                        "200 OK",
+                        format!(
+                            r#"{{"epg_listings":[{{"title":"{title}","start_timestamp":{},"stop_timestamp":{}}}]}}"#,
+                            now - 60,
+                            now + 3600
+                        ),
+                    )
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+
+        let source_id = create_source(
+            &context.db_path,
+            "xtream",
+            "Provider",
+            &json!({ "server_url": format!("http://{address}"), "username": "u", "password": "p" }),
+        )
+        .expect("source");
+        replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                channel("News HD", "news.uk", 1),
+                channel("News 4K", "news.uk", 2),
+                channel("Sport", "sport.uk", 3),
+            ],
+        )
+        .expect("channels");
+
+        let outcome = refresh_source_guide(&context.db_path, &context.log_path, source_id, &|_| {})
+            .expect("refresh");
+        assert_eq!(outcome.method, "short_epg");
+        assert!(outcome.warning.is_some(), "explains why XMLTV wasn't used");
+        assert_eq!(outcome.summary.channel_count, 3);
+
+        let paths = requests.lock().expect("lock").clone();
+        let short_epg = paths
+            .iter()
+            .filter(|p| p.contains("action=get_short_epg"))
+            .count();
+        assert_eq!(
+            short_epg, 2,
+            "one request per guide id, not per channel: {paths:?}"
+        );
+
+        let ids: Vec<i64> =
+            list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+                .expect("list")
+                .into_iter()
+                .map(|c| c.id)
+                .collect();
+        let window = list_programmes_for_channels(&context.db_path, &ids, now - 600, now + 600)
+            .expect("window");
+        assert_eq!(
+            window.len(),
+            3,
+            "both news variants share the fetched guide"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn only_user_set_guide_urls_may_be_local() {
         let mut source = list_sources_fixture();
         let detected = r"http://a/g.xml, \\host\share\g.xml, C:/g.xml";
