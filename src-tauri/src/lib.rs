@@ -14,9 +14,9 @@ use foundation::{
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
     install_crash_hook, list_channels_for_source, list_groups_for_source, list_recent_channels,
     list_sources, load_phase1_settings, record_recent_play, redact_credentials,
-    replace_channels_for_source, save_phase1_settings, set_channel_favorite, set_setting,
-    ChannelRecord, GroupRecord, Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState,
-    SourceRecord,
+    replace_channels_for_source, save_phase1_settings, search_channels_for_source,
+    set_channel_favorite, set_setting, ChannelRecord, GroupRecord, Phase1Settings,
+    RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
 };
 use guide_refresh::{refresh_source_guide, unix_now, GuideProgress, EPG_FETCH_LIMIT};
 use guide_store::{
@@ -383,6 +383,26 @@ async fn list_source_channels(
             group_name.as_deref(),
             query.as_deref(),
             favorites_only,
+        )
+    })
+    .await
+}
+
+/// Quick search across a source's whole catalog: at most `limit_per_kind`
+/// matches of each media kind, so the palette never receives thousands.
+#[tauri::command]
+async fn search_source_channels(
+    source_id: i64,
+    query: String,
+    limit_per_kind: u32,
+    app: tauri::AppHandle,
+) -> Result<Vec<ChannelRecord>, String> {
+    run_blocking(app, move |app| {
+        search_channels_for_source(
+            &app.state::<SharedState>().context.db_path,
+            source_id,
+            &query,
+            limit_per_kind.clamp(1, 100) as usize,
         )
     })
     .await
@@ -1618,6 +1638,7 @@ pub fn run() {
             delete_registered_source,
             list_source_groups,
             list_source_channels,
+            search_source_channels,
             list_series_episodes,
             list_channel_epg,
             list_channels_epg,

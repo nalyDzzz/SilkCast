@@ -7,7 +7,7 @@ import { CommandPalette } from '@/components/command/CommandPalette';
 import { useCommandPaletteStore } from '@/components/command/commandPaletteStore';
 import { TopBar } from '@/components/layouts/TopBar';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { listSourceChannels } from '@/lib/api/channelsApi';
+import { searchSourceChannels } from '@/lib/api/channelsApi';
 import { refreshSourceEpg } from '@/lib/api/epgApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
@@ -15,7 +15,7 @@ import { useSourceActivityStore } from '@/store/sourceActivityStore';
 import { sourceRecord } from '@/test/sourceRecord';
 
 vi.mock('@/lib/api/channelsApi', () => ({
-  listSourceChannels: vi.fn(),
+  searchSourceChannels: vi.fn(),
   setChannelFavoriteState: vi.fn(),
 }));
 vi.mock('@/lib/api/epgApi', () => ({ refreshSourceEpg: vi.fn() }));
@@ -110,7 +110,7 @@ describe('TopBar', () => {
 
   it('opens the command palette with Ctrl K and searches the catalog', async () => {
     const user = userEvent.setup();
-    vi.mocked(listSourceChannels).mockResolvedValue([
+    vi.mocked(searchSourceChannels).mockResolvedValue([
       channel(1, 'UK| ARC SPORTS 1 FHD'),
       channel(2, '##### UK SPORTS #####'),
     ]);
@@ -122,9 +122,7 @@ describe('TopBar', () => {
 
     expect(await screen.findByText('Arc Sports 1')).toBeInTheDocument();
     await waitFor(() =>
-      expect(listSourceChannels).toHaveBeenCalledWith(
-        expect.objectContaining({ sourceId: 7, query: 'arc', mediaKind: null })
-      )
+      expect(searchSourceChannels).toHaveBeenCalledWith(7, 'arc', expect.any(Number))
     );
     expect(screen.queryByText(/UK SPORTS/)).not.toBeInTheDocument();
   });

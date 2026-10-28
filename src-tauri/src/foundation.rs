@@ -801,6 +801,49 @@ pub fn list_channels_for_source(
     Ok(channels)
 }
 
+/// Name matches across a source's catalog, at most `limit_per_kind` of each
+/// media kind (in name order), for a quick search that shows a few of each.
+pub fn search_channels_for_source(
+    db_path: &Path,
+    source_id: i64,
+    query: &str,
+    limit_per_kind: usize,
+) -> Result<Vec<ChannelRecord>, String> {
+    let pattern = format!("%{}%", query.trim().to_lowercase());
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT id, source_id, name, group_name, logo, tvg_id, tvg_name, stream_url,
+                   media_kind, is_favorite
+            FROM (
+              SELECT
+                c.id, c.source_id, c.name, c.group_name, c.logo, c.tvg_id, c.tvg_name,
+                c.stream_url, c.media_kind,
+                CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite,
+                ROW_NUMBER() OVER (
+                  PARTITION BY c.media_kind ORDER BY c.name COLLATE NOCASE ASC
+                ) AS rank_in_kind
+              FROM channels c
+              LEFT JOIN favorites f ON f.channel_id = c.id
+              WHERE c.source_id = ?1
+                AND (lower(c.name) LIKE ?2 OR lower(COALESCE(c.tvg_name, '')) LIKE ?2)
+            )
+            WHERE rank_in_kind <= ?3
+            ORDER BY media_kind, name COLLATE NOCASE ASC
+            "#,
+        )
+        .map_err(|e| format!("prepare search failed: {e}"))?;
+    let mut rows = statement
+        .query(params![source_id, pattern, limit_per_kind as i64])
+        .map_err(|e| format!("search failed: {e}"))?;
+    let mut channels = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        channels.push(decode_channel_record(row)?);
+    }
+    Ok(channels)
+}
+
 pub fn get_channel_by_id(db_path: &Path, channel_id: i64) -> Result<Option<ChannelRecord>, String> {
     let connection = open_connection(db_path)?;
     let mut statement = connection
@@ -1650,6 +1693,54 @@ mod tests {
         assert_eq!(stored_buffering.as_deref(), Some("normal"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn search_caps_matches_per_media_kind() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = create_source(&context.db_path, "m3u", "List", &json!({ "location": "x" }))
+            .expect("failed to create source");
+        let item = |name: String, kind: &str| ChannelInsertRecord {
+            name,
+            group_name: None,
+            logo: None,
+            tvg_id: None,
+            tvg_name: None,
+            stream_url: format!("http://x/{kind}/{}", rand_suffix()),
+            media_kind: kind.to_string(),
+        };
+        let mut items: Vec<ChannelInsertRecord> = (0..40)
+            .map(|index| item(format!("Sports {index:02}"), "live"))
+            .collect();
+        items.extend((0..3).map(|index| item(format!("Sports Movie {index}"), "movie")));
+        items.push(item("Unrelated".to_string(), "series"));
+        replace_channels_for_source(&context.db_path, source_id, &items).expect("import failed");
+
+        let found = search_channels_for_source(&context.db_path, source_id, " SPORTS ", 5)
+            .expect("search failed");
+        let names: Vec<&str> = found.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "Sports 00",
+                "Sports 01",
+                "Sports 02",
+                "Sports 03",
+                "Sports 04",
+                "Sports Movie 0",
+                "Sports Movie 1",
+                "Sports Movie 2",
+            ]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn rand_suffix() -> usize {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     #[test]
