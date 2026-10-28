@@ -119,7 +119,12 @@ pub struct ChannelRecord {
     pub name: String,
     pub group_name: String,
     pub logo: Option<String>,
+    /// Guide id and provider name: used by the backend (guide matching,
+    /// search, series lookup) but not sent to the UI, where they were a
+    /// fifth of every catalog list's bytes.
+    #[serde(skip_serializing, default)]
     pub tvg_id: Option<String>,
+    #[serde(skip_serializing, default)]
     pub tvg_name: Option<String>,
     pub stream_url: String,
     pub media_kind: String,
@@ -2151,6 +2156,26 @@ mod tests {
 
         drop(next);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn channel_records_sent_to_the_ui_leave_out_backend_only_fields() {
+        let record = ChannelRecord {
+            id: 1,
+            source_id: 2,
+            name: "News".to_string(),
+            group_name: "TV".to_string(),
+            logo: None,
+            tvg_id: Some("news.uk".to_string()),
+            tvg_name: Some("News HD".to_string()),
+            stream_url: "http://x/1.ts".to_string(),
+            media_kind: "live".to_string(),
+            is_favorite: false,
+        };
+        let json = serde_json::to_value(&record).expect("serialize");
+        assert!(json.get("tvg_id").is_none());
+        assert!(json.get("tvg_name").is_none());
+        assert_eq!(json["stream_url"], "http://x/1.ts");
     }
 
     #[test]
