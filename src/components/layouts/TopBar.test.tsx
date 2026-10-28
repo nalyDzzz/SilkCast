@@ -11,7 +11,7 @@ import { listSourceChannels } from '@/lib/api/channelsApi';
 import { refreshSourceEpg } from '@/lib/api/epgApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
-import { GUIDE_EPG_LIMIT, useSourceActivityStore } from '@/store/sourceActivityStore';
+import { useSourceActivityStore } from '@/store/sourceActivityStore';
 
 vi.mock('@/lib/api/channelsApi', () => ({
   listSourceChannels: vi.fn(),
@@ -93,7 +93,7 @@ describe('TopBar', () => {
     expect(screen.getByRole('menuitem', { name: /Home playlist/ })).toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: /Refresh guide/ }));
 
-    expect(refreshSourceEpg).toHaveBeenCalledWith(7, GUIDE_EPG_LIMIT);
+    expect(refreshSourceEpg).toHaveBeenCalledWith(7);
     expect(useSourceActivityStore.getState().refreshingGuideSourceId).toBe(7);
   });
 

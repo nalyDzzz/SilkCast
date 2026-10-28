@@ -3,13 +3,6 @@ import { refreshSourceEpg } from '@/lib/api/epgApi';
 
 const GUIDE_UPDATED_KEY = 'silkcast:guideUpdatedAt';
 
-/**
- * Programmes fetched per channel when refreshing the guide. The guide's
- * timeline needs a few hours ahead, and the request count is the same for any
- * limit (one call per channel).
- */
-export const GUIDE_EPG_LIMIT = 8;
-
 function readGuideUpdatedAt(): Record<number, number> {
   if (typeof window === 'undefined') {
     return {};
@@ -52,7 +45,7 @@ export const useSourceActivityStore = create<SourceActivityState>((set, get) => 
     set({ refreshingGuideSourceId: sourceId });
     try {
       // Returns once queued; completion arrives as an `epg_updated` event.
-      await refreshSourceEpg(sourceId, GUIDE_EPG_LIMIT);
+      await refreshSourceEpg(sourceId);
     } catch (error) {
       set({ refreshingGuideSourceId: null });
       throw error;

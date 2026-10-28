@@ -41,9 +41,10 @@ export type LiveEpgEntryRecord = {
   end_timestamp: number | null;
 };
 
-export type LiveNowEpgRecord = {
+/** Stored programmes for one channel, as returned by a batched guide read. */
+export type ChannelEpgRecord = {
   channel_id: number;
-  title: string;
+  entries: LiveEpgEntryRecord[];
 };
 
 export type RecentChannelRecord = {

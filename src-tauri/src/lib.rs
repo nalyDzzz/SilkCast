@@ -10,12 +10,12 @@ use foundation::{
     append_log, create_source, delete_source, emit_backend_event, ensure_foundation_dirs,
     get_channel_by_id, get_setting, get_source_by_id, init_log_file, init_storage,
     install_crash_hook, list_channels_for_source, list_fresh_live_epg_channel_ids,
-    list_groups_for_source, list_live_epg_for_channel, list_live_now_epg_for_source,
+    list_groups_for_source, list_live_epg_for_channel, list_live_epg_for_channels,
     list_recent_channels, list_sources, load_phase1_settings, record_recent_play,
     replace_channels_for_source, replace_live_epg_for_channel, replace_live_epg_for_channels,
     save_phase1_settings, set_channel_favorite, set_setting, ChannelRecord, GroupRecord,
     Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
-    StoredLiveEpgChannelEntries, StoredLiveEpgEntryRecord, StoredLiveNowEpgRecord,
+    StoredLiveEpgChannelEntries, StoredLiveEpgEntryRecord,
 };
 use m3u::{load_m3u_location, parse_m3u_channels};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
@@ -60,6 +60,9 @@ enum StartupResumeMode {
 }
 
 const SOURCE_EPG_REFRESH_CONCURRENCY: usize = 8;
+/// Programmes requested per channel from the provider. It costs one request
+/// whatever the count, and covers the guide's few-hour timeline.
+const EPG_FETCH_LIMIT: usize = 12;
 const SOURCE_EPG_REFRESH_FRESH_SECONDS: i64 = 6 * 60 * 60;
 
 fn current_unix_ts() -> i64 {
@@ -265,7 +268,6 @@ async fn refresh_registered_source(
 #[tauri::command]
 async fn refresh_source_epg(
     source_id: i64,
-    limit: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<SourceEpgRefreshResult, String> {
     run_blocking(app, move |app| {
@@ -283,7 +285,7 @@ async fn refresh_source_epg(
         )?;
 
         thread::spawn(move || {
-            run_source_epg_refresh_job(app_handle, db_path, log_path, source_id, limit);
+            run_source_epg_refresh_job(app_handle, db_path, log_path, source_id);
         });
 
         Ok(SourceEpgRefreshResult {
@@ -408,13 +410,39 @@ async fn list_channel_epg(
     .await
 }
 
+#[derive(Debug, Serialize)]
+struct ChannelEpgRecord {
+    channel_id: i64,
+    entries: Vec<LiveEpgEntryRecord>,
+}
+
+/// Stored programmes overlapping `[from, to)` (unix seconds) for the given
+/// channels, in one call. Used for every on-screen guide row at once.
 #[tauri::command]
-async fn list_source_live_now_epg(
-    source_id: i64,
+async fn list_channels_epg(
+    channel_ids: Vec<i64>,
+    from: i64,
+    to: i64,
     app: tauri::AppHandle,
-) -> Result<Vec<StoredLiveNowEpgRecord>, String> {
+) -> Result<Vec<ChannelEpgRecord>, String> {
     run_blocking(app, move |app| {
-        list_live_now_epg_for_source(&app.state::<SharedState>().context.db_path, source_id)
+        let stored = list_live_epg_for_channels(
+            &app.state::<SharedState>().context.db_path,
+            &channel_ids,
+            from,
+            to,
+        )?;
+        Ok(stored
+            .into_iter()
+            .map(|channel| ChannelEpgRecord {
+                channel_id: channel.channel_id,
+                entries: channel
+                    .entries
+                    .into_iter()
+                    .map(stored_live_epg_to_api_record)
+                    .collect(),
+            })
+            .collect())
     })
     .await
 }
@@ -439,8 +467,12 @@ fn list_channel_epg_core(
     }
 
     let normalized_limit = normalize_epg_limit(limit);
-    let stored_entries =
-        list_live_epg_for_channel(&state.context.db_path, channel.id, normalized_limit)?;
+    let stored_entries = list_live_epg_for_channel(
+        &state.context.db_path,
+        channel.id,
+        normalized_limit,
+        current_unix_ts(),
+    )?;
 
     Ok(stored_entries
         .into_iter()
@@ -484,9 +516,10 @@ fn refresh_channel_epg_core(
         return Ok(Vec::new());
     };
 
-    let normalized_limit = normalize_epg_limit(limit);
+    // Store as much of the schedule as the provider gives in one request, so a
+    // caller that shows only now/next doesn't shrink the guide's timeline.
     let xtream_config = XtreamConfig::from_value(&source.config)?;
-    let entries = list_xtream_live_epg(&xtream_config, &stream_id, normalized_limit)?;
+    let entries = list_xtream_live_epg(&xtream_config, &stream_id, EPG_FETCH_LIMIT)?;
 
     let stored_entries = entries
         .iter()
@@ -494,7 +527,12 @@ fn refresh_channel_epg_core(
         .collect::<Vec<_>>();
     replace_live_epg_for_channel(&state.context.db_path, channel.id, &stored_entries)?;
 
-    Ok(entries)
+    let now = current_unix_ts();
+    Ok(entries
+        .into_iter()
+        .filter(|entry| entry.end_timestamp.is_some_and(|end| end > now))
+        .take(normalize_epg_limit(limit))
+        .collect())
 }
 
 fn api_live_epg_to_stored_record(entry: &LiveEpgEntryRecord) -> StoredLiveEpgEntryRecord {
@@ -1217,9 +1255,8 @@ fn run_source_epg_refresh_job<R: tauri::Runtime>(
     db_path: PathBuf,
     log_path: PathBuf,
     source_id: i64,
-    limit: Option<u32>,
 ) {
-    match refresh_source_epg_core_with_paths(&db_path, &log_path, source_id, limit) {
+    match refresh_source_epg_core_with_paths(&db_path, &log_path, source_id) {
         Ok(result) => {
             let _ = emit_backend_event(
                 &app,
@@ -1272,7 +1309,6 @@ fn refresh_source_epg_core_with_paths(
     db_path: &Path,
     log_path: &Path,
     source_id: i64,
-    limit: Option<u32>,
 ) -> Result<SourceEpgRefreshResult, String> {
     let source = get_source_by_id(db_path, source_id)?
         .ok_or_else(|| format!("source {source_id} not found"))?;
@@ -1282,7 +1318,6 @@ fn refresh_source_epg_core_with_paths(
     }
 
     let xtream_config = XtreamConfig::from_value(&source.config)?;
-    let normalized_limit = normalize_epg_limit(limit);
     let live_channels =
         list_channels_for_source(db_path, source_id, Some("live"), None, None, false)?;
     let fresh_cutoff = current_unix_ts().saturating_sub(SOURCE_EPG_REFRESH_FRESH_SECONDS);
@@ -1352,7 +1387,7 @@ fn refresh_source_epg_core_with_paths(
                 }
 
                 let job = &jobs[job_index];
-                let entries = session.fetch_live_epg(&job.stream_id, normalized_limit);
+                let entries = session.fetch_live_epg(&job.stream_id, EPG_FETCH_LIMIT);
                 let _ = tx.send(SourceEpgRefreshFetchOutcome {
                     channel_id: job.channel_id,
                     channel_name: job.channel_name.clone(),
@@ -1828,7 +1863,7 @@ pub fn run() {
             list_source_channels,
             list_series_episodes,
             list_channel_epg,
-            list_source_live_now_epg,
+            list_channels_epg,
             refresh_channel_epg,
             set_channel_favorite_state,
             list_recently_played,
@@ -2206,25 +2241,34 @@ https://stream.example/sports.m3u8
                 .next()
                 .expect("expected inserted channel");
 
+        let now = current_unix_ts();
+        let programme = |title: &str, start: i64, end: i64| StoredLiveEpgEntryRecord {
+            title: title.to_string(),
+            description: Some("Headlines".to_string()),
+            start: None,
+            end: None,
+            start_timestamp: Some(start),
+            end_timestamp: Some(end),
+        };
         replace_live_epg_for_channel(
             &context.db_path,
             channel.id,
-            &[StoredLiveEpgEntryRecord {
-                title: "Morning News".to_string(),
-                description: Some("Headlines".to_string()),
-                start: Some("2026-03-07 06:00:00".to_string()),
-                end: Some("2026-03-07 07:00:00".to_string()),
-                start_timestamp: Some(1700000000),
-                end_timestamp: Some(1700003600),
-            }],
+            &[
+                programme("Early News", now - 7200, now - 3600),
+                programme("Morning News", now - 600, now + 3000),
+                programme("Noon Update", now + 3000, now + 6600),
+            ],
         )
         .expect("failed to persist channel epg");
 
         let state = SharedState::new(context.clone(), false);
         let epg_entries =
             list_channel_epg_core(&state, channel.id, Some(2)).expect("epg lookup should work");
-        assert_eq!(epg_entries.len(), 1);
-        assert_eq!(epg_entries[0].title, "Morning News");
+        let titles: Vec<&str> = epg_entries
+            .iter()
+            .map(|entry| entry.title.as_str())
+            .collect();
+        assert_eq!(titles, vec!["Morning News", "Noon Update"]);
 
         let _ = fs::remove_dir_all(root);
     }

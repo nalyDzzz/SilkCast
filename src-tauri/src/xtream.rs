@@ -7,7 +7,7 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const XTREAM_USER_AGENT: &str =
@@ -380,7 +380,12 @@ impl XtreamClient {
         }
 
         let payload = self.request_json(Some(action), &extra_pairs)?;
-        let records = parse_live_epg_entries(&payload);
+        let mut records = parse_live_epg_entries(&payload);
+        if action == "get_simple_data_table" {
+            // Unlike `get_short_epg`, this returns the whole listing, past days
+            // included, so its first entries are usually long over.
+            records = upcoming_live_epg_entries(records, unix_now());
+        }
 
         Ok(records.into_iter().take(limit).collect())
     }
@@ -617,6 +622,23 @@ fn parse_live_epg_entries(payload: &Value) -> Vec<LiveEpgEntryRecord> {
         .iter()
         .filter_map(parse_single_live_epg_entry)
         .collect()
+}
+
+/// Programmes that haven't finished by `now`, oldest first.
+fn upcoming_live_epg_entries(
+    mut records: Vec<LiveEpgEntryRecord>,
+    now: i64,
+) -> Vec<LiveEpgEntryRecord> {
+    records.retain(|entry| entry.end_timestamp.is_some_and(|end| end > now));
+    records.sort_by_key(|entry| entry.start_timestamp);
+    records
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn parse_single_live_epg_entry(item: &Value) -> Option<LiveEpgEntryRecord> {
@@ -883,6 +905,24 @@ mod tests {
         );
         assert_eq!(entries[0].start_timestamp, Some(1700000000));
         assert_eq!(entries[1].title, "Noon Update");
+    }
+
+    #[test]
+    fn full_listing_fallback_keeps_only_programmes_still_on() {
+        let payload: Value = serde_json::from_str(
+            r#"{ "epg_listings": [
+                { "title": "Yesterday", "start_timestamp": 100, "stop_timestamp": 200 },
+                { "title": "Later", "start_timestamp": 1300, "stop_timestamp": 1400 },
+                { "title": "On now", "start_timestamp": 900, "stop_timestamp": 1100 },
+                { "title": "No times" },
+                { "title": "Next", "start_timestamp": 1100, "stop_timestamp": 1300 }
+            ] }"#,
+        )
+        .expect("valid json");
+
+        let upcoming = upcoming_live_epg_entries(parse_live_epg_entries(&payload), 1000);
+        let titles: Vec<&str> = upcoming.iter().map(|entry| entry.title.as_str()).collect();
+        assert_eq!(titles, vec!["On now", "Next", "Later"]);
     }
 
     fn spawn_xtream_test_server() -> String {

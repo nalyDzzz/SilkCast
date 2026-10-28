@@ -7,7 +7,7 @@ import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS, type ChannelRecord } from '../components/app/types';
 import { clearScheduleCache } from '../components/epg/useChannelSchedules';
 import { listSourceChannels } from '../lib/api/channelsApi';
-import { listChannelEpg } from '../lib/api/epgApi';
+import { listChannelsEpg } from '../lib/api/epgApi';
 import { subscribeBackendEvents } from '../lib/api/eventsApi';
 import { listSourceGroups } from '../lib/api/sourcesApi';
 
@@ -22,7 +22,7 @@ vi.mock('../lib/api/eventsApi', () => ({
   subscribeBackendEvents: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock('../lib/api/epgApi', () => ({
-  listChannelEpg: vi.fn(() => Promise.resolve([])),
+  listChannelsEpg: vi.fn(() => Promise.resolve([])),
   refreshChannelEpg: vi.fn(() => Promise.resolve([])),
   refreshSourceEpg: vi.fn(() => Promise.resolve({})),
 }));
@@ -125,11 +125,16 @@ describe('LivePage', () => {
     resetStore({ playChannelRecord });
     vi.mocked(listSourceChannels).mockResolvedValue([arc, news]);
     const now = Math.floor(Date.now() / 1000);
-    vi.mocked(listChannelEpg).mockImplementation(async (channelId) =>
-      channelId === news.id
+    vi.mocked(listChannelsEpg).mockImplementation(async (channelIds) =>
+      channelIds.includes(news.id)
         ? [
-            { title: 'The Evening Ledger', description: 'Headlines.', start: null, end: null, start_timestamp: now - 600, end_timestamp: now + 1800 },
-            { title: 'Weather Coast to Coast', description: null, start: null, end: null, start_timestamp: now + 1800, end_timestamp: now + 3600 },
+            {
+              channel_id: news.id,
+              entries: [
+                { title: 'The Evening Ledger', description: 'Headlines.', start: null, end: null, start_timestamp: now - 600, end_timestamp: now + 1800 },
+                { title: 'Weather Coast to Coast', description: null, start: null, end: null, start_timestamp: now + 1800, end_timestamp: now + 3600 },
+              ],
+            },
           ]
         : []
     );

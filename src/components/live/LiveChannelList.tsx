@@ -56,7 +56,7 @@ export function LiveChannelList({
   const virtualRows = virtualizer.getVirtualItems();
   const schedules = useChannelSchedules(
     virtualRows.map((row) => channels[row.index]?.id).filter((id): id is number => id !== undefined),
-    { limit: 2, enabled: guideEnabled }
+    { enabled: guideEnabled }
   );
 
   const selectedIndex = channels.findIndex((channel) => channel.id === selectedId);
