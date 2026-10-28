@@ -7,9 +7,10 @@ import { DEFAULT_SETTINGS } from '@/components/app/types';
 import { clearScheduleCache } from '@/components/epg/useChannelSchedules';
 import { resumeKeyFor } from '@/components/player/hooks/useResumeTracking';
 import { listSourceChannels } from '@/lib/api/channelsApi';
-import { listChannelEpg } from '@/lib/api/epgApi';
+import { listChannelsEpg } from '@/lib/api/epgApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
+import { sourceRecord } from '@/test/sourceRecord';
 import { DashboardHomePage } from './DashboardHomePage';
 
 vi.mock('@/lib/api/channelsApi', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/lib/api/sourcesApi', () => ({
   listSourceGroups: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock('@/lib/api/epgApi', () => ({
-  listChannelEpg: vi.fn(() => Promise.resolve([])),
+  listChannelsEpg: vi.fn(() => Promise.resolve([])),
 }));
 
 function channel(id: number, name: string, media_kind: ChannelRecord['media_kind']): ChannelRecord {
@@ -68,22 +69,27 @@ describe('DashboardHomePage', () => {
     );
     vi.mocked(listSourceChannels).mockResolvedValue([sports]);
     const now = Math.floor(Date.now() / 1000);
-    vi.mocked(listChannelEpg).mockImplementation(async (channelId) =>
-      channelId === sports.id
+    vi.mocked(listChannelsEpg).mockImplementation(async (channelIds) =>
+      channelIds.includes(sports.id)
         ? [
             {
-              title: 'Premier Rugby',
-              description: null,
-              start: null,
-              end: null,
-              start_timestamp: now - 600,
-              end_timestamp: now + 1200,
+              channel_id: sports.id,
+              entries: [
+                {
+                  title: 'Premier Rugby',
+                  description: null,
+                  start: null,
+                  end: null,
+                  start_timestamp: now - 600,
+                  end_timestamp: now + 1200,
+                },
+              ],
             },
           ]
         : []
     );
     useAppStore.setState({
-      sources: [{ id: 3, source_type: 'xtream', name: 'My Provider', config: {}, created_at: 1 }],
+      sources: [sourceRecord({ id: 3, source_type: 'xtream', name: 'My Provider' })],
       selectedSourceId: 3,
       recentChannels: [
         { channel: news, played_at: 30 },

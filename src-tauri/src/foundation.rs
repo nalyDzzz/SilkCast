@@ -1,14 +1,14 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 
 use crate::playback::PlaybackEngine;
@@ -26,6 +26,9 @@ pub struct SharedState {
     pub debug_mode: AtomicBool,
     pub playback: Mutex<PlaybackEngine>,
     source_registry: SourceRegistry,
+    /// Sources whose guide is refreshing, so a second request doesn't start
+    /// another download.
+    guide_refreshes: Mutex<HashSet<i64>>,
 }
 
 impl SharedState {
@@ -35,6 +38,21 @@ impl SharedState {
             debug_mode: AtomicBool::new(debug_mode),
             playback: Mutex::new(PlaybackEngine::new()),
             source_registry: SourceRegistry::with_defaults(),
+            guide_refreshes: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// Claims the guide refresh of a source; false if one is already running.
+    pub fn begin_guide_refresh(&self, source_id: i64) -> bool {
+        self.guide_refreshes
+            .lock()
+            .map(|mut running| running.insert(source_id))
+            .unwrap_or(false)
+    }
+
+    pub fn end_guide_refresh(&self, source_id: i64) {
+        if let Ok(mut running) = self.guide_refreshes.lock() {
+            running.remove(&source_id);
         }
     }
 
@@ -66,6 +84,15 @@ pub struct SourceRecord {
     pub name: String,
     pub config: Value,
     pub created_at: i64,
+    /// Xtream sources, and playlists with a configured or advertised guide URL.
+    pub supports_guide: bool,
+    /// Last successful guide refresh (unix seconds).
+    pub guide_refreshed_at: Option<i64>,
+    /// End of the last stored programme (unix seconds).
+    pub guide_covered_until: Option<i64>,
+    /// Why the last guide refresh failed, if it did.
+    pub guide_error: Option<String>,
+    pub guide_attempted_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,8 +119,11 @@ pub struct ChannelRecord {
     pub name: String,
     pub group_name: String,
     pub logo: Option<String>,
+    /// Guide id: used by the backend (guide matching, series lookup) but not
+    /// sent to the UI. With the provider name (searched in SQL, never read
+    /// here) it was a fifth of every catalog list's bytes.
+    #[serde(skip_serializing, default)]
     pub tvg_id: Option<String>,
-    pub tvg_name: Option<String>,
     pub stream_url: String,
     pub media_kind: String,
     pub is_favorite: bool,
@@ -103,28 +133,6 @@ pub struct ChannelRecord {
 pub struct RecentChannelRecord {
     pub channel: ChannelRecord,
     pub played_at: i64,
-}
-
-#[derive(Debug, Clone)]
-pub struct StoredLiveEpgEntryRecord {
-    pub title: String,
-    pub description: Option<String>,
-    pub start: Option<String>,
-    pub end: Option<String>,
-    pub start_timestamp: Option<i64>,
-    pub end_timestamp: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StoredLiveEpgChannelEntries {
-    pub channel_id: i64,
-    pub entries: Vec<StoredLiveEpgEntryRecord>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StoredLiveNowEpgRecord {
-    pub channel_id: i64,
-    pub title: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -192,6 +200,8 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
     connection
         .execute_batch(
             r#"
+            PRAGMA journal_mode = WAL;
+
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL,
@@ -242,29 +252,6 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
             CREATE INDEX IF NOT EXISTS idx_recents_played_at
               ON recents(played_at DESC);
 
-            CREATE TABLE IF NOT EXISTS live_epg_entries (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              channel_id INTEGER NOT NULL,
-              title TEXT NOT NULL,
-              description TEXT,
-              start_at TEXT,
-              end_at TEXT,
-              start_timestamp INTEGER,
-              end_timestamp INTEGER,
-              fetched_at INTEGER NOT NULL,
-              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel
-              ON live_epg_entries(channel_id);
-            CREATE INDEX IF NOT EXISTS idx_live_epg_entries_channel_start
-              ON live_epg_entries(channel_id, start_timestamp);
-
-            CREATE TABLE IF NOT EXISTS live_epg_channel_refreshes (
-              channel_id INTEGER PRIMARY KEY,
-              fetched_at INTEGER NOT NULL,
-              FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
-            );
             "#,
         )
         .map_err(|e| format!("db migration failed: {e}"))?;
@@ -275,7 +262,7 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
         [],
     );
 
-    Ok(())
+    crate::guide_store::init_guide_storage(&connection)
 }
 
 pub fn set_setting(db_path: &Path, key: &str, value: &str) -> Result<(), String> {
@@ -360,6 +347,7 @@ pub fn save_phase1_settings(db_path: &Path, settings: &Phase1Settings) -> Result
     Ok(())
 }
 
+#[cfg(test)]
 pub fn create_source(
     db_path: &Path,
     source_type: &str,
@@ -378,6 +366,7 @@ pub fn create_source(
     Ok(connection.last_insert_rowid())
 }
 
+#[cfg(test)]
 pub fn update_source(
     db_path: &Path,
     source_id: i64,
@@ -409,12 +398,19 @@ pub fn delete_source(db_path: &Path, source_id: i64) -> Result<(), String> {
     Ok(())
 }
 
+const SOURCE_SELECT: &str = r#"
+    SELECT s.id, s.source_type, s.name, s.config_json, s.created_at,
+           g.refreshed_at, g.covered_until, g.last_error, g.last_attempt_at, g.detected_url
+    FROM sources s
+    LEFT JOIN source_guides g ON g.source_id = s.id
+"#;
+
 pub fn list_sources(db_path: &Path) -> Result<Vec<SourceRecord>, String> {
     let connection = open_connection(db_path)?;
     let mut statement = connection
-        .prepare(
-            "SELECT id, source_type, name, config_json, created_at FROM sources ORDER BY created_at DESC, id DESC",
-        )
+        .prepare(&format!(
+            "{SOURCE_SELECT} ORDER BY s.created_at DESC, s.id DESC"
+        ))
         .map_err(|e| format!("prepare failed: {e}"))?;
 
     let mut rows = statement
@@ -431,9 +427,7 @@ pub fn list_sources(db_path: &Path) -> Result<Vec<SourceRecord>, String> {
 pub fn get_source_by_id(db_path: &Path, source_id: i64) -> Result<Option<SourceRecord>, String> {
     let connection = open_connection(db_path)?;
     let mut statement = connection
-        .prepare(
-            "SELECT id, source_type, name, config_json, created_at FROM sources WHERE id = ?1 LIMIT 1",
-        )
+        .prepare(&format!("{SOURCE_SELECT} WHERE s.id = ?1 LIMIT 1"))
         .map_err(|e| format!("prepare failed: {e}"))?;
 
     let mut rows = statement
@@ -446,6 +440,101 @@ pub fn get_source_by_id(db_path: &Path, source_id: i64) -> Result<Option<SourceR
     }
 }
 
+/// A catalog downloaded from a provider, ready to store.
+pub struct FetchedCatalog {
+    pub channels: Vec<ChannelInsertRecord>,
+    /// The guide URL(s) a playlist's header names; `None` for Xtream sources
+    /// and playlists without one.
+    pub detected_guide_url: Option<String>,
+}
+
+/// Adds a source together with its catalog in one transaction, so nothing
+/// (the source list, an automatic guide refresh) ever sees a source whose
+/// channels aren't there yet.
+pub fn create_source_with_catalog(
+    db_path: &Path,
+    source_type: &str,
+    name: &str,
+    config: &Value,
+    catalog: &FetchedCatalog,
+) -> Result<i64, String> {
+    let config_json =
+        serde_json::to_string(config).map_err(|e| format!("encode config failed: {e}"))?;
+    let mut connection = open_connection(db_path)?;
+    let tx = connection
+        .transaction()
+        .map_err(|e| format!("transaction start failed: {e}"))?;
+    tx.execute(
+        "INSERT INTO sources(source_type, name, config_json, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![source_type, name, config_json, unix_ts()],
+    )
+    .map_err(|e| format!("insert source failed: {e}"))?;
+    let source_id = tx.last_insert_rowid();
+    sync_channels(&tx, source_id, &catalog.channels)?;
+    crate::guide_store::write_detected_guide_url(
+        &tx,
+        source_id,
+        catalog.detected_guide_url.as_deref(),
+    )?;
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+    Ok(source_id)
+}
+
+/// Stores a freshly fetched catalog for an existing source, and its new name
+/// and config when given (an edit), in one transaction.
+pub fn store_source_catalog(
+    db_path: &Path,
+    source_id: i64,
+    details: Option<(&str, &Value)>,
+    catalog: &FetchedCatalog,
+) -> Result<usize, String> {
+    let mut connection = open_connection(db_path)?;
+    let tx = connection
+        .transaction()
+        .map_err(|e| format!("transaction start failed: {e}"))?;
+    let exists = match details {
+        Some((name, config)) => {
+            let config_json =
+                serde_json::to_string(config).map_err(|e| format!("encode config failed: {e}"))?;
+            tx.execute(
+                "UPDATE sources SET name = ?1, config_json = ?2 WHERE id = ?3",
+                params![name, config_json, source_id],
+            )
+            .map_err(|e| format!("update source failed: {e}"))?
+                > 0
+        }
+        None => tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)",
+                params![source_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|e| format!("source lookup failed: {e}"))?,
+    };
+    if !exists {
+        // Deleted while its catalog downloaded.
+        return Err(format!("source {source_id} not found"));
+    }
+    let count = sync_channels(&tx, source_id, &catalog.channels)?;
+    crate::guide_store::write_detected_guide_url(
+        &tx,
+        source_id,
+        catalog.detected_guide_url.as_deref(),
+    )?;
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+    Ok(count)
+}
+
+/// Makes the stored catalog of a source match `channels`, keeping the id of
+/// every channel that is still there. Favorites, watch history and the stored
+/// guide all hang off channel ids, so a refresh must not churn them.
+///
+/// Channels are matched by stream URL, then by stream id plus name (the URL
+/// changes when Xtream credentials or output formats change), then by name.
+/// Unmatched old channels are deleted; new ones are inserted.
+#[cfg(test)]
 pub fn replace_channels_for_source(
     db_path: &Path,
     source_id: i64,
@@ -455,175 +544,254 @@ pub fn replace_channels_for_source(
     let tx = connection
         .transaction()
         .map_err(|e| format!("transaction start failed: {e}"))?;
+    let count = sync_channels(&tx, source_id, channels)?;
+    tx.commit()
+        .map_err(|e| format!("transaction commit failed: {e}"))?;
+    Ok(count)
+}
 
-    // Favorites and watch history point at channel ids, which every re-import
-    // replaces. Remember them by stream identity and re-attach them below so a
-    // source refresh doesn't silently wipe them.
-    let preserved_favorites = snapshot_channel_links(
-        &tx,
-        "SELECT c.media_kind, c.stream_url, c.name, f.created_at
-           FROM favorites f JOIN channels c ON c.id = f.channel_id
-          WHERE c.source_id = ?1",
-        source_id,
-    )?;
-    let preserved_recents = snapshot_channel_links(
-        &tx,
-        "SELECT c.media_kind, c.stream_url, c.name, r.played_at
-           FROM recents r JOIN channels c ON c.id = r.channel_id
-          WHERE c.source_id = ?1
-          ORDER BY r.played_at",
-        source_id,
-    )?;
-
-    tx.execute(
-        "DELETE FROM channels WHERE source_id = ?1",
-        params![source_id],
-    )
-    .map_err(|e| format!("delete existing channels failed: {e}"))?;
-
-    let mut inserted = 0usize;
-    let mut statement = tx
+fn sync_channels(
+    tx: &rusqlite::Transaction<'_>,
+    source_id: i64,
+    channels: &[ChannelInsertRecord],
+) -> Result<usize, String> {
+    let mut existing = ExistingChannels::load(tx, source_id)?;
+    let ts = unix_ts();
+    let mut insert = tx
         .prepare(
             r#"
             INSERT INTO channels(
-              source_id,
-              name,
-              group_name,
-              logo,
-              tvg_id,
-              tvg_name,
-              stream_url,
-              media_kind,
-              created_at,
-              updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+              source_id, name, group_name, logo, tvg_id, tvg_name,
+              stream_url, media_kind, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
             "#,
         )
         .map_err(|e| format!("prepare insert failed: {e}"))?;
+    let mut update = tx
+        .prepare(
+            r#"
+            UPDATE channels
+               SET name = ?2, group_name = ?3, logo = ?4, tvg_id = ?5, tvg_name = ?6,
+                   stream_url = ?7, media_kind = ?8, updated_at = ?9
+             WHERE id = ?1
+            "#,
+        )
+        .map_err(|e| format!("prepare update failed: {e}"))?;
 
-    let ts = unix_ts();
-    let mut new_ids = ChannelIdentityIndex::default();
     for channel in channels {
-        let group_name = channel
-            .group_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("Ungrouped");
-        let media_kind = normalize_media_kind(&channel.media_kind);
-
-        let channel_id = statement
-            .insert(params![
-                source_id,
-                channel.name,
-                group_name,
-                channel.logo,
-                channel.tvg_id,
-                channel.tvg_name,
-                channel.stream_url,
-                media_kind,
-                ts,
-                ts,
-            ])
-            .map_err(|e| format!("insert channel failed: {e}"))?;
-        new_ids.add(&media_kind, &channel.stream_url, &channel.name, channel_id);
-        inserted += 1;
-    }
-
-    drop(statement);
-
-    for link in &preserved_favorites {
-        if let Some(channel_id) = new_ids.find(link) {
-            tx.execute(
-                "INSERT OR IGNORE INTO favorites(channel_id, created_at) VALUES (?1, ?2)",
-                params![channel_id, link.timestamp],
-            )
-            .map_err(|e| format!("restore favorite failed: {e}"))?;
+        let incoming = StoredChannelFields::normalized(channel);
+        match existing.claim(&incoming) {
+            Some(Claimed::Unchanged) => {}
+            Some(Claimed::Changed(id)) => {
+                update
+                    .execute(params![
+                        id,
+                        incoming.name,
+                        incoming.group_name,
+                        incoming.logo,
+                        incoming.tvg_id,
+                        incoming.tvg_name,
+                        incoming.stream_url,
+                        incoming.media_kind,
+                        ts,
+                    ])
+                    .map_err(|e| format!("update channel failed: {e}"))?;
+            }
+            None => {
+                insert
+                    .execute(params![
+                        source_id,
+                        incoming.name,
+                        incoming.group_name,
+                        incoming.logo,
+                        incoming.tvg_id,
+                        incoming.tvg_name,
+                        incoming.stream_url,
+                        incoming.media_kind,
+                        ts,
+                    ])
+                    .map_err(|e| format!("insert channel failed: {e}"))?;
+            }
         }
     }
-    for link in &preserved_recents {
-        if let Some(channel_id) = new_ids.find(link) {
-            tx.execute(
-                "INSERT INTO recents(channel_id, played_at) VALUES (?1, ?2)",
-                params![channel_id, link.timestamp],
-            )
-            .map_err(|e| format!("restore recent failed: {e}"))?;
-        }
+    drop(insert);
+    drop(update);
+
+    // Gone from the provider: favorites, recents and guide rows cascade away.
+    let removed = existing.unclaimed_ids();
+    if !removed.is_empty() {
+        let removed_json =
+            serde_json::to_string(&removed).map_err(|e| format!("encode ids failed: {e}"))?;
+        tx.execute(
+            "DELETE FROM channels WHERE id IN (SELECT value FROM json_each(?1))",
+            params![removed_json],
+        )
+        .map_err(|e| format!("delete removed channels failed: {e}"))?;
     }
 
-    tx.execute(
-        "DELETE FROM recents WHERE channel_id NOT IN (SELECT id FROM channels)",
-        [],
-    )
-    .map_err(|e| format!("cleanup recents failed: {e}"))?;
-    tx.execute(
-        "DELETE FROM favorites WHERE channel_id NOT IN (SELECT id FROM channels)",
-        [],
-    )
-    .map_err(|e| format!("cleanup favorites failed: {e}"))?;
-
-    tx.commit()
-        .map_err(|e| format!("transaction commit failed: {e}"))?;
-
-    Ok(inserted)
+    Ok(channels.len())
 }
 
-/// A favorite or recent entry captured by channel identity rather than id.
-struct ChannelLink {
-    media_kind: String,
-    stream_url: String,
+/// The columns a catalog import writes, normalized the way they are stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoredChannelFields {
     name: String,
-    timestamp: i64,
+    group_name: String,
+    logo: Option<String>,
+    tvg_id: Option<String>,
+    tvg_name: Option<String>,
+    stream_url: String,
+    media_kind: String,
 }
 
-fn snapshot_channel_links(
-    tx: &rusqlite::Transaction<'_>,
-    sql: &str,
-    source_id: i64,
-) -> Result<Vec<ChannelLink>, String> {
-    let mut statement = tx
-        .prepare(sql)
-        .map_err(|e| format!("prepare channel link snapshot failed: {e}"))?;
-    let rows = statement
-        .query_map(params![source_id], |row| {
-            Ok(ChannelLink {
-                media_kind: row.get(0)?,
-                stream_url: row.get(1)?,
-                name: row.get(2)?,
-                timestamp: row.get(3)?,
+impl StoredChannelFields {
+    fn normalized(channel: &ChannelInsertRecord) -> Self {
+        Self {
+            name: channel.name.clone(),
+            group_name: channel
+                .group_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("Ungrouped")
+                .to_string(),
+            logo: channel.logo.clone(),
+            tvg_id: channel.tvg_id.clone(),
+            tvg_name: channel.tvg_name.clone(),
+            stream_url: channel.stream_url.clone(),
+            media_kind: normalize_media_kind(&channel.media_kind),
+        }
+    }
+}
+
+/// The last path segment of a stream URL without its extension: the stream
+/// id for Xtream (`.../live/user/pass/1234.m3u8` -> `1234`).
+fn stream_key(stream_url: &str) -> &str {
+    let path = stream_url.split(['?', '#']).next().unwrap_or(stream_url);
+    let segment = path.rsplit('/').next().unwrap_or(path);
+    segment.split('.').next().unwrap_or(segment)
+}
+
+enum Claimed {
+    Unchanged,
+    Changed(i64),
+}
+
+/// A source's stored channels, indexed so each re-imported channel can claim
+/// its previous row (each row at most once, earliest id first).
+struct ExistingChannels {
+    rows: HashMap<i64, StoredChannelFields>,
+    claimed: HashSet<i64>,
+    by_url: HashMap<(String, String), VecDeque<i64>>,
+    by_key_and_name: HashMap<(String, String, String), VecDeque<i64>>,
+    by_name: HashMap<(String, String), VecDeque<i64>>,
+}
+
+impl ExistingChannels {
+    fn load(tx: &rusqlite::Transaction<'_>, source_id: i64) -> Result<Self, String> {
+        let mut statement = tx
+            .prepare(
+                r#"
+                SELECT id, name, group_name, logo, tvg_id, tvg_name, stream_url, media_kind
+                FROM channels
+                WHERE source_id = ?1
+                ORDER BY id
+                "#,
+            )
+            .map_err(|e| format!("prepare existing channels failed: {e}"))?;
+        let rows = statement
+            .query_map(params![source_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    StoredChannelFields {
+                        name: row.get(1)?,
+                        group_name: row.get(2)?,
+                        logo: row.get(3)?,
+                        tvg_id: row.get(4)?,
+                        tvg_name: row.get(5)?,
+                        stream_url: row.get(6)?,
+                        media_kind: row.get(7)?,
+                    },
+                ))
             })
-        })
-        .map_err(|e| format!("query channel link snapshot failed: {e}"))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("read channel link snapshot failed: {e}"))
-}
+            .map_err(|e| format!("query existing channels failed: {e}"))?;
 
-/// Looks up re-imported channels by stream URL, falling back to the name when
-/// the URL changed (for example after editing Xtream credentials).
-#[derive(Default)]
-struct ChannelIdentityIndex {
-    by_url: HashMap<(String, String), i64>,
-    by_name: HashMap<(String, String), i64>,
-}
-
-impl ChannelIdentityIndex {
-    fn add(&mut self, media_kind: &str, stream_url: &str, name: &str, channel_id: i64) {
-        self.by_url
-            .entry((media_kind.to_string(), stream_url.to_string()))
-            .or_insert(channel_id);
-        self.by_name
-            .entry((media_kind.to_string(), name.to_string()))
-            .or_insert(channel_id);
+        let mut index = Self {
+            rows: HashMap::new(),
+            claimed: HashSet::new(),
+            by_url: HashMap::new(),
+            by_key_and_name: HashMap::new(),
+            by_name: HashMap::new(),
+        };
+        for row in rows {
+            let (id, fields) = row.map_err(|e| format!("read existing channel failed: {e}"))?;
+            let kind = fields.media_kind.clone();
+            index
+                .by_url
+                .entry((kind.clone(), fields.stream_url.clone()))
+                .or_default()
+                .push_back(id);
+            index
+                .by_key_and_name
+                .entry((
+                    kind.clone(),
+                    stream_key(&fields.stream_url).to_string(),
+                    fields.name.clone(),
+                ))
+                .or_default()
+                .push_back(id);
+            index
+                .by_name
+                .entry((kind, fields.name.clone()))
+                .or_default()
+                .push_back(id);
+            index.rows.insert(id, fields);
+        }
+        Ok(index)
     }
 
-    fn find(&self, link: &ChannelLink) -> Option<i64> {
-        self.by_url
-            .get(&(link.media_kind.clone(), link.stream_url.clone()))
-            .or_else(|| {
-                self.by_name
-                    .get(&(link.media_kind.clone(), link.name.clone()))
-            })
+    /// The previous row for `incoming`, if one is left to claim.
+    fn claim(&mut self, incoming: &StoredChannelFields) -> Option<Claimed> {
+        let kind = &incoming.media_kind;
+        let claimed = &mut self.claimed;
+        let mut take = |queue: Option<&mut VecDeque<i64>>| -> Option<i64> {
+            let queue = queue?;
+            while let Some(id) = queue.pop_front() {
+                if claimed.insert(id) {
+                    return Some(id);
+                }
+            }
+            None
+        };
+
+        let id = take(
+            self.by_url
+                .get_mut(&(kind.clone(), incoming.stream_url.clone())),
+        )
+        .or_else(|| {
+            take(self.by_key_and_name.get_mut(&(
+                kind.clone(),
+                stream_key(&incoming.stream_url).to_string(),
+                incoming.name.clone(),
+            )))
+        })
+        .or_else(|| take(self.by_name.get_mut(&(kind.clone(), incoming.name.clone()))))?;
+        Some(if self.rows.get(&id) == Some(incoming) {
+            Claimed::Unchanged
+        } else {
+            Claimed::Changed(id)
+        })
+    }
+
+    fn unclaimed_ids(&self) -> Vec<i64> {
+        let mut ids: Vec<i64> = self
+            .rows
+            .keys()
             .copied()
+            .filter(|id| !self.claimed.contains(id))
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 }
 
@@ -730,6 +898,49 @@ pub fn list_channels_for_source(
         channels.push(decode_channel_record(&row)?);
     }
 
+    Ok(channels)
+}
+
+/// Name matches across a source's catalog, at most `limit_per_kind` of each
+/// media kind (in name order), for a quick search that shows a few of each.
+pub fn search_channels_for_source(
+    db_path: &Path,
+    source_id: i64,
+    query: &str,
+    limit_per_kind: usize,
+) -> Result<Vec<ChannelRecord>, String> {
+    let pattern = format!("%{}%", query.trim().to_lowercase());
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT id, source_id, name, group_name, logo, tvg_id, tvg_name, stream_url,
+                   media_kind, is_favorite
+            FROM (
+              SELECT
+                c.id, c.source_id, c.name, c.group_name, c.logo, c.tvg_id, c.tvg_name,
+                c.stream_url, c.media_kind,
+                CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite,
+                ROW_NUMBER() OVER (
+                  PARTITION BY c.media_kind ORDER BY c.name COLLATE NOCASE ASC
+                ) AS rank_in_kind
+              FROM channels c
+              LEFT JOIN favorites f ON f.channel_id = c.id
+              WHERE c.source_id = ?1
+                AND (lower(c.name) LIKE ?2 OR lower(COALESCE(c.tvg_name, '')) LIKE ?2)
+            )
+            WHERE rank_in_kind <= ?3
+            ORDER BY media_kind, name COLLATE NOCASE ASC
+            "#,
+        )
+        .map_err(|e| format!("prepare search failed: {e}"))?;
+    let mut rows = statement
+        .query(params![source_id, pattern, limit_per_kind as i64])
+        .map_err(|e| format!("search failed: {e}"))?;
+    let mut channels = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        channels.push(decode_channel_record(row)?);
+    }
     Ok(channels)
 }
 
@@ -874,234 +1085,51 @@ pub fn list_recent_channels(
     Ok(recent_channels)
 }
 
-pub fn replace_live_epg_for_channel(
-    db_path: &Path,
-    channel_id: i64,
-    entries: &[StoredLiveEpgEntryRecord],
-) -> Result<(), String> {
-    replace_live_epg_for_channels(
-        db_path,
-        &[StoredLiveEpgChannelEntries {
-            channel_id,
-            entries: entries.to_vec(),
-        }],
-    )
-}
-
-pub fn replace_live_epg_for_channels(
-    db_path: &Path,
-    channel_entries: &[StoredLiveEpgChannelEntries],
-) -> Result<(), String> {
-    if channel_entries.is_empty() {
-        return Ok(());
-    }
-
-    let mut connection = open_connection(db_path)?;
-    let tx = connection
-        .transaction()
-        .map_err(|e| format!("transaction start failed: {e}"))?;
-    let fetched_at = unix_ts();
-
-    for channel_entry in channel_entries {
-        tx.execute(
-            "DELETE FROM live_epg_entries WHERE channel_id = ?1",
-            params![channel_entry.channel_id],
-        )
-        .map_err(|e| format!("delete live epg entries failed: {e}"))?;
-        tx.execute(
-            r#"
-            INSERT INTO live_epg_channel_refreshes(channel_id, fetched_at)
-            VALUES (?1, ?2)
-            ON CONFLICT(channel_id) DO UPDATE SET fetched_at = excluded.fetched_at
-            "#,
-            params![channel_entry.channel_id, fetched_at],
-        )
-        .map_err(|e| format!("upsert live epg refresh status failed: {e}"))?;
-    }
-
-    let mut statement = tx
-        .prepare(
-            r#"
-            INSERT INTO live_epg_entries(
-              channel_id,
-              title,
-              description,
-              start_at,
-              end_at,
-              start_timestamp,
-              end_timestamp,
-              fetched_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            "#,
-        )
-        .map_err(|e| format!("prepare insert live epg failed: {e}"))?;
-
-    for channel_entry in channel_entries {
-        for entry in &channel_entry.entries {
-            statement
-                .execute(params![
-                    channel_entry.channel_id,
-                    entry.title,
-                    entry.description,
-                    entry.start,
-                    entry.end,
-                    entry.start_timestamp,
-                    entry.end_timestamp,
-                    fetched_at,
-                ])
-                .map_err(|e| format!("insert live epg entry failed: {e}"))?;
+/// Masks credentials in a message: `username=`/`password=` query values and
+/// `user:pass@` in URLs. Use before logging, storing or showing errors that
+/// may quote a provider URL.
+pub fn redact_credentials(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message;
+    loop {
+        let lower = rest.to_ascii_lowercase();
+        let query = ["username=", "password="]
+            .iter()
+            .filter_map(|marker| lower.find(marker).map(|at| (at, at + marker.len())))
+            .min();
+        let userinfo = lower.find("://").and_then(|scheme_end| {
+            let authority_start = scheme_end + 3;
+            let authority_len = rest[authority_start..]
+                .find(['/', ' ', '?', '#', ')', '"', '\''])
+                .unwrap_or(rest.len() - authority_start);
+            let at = rest[authority_start..authority_start + authority_len].rfind('@')?;
+            Some((authority_start, authority_start + at))
+        });
+        let next = match (query, userinfo) {
+            (Some(q), Some(u)) => Some(if u.0 < q.0 { (u, true) } else { (q, false) }),
+            (Some(q), None) => Some((q, false)),
+            (None, Some(u)) => Some((u, true)),
+            (None, None) => None,
+        };
+        let Some(((start, value_start), is_userinfo)) = next else {
+            out.push_str(rest);
+            return out;
+        };
+        if is_userinfo {
+            out.push_str(&rest[..start]);
+            out.push_str("***");
+            rest = &rest[value_start..];
+        } else {
+            out.push_str(&rest[..value_start]);
+            let value_len = rest[value_start..]
+                .find(|ch: char| ch == '&' || ch.is_whitespace() || ")\"'".contains(ch))
+                .unwrap_or(rest.len() - value_start);
+            if value_len > 0 {
+                out.push_str("***");
+            }
+            rest = &rest[value_start + value_len..];
         }
     }
-
-    drop(statement);
-    tx.commit()
-        .map_err(|e| format!("transaction commit failed: {e}"))?;
-
-    Ok(())
-}
-
-pub fn list_live_epg_for_channel(
-    db_path: &Path,
-    channel_id: i64,
-    limit: usize,
-) -> Result<Vec<StoredLiveEpgEntryRecord>, String> {
-    let connection = open_connection(db_path)?;
-    let mut statement = connection
-        .prepare(
-            r#"
-            SELECT
-              title,
-              description,
-              start_at,
-              end_at,
-              start_timestamp,
-              end_timestamp
-            FROM live_epg_entries
-            WHERE channel_id = ?1
-            ORDER BY
-              CASE WHEN start_timestamp IS NULL THEN 1 ELSE 0 END,
-              start_timestamp ASC,
-              id ASC
-            LIMIT ?2
-            "#,
-        )
-        .map_err(|e| format!("prepare failed: {e}"))?;
-
-    let mut rows = statement
-        .query(params![channel_id, limit as i64])
-        .map_err(|e| format!("query failed: {e}"))?;
-
-    let mut entries = Vec::new();
-    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
-        entries.push(StoredLiveEpgEntryRecord {
-            title: row
-                .get(0)
-                .map_err(|e| format!("decode title failed: {e}"))?,
-            description: row
-                .get(1)
-                .map_err(|e| format!("decode description failed: {e}"))?,
-            start: row
-                .get(2)
-                .map_err(|e| format!("decode start_at failed: {e}"))?,
-            end: row
-                .get(3)
-                .map_err(|e| format!("decode end_at failed: {e}"))?,
-            start_timestamp: row
-                .get(4)
-                .map_err(|e| format!("decode start_timestamp failed: {e}"))?,
-            end_timestamp: row
-                .get(5)
-                .map_err(|e| format!("decode end_timestamp failed: {e}"))?,
-        });
-    }
-
-    Ok(entries)
-}
-
-pub fn list_fresh_live_epg_channel_ids(
-    db_path: &Path,
-    source_id: i64,
-    min_fetched_at: i64,
-) -> Result<HashSet<i64>, String> {
-    let connection = open_connection(db_path)?;
-    let mut statement = connection
-        .prepare(
-            r#"
-            SELECT c.id
-            FROM channels c
-            JOIN live_epg_channel_refreshes r ON r.channel_id = c.id
-            WHERE c.source_id = ?1
-              AND c.media_kind = 'live'
-              AND r.fetched_at >= ?2
-            "#,
-        )
-        .map_err(|e| format!("prepare fresh live epg lookup failed: {e}"))?;
-
-    let mut rows = statement
-        .query(params![source_id, min_fetched_at])
-        .map_err(|e| format!("query fresh live epg lookup failed: {e}"))?;
-
-    let mut channel_ids = HashSet::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| format!("read fresh epg row failed: {e}"))?
-    {
-        channel_ids.insert(
-            row.get(0)
-                .map_err(|e| format!("decode fresh epg channel id failed: {e}"))?,
-        );
-    }
-
-    Ok(channel_ids)
-}
-
-pub fn list_live_now_epg_for_source(
-    db_path: &Path,
-    source_id: i64,
-) -> Result<Vec<StoredLiveNowEpgRecord>, String> {
-    let connection = open_connection(db_path)?;
-    let mut statement = connection
-        .prepare(
-            r#"
-            SELECT c.id, e.title
-            FROM channels c
-            JOIN live_epg_entries e ON e.id = (
-              SELECT inner_e.id
-              FROM live_epg_entries inner_e
-              WHERE inner_e.channel_id = c.id
-              ORDER BY
-                CASE WHEN inner_e.start_timestamp IS NULL THEN 1 ELSE 0 END,
-                inner_e.start_timestamp ASC,
-                inner_e.id ASC
-              LIMIT 1
-            )
-            WHERE c.source_id = ?1
-              AND c.media_kind = 'live'
-            ORDER BY c.name COLLATE NOCASE ASC
-            "#,
-        )
-        .map_err(|e| format!("prepare live now epg lookup failed: {e}"))?;
-
-    let mut rows = statement
-        .query(params![source_id])
-        .map_err(|e| format!("query live now epg lookup failed: {e}"))?;
-
-    let mut records = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| format!("read live now epg row failed: {e}"))?
-    {
-        records.push(StoredLiveNowEpgRecord {
-            channel_id: row
-                .get(0)
-                .map_err(|e| format!("decode live now channel id failed: {e}"))?,
-            title: row
-                .get(1)
-                .map_err(|e| format!("decode live now title failed: {e}"))?,
-        });
-    }
-
-    Ok(records)
 }
 
 pub fn append_log(log_path: &Path, level: &str, message: &str) -> Result<(), String> {
@@ -1172,13 +1200,87 @@ fn unix_ts() -> i64 {
     now.as_secs() as i64
 }
 
-fn open_connection(db_path: &Path) -> Result<Connection, String> {
+/// How long a write waits for another connection's transaction (a catalog
+/// import or guide save on a background thread) instead of failing with
+/// "database is locked".
+const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Idle connections kept for reuse. Opening one costs about a millisecond on
+/// Windows (file open, pragmas, schema load) against microseconds per query.
+const MAX_IDLE_CONNECTIONS: usize = 4;
+
+static IDLE_CONNECTIONS: Mutex<Vec<(PathBuf, Connection)>> = Mutex::new(Vec::new());
+
+/// A database connection that goes back to the idle pool when dropped.
+pub(crate) struct PooledConnection {
+    connection: Option<Connection>,
+    db_path: PathBuf,
+}
+
+impl std::ops::Deref for PooledConnection {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.connection
+            .as_ref()
+            .expect("pooled connection is present until drop")
+    }
+}
+
+impl std::ops::DerefMut for PooledConnection {
+    fn deref_mut(&mut self) -> &mut Connection {
+        self.connection
+            .as_mut()
+            .expect("pooled connection is present until drop")
+    }
+}
+
+impl Drop for PooledConnection {
+    fn drop(&mut self) {
+        let Some(connection) = self.connection.take() else {
+            return;
+        };
+        // Never hand out a connection that is still inside a transaction.
+        if !connection.is_autocommit() {
+            return;
+        }
+        if let Ok(mut idle) = IDLE_CONNECTIONS.lock() {
+            // Keep the most recently used connections; close the oldest.
+            if idle.len() >= MAX_IDLE_CONNECTIONS {
+                idle.remove(0);
+            }
+            idle.push((std::mem::take(&mut self.db_path), connection));
+        }
+    }
+}
+
+/// A connection to the app database, reused from the idle pool when possible.
+pub(crate) fn open_connection(db_path: &Path) -> Result<PooledConnection, String> {
+    let reused = IDLE_CONNECTIONS.lock().ok().and_then(|mut idle| {
+        let index = idle.iter().rposition(|(path, _)| path == db_path)?;
+        Some(idle.swap_remove(index).1)
+    });
+    let connection = match reused {
+        Some(connection) => connection,
+        None => open_new_connection(db_path)?,
+    };
+    Ok(PooledConnection {
+        connection: Some(connection),
+        db_path: db_path.to_path_buf(),
+    })
+}
+
+fn open_new_connection(db_path: &Path) -> Result<Connection, String> {
     let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
+    connection
+        .busy_timeout(DB_BUSY_TIMEOUT)
+        .map_err(|e| format!("db busy timeout setup failed: {e}"))?;
+    // WAL is persistent and set once in `init_storage`; NORMAL sync is safe under WAL.
     connection
         .execute_batch(
             r#"
-            PRAGMA journal_mode = WAL;
             PRAGMA foreign_keys = ON;
+            PRAGMA synchronous = NORMAL;
             "#,
         )
         .map_err(|e| format!("db pragma setup failed: {e}"))?;
@@ -1191,17 +1293,44 @@ fn decode_source_record(row: &rusqlite::Row<'_>) -> Result<SourceRecord, String>
         .map_err(|e| format!("decode config failed: {e}"))?;
     let config: Value =
         serde_json::from_str(&config_json).map_err(|e| format!("parse config failed: {e}"))?;
+    let source_type: String = row
+        .get(1)
+        .map_err(|e| format!("decode source_type failed: {e}"))?;
+    let detected_guide_url: Option<String> = row
+        .get(9)
+        .map_err(|e| format!("decode guide url failed: {e}"))?;
+    let supports_guide = source_type == "xtream"
+        || configured_guide_url(&config).is_some()
+        || detected_guide_url.is_some_and(|url| !url.trim().is_empty());
+    let guide_column = |index: usize| -> Result<Option<i64>, String> {
+        row.get(index)
+            .map_err(|e| format!("decode guide status failed: {e}"))
+    };
     Ok(SourceRecord {
         id: row.get(0).map_err(|e| format!("decode id failed: {e}"))?,
-        source_type: row
-            .get(1)
-            .map_err(|e| format!("decode source_type failed: {e}"))?,
+        source_type,
         name: row.get(2).map_err(|e| format!("decode name failed: {e}"))?,
         config,
         created_at: row
             .get(4)
             .map_err(|e| format!("decode created_at failed: {e}"))?,
+        supports_guide,
+        guide_refreshed_at: guide_column(5)?,
+        guide_covered_until: guide_column(6)?,
+        guide_error: row
+            .get(7)
+            .map_err(|e| format!("decode guide error failed: {e}"))?,
+        guide_attempted_at: guide_column(8)?,
     })
+}
+
+/// The guide URL a user set on a source (`epg_url`), overriding the default.
+pub fn configured_guide_url(config: &Value) -> Option<&str> {
+    config
+        .get("epg_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
 }
 
 fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, String> {
@@ -1222,9 +1351,6 @@ fn decode_channel_record(row: &rusqlite::Row<'_>) -> Result<ChannelRecord, Strin
         tvg_id: row
             .get(5)
             .map_err(|e| format!("decode tvg_id failed: {e}"))?,
-        tvg_name: row
-            .get(6)
-            .map_err(|e| format!("decode tvg_name failed: {e}"))?,
         stream_url: row
             .get(7)
             .map_err(|e| format!("decode stream_url failed: {e}"))?,
@@ -1306,7 +1432,14 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("silkcast-foundation-test-{ts}"));
+        // Parallel tests can read the same clock tick on Windows (100 ns), so
+        // a counter keeps every test on its own database.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "silkcast-foundation-test-{}-{ts}-{seq}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
     }
@@ -1585,7 +1718,18 @@ mod tests {
 
         let after = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
             .expect("list failed");
-        assert_ne!(id_of(&before, "News"), id_of(&after, "News"), "ids should change");
+        for name in ["News", "Sports", "Film"] {
+            assert_eq!(
+                id_of(&before, name),
+                id_of(&after, name),
+                "{name} keeps its id"
+            );
+        }
+        let film = after.iter().find(|item| item.name == "Film").expect("film");
+        assert_eq!(
+            film.stream_url, "http://x/movie/u/p2/3.mp4",
+            "row is updated in place"
+        );
 
         let mut favorites: Vec<String> =
             list_channels_for_source(&context.db_path, source_id, None, None, None, true)
@@ -1600,6 +1744,87 @@ mod tests {
         assert_eq!(recents.len(), 1);
         assert_eq!(recents[0].channel.name, "Sports");
         assert_eq!(recents[0].channel.id, id_of(&after, "Sports"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refresh_updates_in_place_and_drops_only_removed_channels() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = create_source(
+            &context.db_path,
+            "xtream",
+            "Provider",
+            &json!({ "server_url": "http://x", "username": "u", "password": "p" }),
+        )
+        .expect("failed to create source");
+        let channel = |name: &str, url: &str, group: &str| ChannelInsertRecord {
+            name: name.to_string(),
+            group_name: Some(group.to_string()),
+            logo: None,
+            tvg_id: None,
+            tvg_name: None,
+            stream_url: url.to_string(),
+            media_kind: "live".to_string(),
+        };
+
+        replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                channel("News", "http://x/live/u/p/1.ts", "News"),
+                channel("Gone", "http://x/live/u/p/2.ts", "News"),
+                // Providers list the same stream twice under different groups.
+                channel("Twin", "http://x/live/u/p/3.ts", "UK"),
+                channel("Twin", "http://x/live/u/p/3.ts", "US"),
+            ],
+        )
+        .expect("initial import failed");
+        let before = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("list failed");
+        let id_of = |name: &str| before.iter().find(|c| c.name == name).expect(name).id;
+        set_channel_favorite(&context.db_path, id_of("Gone"), true).expect("favorite failed");
+
+        replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                channel("News", "http://x/live/u/p/1.ts", "World News"),
+                channel("Twin", "http://x/live/u/p/3.ts", "UK"),
+                channel("Twin", "http://x/live/u/p/3.ts", "US"),
+            ],
+        )
+        .expect("refresh failed");
+
+        let after = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("list failed");
+        assert_eq!(after.len(), 3);
+        let news = after.iter().find(|c| c.name == "News").expect("news");
+        assert_eq!(news.id, id_of("News"));
+        assert_eq!(news.group_name, "World News");
+
+        let mut twin_ids: Vec<i64> = after
+            .iter()
+            .filter(|c| c.name == "Twin")
+            .map(|c| c.id)
+            .collect();
+        let mut old_twin_ids: Vec<i64> = before
+            .iter()
+            .filter(|c| c.name == "Twin")
+            .map(|c| c.id)
+            .collect();
+        twin_ids.sort();
+        old_twin_ids.sort();
+        assert_eq!(twin_ids, old_twin_ids, "duplicates map one-to-one");
+
+        // The removed channel takes its favorite with it.
+        assert!(
+            list_channels_for_source(&context.db_path, source_id, None, None, None, true)
+                .expect("favorites failed")
+                .is_empty()
+        );
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1630,6 +1855,54 @@ mod tests {
         assert_eq!(stored_buffering.as_deref(), Some("normal"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn search_caps_matches_per_media_kind() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+        let source_id = create_source(&context.db_path, "m3u", "List", &json!({ "location": "x" }))
+            .expect("failed to create source");
+        let item = |name: String, kind: &str| ChannelInsertRecord {
+            name,
+            group_name: None,
+            logo: None,
+            tvg_id: None,
+            tvg_name: None,
+            stream_url: format!("http://x/{kind}/{}", rand_suffix()),
+            media_kind: kind.to_string(),
+        };
+        let mut items: Vec<ChannelInsertRecord> = (0..40)
+            .map(|index| item(format!("Sports {index:02}"), "live"))
+            .collect();
+        items.extend((0..3).map(|index| item(format!("Sports Movie {index}"), "movie")));
+        items.push(item("Unrelated".to_string(), "series"));
+        replace_channels_for_source(&context.db_path, source_id, &items).expect("import failed");
+
+        let found = search_channels_for_source(&context.db_path, source_id, " SPORTS ", 5)
+            .expect("search failed");
+        let names: Vec<&str> = found.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "Sports 00",
+                "Sports 01",
+                "Sports 02",
+                "Sports 03",
+                "Sports 04",
+                "Sports Movie 0",
+                "Sports Movie 1",
+                "Sports Movie 2",
+            ]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn rand_suffix() -> usize {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     #[test]
@@ -1679,94 +1952,6 @@ mod tests {
                 .expect("failed to filter favorites");
         assert_eq!(favorites.len(), 1);
         assert_eq!(favorites[0].id, all[0].id);
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn live_epg_roundtrip_replaces_per_channel_entries() {
-        let root = make_temp_root();
-        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
-        init_storage(&context.db_path).expect("failed to initialize storage");
-        let source_id = make_source_with_channels(&context.db_path);
-        let channels =
-            list_channels_for_source(&context.db_path, source_id, Some("live"), None, None, false)
-                .expect("failed to list channels");
-        let live_channel = channels
-            .into_iter()
-            .next()
-            .expect("expected at least one live channel");
-
-        replace_live_epg_for_channel(
-            &context.db_path,
-            live_channel.id,
-            &[
-                StoredLiveEpgEntryRecord {
-                    title: "Morning News".to_string(),
-                    description: Some("Headlines".to_string()),
-                    start: Some("2026-03-07 06:00:00".to_string()),
-                    end: Some("2026-03-07 07:00:00".to_string()),
-                    start_timestamp: Some(1700000000),
-                    end_timestamp: Some(1700003600),
-                },
-                StoredLiveEpgEntryRecord {
-                    title: "Noon Update".to_string(),
-                    description: None,
-                    start: Some("2026-03-07 07:00:00".to_string()),
-                    end: Some("2026-03-07 08:00:00".to_string()),
-                    start_timestamp: Some(1700003600),
-                    end_timestamp: Some(1700007200),
-                },
-            ],
-        )
-        .expect("failed to store initial live epg entries");
-
-        let first_read = list_live_epg_for_channel(&context.db_path, live_channel.id, 10)
-            .expect("failed to read live epg entries");
-        assert_eq!(first_read.len(), 2);
-        assert_eq!(first_read[0].title, "Morning News");
-
-        let live_now = list_live_now_epg_for_source(&context.db_path, source_id)
-            .expect("failed to read source live now epg");
-        assert_eq!(live_now.len(), 1);
-        assert_eq!(live_now[0].channel_id, live_channel.id);
-        assert_eq!(live_now[0].title, "Morning News");
-
-        let fresh_channel_ids =
-            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() - 60)
-                .expect("failed to list fresh epg channels");
-        assert!(fresh_channel_ids.contains(&live_channel.id));
-
-        let stale_channel_ids =
-            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() + 60)
-                .expect("failed to list stale epg channels");
-        assert!(!stale_channel_ids.contains(&live_channel.id));
-
-        replace_live_epg_for_channel(
-            &context.db_path,
-            live_channel.id,
-            &[StoredLiveEpgEntryRecord {
-                title: "Evening Show".to_string(),
-                description: Some("Prime time".to_string()),
-                start: Some("2026-03-07 20:00:00".to_string()),
-                end: Some("2026-03-07 21:00:00".to_string()),
-                start_timestamp: Some(1700050000),
-                end_timestamp: Some(1700053600),
-            }],
-        )
-        .expect("failed to replace live epg entries");
-
-        let second_read = list_live_epg_for_channel(&context.db_path, live_channel.id, 10)
-            .expect("failed to read replaced live epg entries");
-        assert_eq!(second_read.len(), 1);
-        assert_eq!(second_read[0].title, "Evening Show");
-
-        replace_live_epg_for_channel(&context.db_path, live_channel.id, &[])
-            .expect("failed to store empty live epg refresh");
-        let fresh_empty_channel_ids =
-            list_fresh_live_epg_channel_ids(&context.db_path, source_id, unix_ts() - 60)
-                .expect("failed to list fresh empty epg channel");
-        assert!(fresh_empty_channel_ids.contains(&live_channel.id));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1962,6 +2147,125 @@ mod tests {
         assert!(err.contains("startup_behavior"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn writes_wait_for_another_connections_transaction() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        // A background import or guide save holding the write lock...
+        let mut holder = open_connection(&context.db_path).expect("open failed");
+        let tx = holder.transaction().expect("transaction failed");
+        tx.execute(
+            "INSERT INTO settings(key, value, updated_at) VALUES ('busy', '1', 0)",
+            [],
+        )
+        .expect("insert failed");
+
+        let db_path = context.db_path.clone();
+        let writer = std::thread::spawn(move || set_setting(&db_path, "debug_mode", "true"));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        tx.commit().expect("commit failed");
+
+        // ...makes a concurrent write wait, not fail with "database is locked".
+        writer
+            .join()
+            .expect("writer panicked")
+            .expect("write should wait for the lock");
+        assert_eq!(
+            get_setting(&context.db_path, "debug_mode")
+                .expect("read failed")
+                .as_deref(),
+            Some("true")
+        );
+
+        drop(holder);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn redact_credentials_masks_query_and_userinfo_secrets() {
+        assert_eq!(
+            redact_credentials(
+                "error sending request for url (http://h/xmltv.php?username=al+ice&Password=p%26ss): timed out"
+            ),
+            "error sending request for url (http://h/xmltv.php?username=***&Password=***): timed out"
+        );
+        assert_eq!(
+            redact_credentials("failed: https://bob:hunter2@host:8080/get.php then http://ok/x"),
+            "failed: https://***@host:8080/get.php then http://ok/x"
+        );
+        assert_eq!(redact_credentials("nothing secret"), "nothing secret");
+    }
+
+    #[test]
+    fn connections_are_reused_and_never_mid_transaction() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        // TEMP tables live only in the connection that made them.
+        let has_marker = |connection: &Connection, name: &str| -> bool {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM temp.sqlite_master WHERE name = ?1",
+                    params![name],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("marker lookup")
+                == 1
+        };
+
+        let first = open_connection(&context.db_path).expect("open");
+        first
+            .execute_batch("CREATE TEMP TABLE reused_marker(x)")
+            .expect("marker");
+        drop(first);
+        let again = open_connection(&context.db_path).expect("open");
+        assert!(
+            has_marker(&again, "reused_marker"),
+            "an idle connection is reused"
+        );
+
+        // Pooled connections keep their per-connection settings.
+        let foreign_keys: i64 = again
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .expect("pragma");
+        assert_eq!(foreign_keys, 1);
+
+        again
+            .execute_batch("CREATE TEMP TABLE busy_marker(x); BEGIN;")
+            .expect("begin");
+        drop(again);
+        let next = open_connection(&context.db_path).expect("open");
+        assert!(
+            !has_marker(&next, "busy_marker"),
+            "a connection left in a transaction is not reused"
+        );
+        assert!(next.is_autocommit());
+
+        drop(next);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn channel_records_sent_to_the_ui_leave_out_backend_only_fields() {
+        let record = ChannelRecord {
+            id: 1,
+            source_id: 2,
+            name: "News".to_string(),
+            group_name: "TV".to_string(),
+            logo: None,
+            tvg_id: Some("news.uk".to_string()),
+            stream_url: "http://x/1.ts".to_string(),
+            media_kind: "live".to_string(),
+            is_favorite: false,
+        };
+        let json = serde_json::to_value(&record).expect("serialize");
+        assert!(json.get("tvg_id").is_none());
+        assert_eq!(json["stream_url"], "http://x/1.ts");
     }
 
     #[test]

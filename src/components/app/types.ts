@@ -4,6 +4,15 @@ export type SourceRecord = {
   name: string;
   config: Record<string, unknown>;
   created_at: number;
+  /** Xtream sources, and playlists with a configured or advertised guide URL. */
+  supports_guide: boolean;
+  /** Last successful guide refresh (unix seconds). */
+  guide_refreshed_at: number | null;
+  /** End of the last stored programme (unix seconds). */
+  guide_covered_until: number | null;
+  /** Why the last guide refresh failed, if it did. */
+  guide_error: string | null;
+  guide_attempted_at: number | null;
 };
 
 export type GroupRecord = {
@@ -17,8 +26,6 @@ export type ChannelRecord = {
   name: string;
   group_name: string;
   logo: string | null;
-  tvg_id: string | null;
-  tvg_name: string | null;
   stream_url: string;
   media_kind: 'live' | 'movie' | 'series';
   is_favorite: boolean;
@@ -41,9 +48,10 @@ export type LiveEpgEntryRecord = {
   end_timestamp: number | null;
 };
 
-export type LiveNowEpgRecord = {
+/** Stored programmes for one channel, as returned by a batched guide read. */
+export type ChannelEpgRecord = {
   channel_id: number;
-  title: string;
+  entries: LiveEpgEntryRecord[];
 };
 
 export type RecentChannelRecord = {
@@ -86,12 +94,21 @@ export type SourceImportResult = {
   imported_channels: number;
 };
 
-export type SourceEpgRefreshResult = {
+export type GuideRefreshStarted = {
   source_id: number;
-  refreshed_channels: number;
-  channels_with_listings: number;
-  failed_channels: number;
-  skipped_channels: number;
+  /** False when a refresh of this source was already running. */
+  started: boolean;
+};
+
+/** Payload of the `epg_progress` event while a guide refreshes. */
+export type GuideProgress = {
+  source_id: number;
+  phase: 'downloading' | 'saving' | 'fetching';
+  bytes: number;
+  total_bytes: number | null;
+  programmes: number;
+  channels_done: number;
+  channels_total: number;
 };
 
 export const ALL_GROUPS = '__all__';

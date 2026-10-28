@@ -7,22 +7,23 @@ import { CommandPalette } from '@/components/command/CommandPalette';
 import { useCommandPaletteStore } from '@/components/command/commandPaletteStore';
 import { TopBar } from '@/components/layouts/TopBar';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { listSourceChannels } from '@/lib/api/channelsApi';
+import { searchSourceChannels } from '@/lib/api/channelsApi';
 import { refreshSourceEpg } from '@/lib/api/epgApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { useAppStore } from '@/store/appStore';
-import { GUIDE_EPG_LIMIT, useSourceActivityStore } from '@/store/sourceActivityStore';
+import { useSourceActivityStore } from '@/store/sourceActivityStore';
+import { sourceRecord } from '@/test/sourceRecord';
 
 vi.mock('@/lib/api/channelsApi', () => ({
-  listSourceChannels: vi.fn(),
+  searchSourceChannels: vi.fn(),
   setChannelFavoriteState: vi.fn(),
 }));
 vi.mock('@/lib/api/epgApi', () => ({ refreshSourceEpg: vi.fn() }));
 vi.mock('@/lib/api/sourcesApi', () => ({ listSourceGroups: vi.fn() }));
 
 const sources = [
-  { id: 7, source_type: 'xtream', name: 'Tidewater', config: {}, created_at: 0 },
-  { id: 8, source_type: 'm3u', name: 'Home playlist', config: {}, created_at: 0 },
+  sourceRecord({ id: 7, source_type: 'xtream', name: 'Tidewater' }),
+  sourceRecord({ id: 8, source_type: 'm3u', name: 'Home playlist' }),
 ];
 
 const channel = (id: number, name: string): ChannelRecord => ({
@@ -93,7 +94,7 @@ describe('TopBar', () => {
     expect(screen.getByRole('menuitem', { name: /Home playlist/ })).toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: /Refresh guide/ }));
 
-    expect(refreshSourceEpg).toHaveBeenCalledWith(7, GUIDE_EPG_LIMIT);
+    expect(refreshSourceEpg).toHaveBeenCalledWith(7);
     expect(useSourceActivityStore.getState().refreshingGuideSourceId).toBe(7);
   });
 
@@ -109,7 +110,7 @@ describe('TopBar', () => {
 
   it('opens the command palette with Ctrl K and searches the catalog', async () => {
     const user = userEvent.setup();
-    vi.mocked(listSourceChannels).mockResolvedValue([
+    vi.mocked(searchSourceChannels).mockResolvedValue([
       channel(1, 'UK| ARC SPORTS 1 FHD'),
       channel(2, '##### UK SPORTS #####'),
     ]);
@@ -121,9 +122,7 @@ describe('TopBar', () => {
 
     expect(await screen.findByText('Arc Sports 1')).toBeInTheDocument();
     await waitFor(() =>
-      expect(listSourceChannels).toHaveBeenCalledWith(
-        expect.objectContaining({ sourceId: 7, query: 'arc', mediaKind: null })
-      )
+      expect(searchSourceChannels).toHaveBeenCalledWith(7, 'arc', expect.any(Number))
     );
     expect(screen.queryByText(/UK SPORTS/)).not.toBeInTheDocument();
   });

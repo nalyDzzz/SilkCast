@@ -60,7 +60,7 @@ export function LiveTvPage() {
   const [view, setViewState] = useState<LiveView>(readView);
   const [region, setRegion] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(catalog.activeItemId);
-  const guideEnabled = selectedSource?.source_type === 'xtream';
+  const guideEnabled = selectedSource?.supports_guide ?? false;
 
   const setView = (next: LiveView) => {
     setViewState(next);

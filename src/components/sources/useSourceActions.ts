@@ -1,26 +1,24 @@
-import { useCallback, useMemo } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
-import type { BackendEvent, SourceRecord } from '@/components/app/types';
+import type { BackendEvent, GuideProgress, SourceRecord } from '@/components/app/types';
 import { useBackendEvents } from '@/hooks/useBackendEvents';
 import { useAppStore } from '@/store/appStore';
-import { formatAgo, useSourceActivityStore } from '@/store/sourceActivityStore';
+import {
+  formatAgo,
+  formatGuideProgress,
+  guideRefreshDue,
+  useSourceActivityStore,
+} from '@/store/sourceActivityStore';
 
 export function sourceKindLabel(source: SourceRecord) {
   return source.source_type === 'xtream' ? 'Xtream provider' : 'M3U playlist';
 }
 
-function mediaKindForPath(pathname: string) {
-  if (pathname.startsWith('/dashboard/movies')) return 'movie' as const;
-  if (pathname.startsWith('/dashboard/series')) return 'series' as const;
-  return 'live' as const;
-}
-
 /** Source switching and refresh actions, shared by the top bar and the palette. */
 export function useSourceActions() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { sources, selectedSourceId, setSelectedSourceId, manageSources } = useAppStore(
     useShallow((state) => ({
       sources: state.sources,
@@ -29,12 +27,14 @@ export function useSourceActions() {
       manageSources: state.manageSources,
     }))
   );
-  const { refreshingSourceId, refreshingGuideSourceId, guideUpdatedAt } =
+  const { refreshingSourceId, refreshingGuideSourceId, guideProgress, guideUpdatedAt, guideErrors } =
     useSourceActivityStore(
       useShallow((state) => ({
         refreshingSourceId: state.refreshingSourceId,
         refreshingGuideSourceId: state.refreshingGuideSourceId,
+        guideProgress: state.guideProgress,
         guideUpdatedAt: state.guideUpdatedAt,
+        guideErrors: state.guideErrors,
       }))
     );
 
@@ -46,17 +46,23 @@ export function useSourceActions() {
     () => sources.filter((source) => source.id !== selectedSourceId),
     [selectedSourceId, sources]
   );
-  const supportsGuide = selectedSource?.source_type === 'xtream';
+  const supportsGuide = selectedSource?.supports_guide ?? false;
   const isRefreshingSource = refreshingSourceId !== null;
   const isRefreshingGuide = refreshingGuideSourceId !== null;
+  const guideUpdated = selectedSourceId !== null ? guideUpdatedAt[selectedSourceId] : undefined;
+  const guideError = selectedSourceId !== null ? guideErrors[selectedSourceId] : undefined;
 
   const guideStatus = !supportsGuide
     ? null
     : isRefreshingGuide
-      ? 'Updating guide…'
-      : selectedSourceId !== null && guideUpdatedAt[selectedSourceId]
-        ? `Guide updated ${formatAgo(guideUpdatedAt[selectedSourceId])}`
-        : 'Guide not refreshed yet';
+      ? formatGuideProgress(
+          guideProgress?.source_id === refreshingGuideSourceId ? guideProgress : null
+        )
+      : guideError
+        ? 'Guide update failed'
+        : guideUpdated
+          ? `Guide updated ${formatAgo(guideUpdated)}`
+          : 'Guide not loaded yet';
 
   const refreshSource = useCallback(async () => {
     if (selectedSourceId === null || isRefreshingSource) {
@@ -67,7 +73,7 @@ export function useSourceActions() {
     try {
       await useAppStore
         .getState()
-        .refreshSource(selectedSourceId, mediaKindForPath(location.pathname));
+        .refreshSource(selectedSourceId);
       const { error, importMessage } = useAppStore.getState();
       if (error) {
         toast.error("Couldn't refresh the source", { description: error });
@@ -77,7 +83,7 @@ export function useSourceActions() {
     } finally {
       activity.setRefreshingSource(null);
     }
-  }, [isRefreshingSource, location.pathname, selectedSourceId]);
+  }, [isRefreshingSource, selectedSourceId]);
 
   const refreshGuide = useCallback(async () => {
     if (selectedSourceId === null || !supportsGuide || isRefreshingGuide) {
@@ -110,6 +116,7 @@ export function useSourceActions() {
     otherSources,
     supportsGuide,
     guideStatus,
+    guideError,
     isRefreshingSource,
     isRefreshingGuide,
     refreshSource,
@@ -119,18 +126,55 @@ export function useSourceActions() {
   };
 }
 
-/** Records when a guide refresh finishes. Mount once, in the app layout. */
+/** Tracks guide refresh progress and results. Mount once, in the app layout. */
 export function useGuideRefreshEvents() {
   useBackendEvents(
     (event: BackendEvent) => {
+      const sourceId = event.payload['source_id'];
+      if (typeof sourceId !== 'number') {
+        return;
+      }
+      const activity = useSourceActivityStore.getState();
+      if (event.event === 'epg_progress') {
+        activity.markGuideProgress(event.payload as unknown as GuideProgress);
+        return;
+      }
       if (event.event !== 'epg_updated') {
         return;
       }
-      const sourceId = event.payload['source_id'];
-      if (typeof sourceId === 'number') {
-        useSourceActivityStore.getState().markGuideUpdated(sourceId);
+      const error = event.payload['error'];
+      activity.markGuideUpdated(sourceId, typeof error === 'string' ? error : undefined);
+      if (typeof error === 'string') {
+        toast.error("Couldn't update the guide", { description: error });
       }
     },
     () => useSourceActivityStore.getState().clearGuideRefresh()
   );
+}
+
+/** Sources whose guide was refreshed automatically this session. */
+const autoRefreshed = new Set<number>();
+
+/**
+ * Keeps the selected source's guide fresh: refreshes it in the background
+ * when it never loaded, is half a day old, or is about to run out. Once per
+ * source per session; failures wait an hour. Mount once, in the app layout.
+ */
+export function useGuideAutoRefresh() {
+  const source = useAppStore(
+    (state) => state.sources.find((item) => item.id === state.selectedSourceId) ?? null
+  );
+  const due = source !== null && guideRefreshDue(source);
+  const sourceId = source?.id ?? null;
+
+  useEffect(() => {
+    if (!due || sourceId === null || autoRefreshed.has(sourceId)) {
+      return;
+    }
+    autoRefreshed.add(sourceId);
+    void useSourceActivityStore
+      .getState()
+      .startGuideRefresh(sourceId)
+      .catch(() => undefined);
+  }, [due, sourceId]);
 }

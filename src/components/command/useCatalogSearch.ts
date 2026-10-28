@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { ChannelRecord, GroupRecord } from '@/components/app/types';
 import type { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
-import { listSourceChannels } from '@/lib/api/channelsApi';
+import { searchSourceChannels } from '@/lib/api/channelsApi';
 import { listSourceGroups } from '@/lib/api/sourcesApi';
 import { cleanName } from '@/lib/catalog/cleanName';
 
 const SEARCH_DEBOUNCE_MS = 180;
 const MIN_QUERY_LENGTH = 2;
 export const RESULTS_PER_KIND = 6;
+/** Asked per kind; extra room for divider rows, which are dropped here. */
+const FETCH_PER_KIND = RESULTS_PER_KIND * 3;
 
 export type CatalogSearchResults = Record<MediaCatalogKind, ChannelRecord[]>;
 export type KindGroup = GroupRecord & { kind: MediaCatalogKind };
@@ -31,13 +33,7 @@ export function useCatalogSearch(sourceId: number | null, query: string, enabled
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void listSourceChannels({
-        sourceId,
-        mediaKind: null,
-        groupName: null,
-        query: normalized,
-        favoritesOnly: false,
-      })
+      void searchSourceChannels(sourceId, normalized, FETCH_PER_KIND)
         .then((items) => {
           if (cancelled) return;
           const grouped: CatalogSearchResults = { live: [], movie: [], series: [] };

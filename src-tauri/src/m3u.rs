@@ -19,10 +19,10 @@ pub fn load_m3u_location(location: &str) -> Result<String, String> {
         let response = client
             .get(trimmed)
             .send()
-            .map_err(|err| format!("failed to fetch m3u URL: {err}"))?;
+            .map_err(|err| format!("failed to fetch m3u URL: {}", err.without_url()))?;
         let response = response
             .error_for_status()
-            .map_err(|err| format!("m3u URL returned non-success status: {err}"))?;
+            .map_err(|err| format!("m3u URL returned non-success status: {}", err.without_url()))?;
         return response
             .text()
             .map_err(|err| format!("failed to read m3u body: {err}"));
@@ -39,6 +39,37 @@ pub fn load_m3u_location(location: &str) -> Result<String, String> {
     }
 
     fs::read_to_string(trimmed).map_err(|err| format!("failed to read m3u file: {err}"))
+}
+
+/// Guide (XMLTV) URLs a playlist advertises in its `#EXTM3U` header
+/// (`url-tvg`, `x-tvg-url` or `tvg-url`, each possibly comma-separated).
+pub fn parse_m3u_guide_urls(content: &str) -> Vec<String> {
+    let Some(header) = content
+        .lines()
+        .map(|line| line.trim_start_matches('\u{feff}').trim())
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.strip_prefix("#EXTM3U"))
+    else {
+        return Vec::new();
+    };
+
+    let attributes = parse_attributes(header);
+    let mut urls: Vec<String> = Vec::new();
+    for key in ["url-tvg", "x-tvg-url", "tvg-url"] {
+        for url in attributes
+            .get(key)
+            .map(String::as_str)
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+        {
+            if !urls.iter().any(|known| known == url) {
+                urls.push(url.to_string());
+            }
+        }
+    }
+    urls
 }
 
 pub fn parse_m3u_channels(content: &str) -> Vec<ChannelInsertRecord> {
@@ -413,9 +444,27 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("silkcast-m3u-test-{ts}"));
+        // Parallel tests can read the same clock tick on Windows (100 ns), so
+        // a counter keeps every test on its own database.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "silkcast-m3u-test-{}-{ts}-{seq}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("failed to create temp test dir");
         dir
+    }
+
+    #[test]
+    fn parse_m3u_reads_guide_urls_from_the_header() {
+        let playlist = "\u{feff}#EXTM3U url-tvg=\"http://a/guide.xml, http://b/g.xml.gz\" x-tvg-url=\"http://a/guide.xml\"\n#EXTINF:-1,One\nhttp://s/1.ts\n";
+        assert_eq!(
+            parse_m3u_guide_urls(playlist),
+            vec!["http://a/guide.xml", "http://b/g.xml.gz"]
+        );
+        assert!(parse_m3u_guide_urls("#EXTM3U\n#EXTINF:-1,One\nhttp://s/1.ts").is_empty());
+        assert!(parse_m3u_guide_urls("#EXTINF:-1 url-tvg=\"http://x\",One").is_empty());
     }
 
     #[test]

@@ -80,10 +80,10 @@ export function PlayerPage() {
     );
   }, [activeChannel?.media_kind, location.state]);
 
-  const sourceType = useMemo(
+  const supportsGuide = useMemo(
     () =>
       sources.find((source) => source.id === activeChannel?.source_id)
-        ?.source_type ?? null,
+        ?.supports_guide ?? false,
     [activeChannel?.source_id, sources]
   );
 
@@ -175,7 +175,7 @@ export function PlayerPage() {
         queue={playbackQueue}
         proxyBaseUrl={playerEnvironment.stream_proxy_base_url}
         mpvAvailable={playerEnvironment.mpv_available}
-        epgEnabled={sourceType === 'xtream'}
+        epgEnabled={supportsGuide}
         onBack={handleBack}
         onSelectItem={(item) => void playChannelRecord(item, playbackQueue)}
         onOpenInMpv={handleOpenInMpv}

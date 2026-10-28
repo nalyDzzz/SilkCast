@@ -1,4 +1,4 @@
-use crate::foundation::ChannelInsertRecord;
+use crate::foundation::{ChannelInsertRecord, ChannelRecord};
 use base64::engine::general_purpose::{
     STANDARD as BASE64_STANDARD, STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD,
 };
@@ -7,13 +7,18 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::io::Read;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 const XTREAM_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) SilkCast/0.2";
 const XTREAM_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+/// How long to wait for the response to start, and then for each read of its
+/// body. Bodies are streamed, so a 50 MB VOD list may take longer in total.
 const XTREAM_HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
+/// Panels can take a while to start answering for their biggest lists.
+const XTREAM_CATALOG_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone)]
 pub struct XtreamConfig {
@@ -75,8 +80,52 @@ pub fn normalize_server_url(raw: &str) -> Result<String, String> {
     Ok(parsed.to_string().trim_end_matches('/').to_string())
 }
 
+/// The provider's full XMLTV guide (`xmltv.php`).
+pub fn xtream_xmltv_url(config: &XtreamConfig) -> String {
+    let mut url = Url::parse(&format!("{}/xmltv.php", config.server_url))
+        .expect("normalized xtream server URL is a valid base");
+    url.query_pairs_mut()
+        .append_pair("username", &config.username)
+        .append_pair("password", &config.password);
+    url.to_string()
+}
+
+/// The numeric Xtream stream id of a live channel, from its URL or `tvg_id`.
+pub fn extract_live_stream_id(channel: &ChannelRecord) -> Option<String> {
+    extract_stream_key_from_url(&channel.stream_url)
+        .and_then(|value| normalize_xtream_stream_id(&value))
+        .or_else(|| {
+            channel
+                .tvg_id
+                .as_deref()
+                .and_then(normalize_xtream_stream_id)
+        })
+}
+
+/// The last path segment of a stream URL without its extension.
+pub fn extract_stream_key_from_url(stream_url: &str) -> Option<String> {
+    let without_query = stream_url.split(['?', '#']).next().unwrap_or(stream_url);
+    let last_segment = without_query.rsplit('/').next()?;
+    let candidate = last_segment.split('.').next().unwrap_or("").trim();
+
+    if candidate.is_empty() {
+        None
+    } else {
+        Some(candidate.to_string())
+    }
+}
+
+fn normalize_xtream_stream_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(trimmed.to_string())
+}
+
 pub fn import_xtream_channels(config: &XtreamConfig) -> Result<Vec<ChannelInsertRecord>, String> {
-    let client = XtreamClient::new(config.clone())?;
+    let client = XtreamClient::with_timeout(config.clone(), XTREAM_CATALOG_TIMEOUT)?;
     client.import_catalog()
 }
 
@@ -145,11 +194,15 @@ struct XtreamClient {
 
 impl XtreamClient {
     fn new(config: XtreamConfig) -> Result<Self, String> {
+        Self::with_timeout(config, XTREAM_HTTP_REQUEST_TIMEOUT)
+    }
+
+    fn with_timeout(config: XtreamConfig, timeout: Duration) -> Result<Self, String> {
         let http = Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
             .user_agent(XTREAM_USER_AGENT)
             .connect_timeout(XTREAM_HTTP_CONNECT_TIMEOUT)
-            .timeout(XTREAM_HTTP_REQUEST_TIMEOUT)
+            .timeout(timeout)
             .build()
             .map_err(|err| format!("failed to build HTTP client for xtream source: {err}"))?;
 
@@ -163,21 +216,42 @@ impl XtreamClient {
     }
 
     fn import_catalog(&self) -> Result<Vec<ChannelInsertRecord>, String> {
+        // Logging in first fails fast on bad credentials.
         let profile = self.fetch_account_profile()?;
-        let live_categories = self
-            .fetch_category_map("get_live_categories")
-            .unwrap_or_default();
-        let vod_categories = self
-            .fetch_category_map("get_vod_categories")
-            .unwrap_or_default();
-        let series_categories = self
-            .fetch_category_map("get_series_categories")
-            .unwrap_or_default();
+
+        // The three lists are independent, and the VOD one can be tens of MB:
+        // fetch them side by side instead of one after another.
+        let (live, vod, series) = std::thread::scope(|scope| {
+            let live = scope.spawn(|| {
+                let categories = self
+                    .fetch_category_map("get_live_categories")
+                    .unwrap_or_default();
+                self.fetch_live_channels(&profile, &categories)
+            });
+            let vod = scope.spawn(|| {
+                let categories = self
+                    .fetch_category_map("get_vod_categories")
+                    .unwrap_or_default();
+                self.fetch_vod_channels(&categories)
+            });
+            let series = scope.spawn(|| {
+                let categories = self
+                    .fetch_category_map("get_series_categories")
+                    .unwrap_or_default();
+                self.fetch_series_channels(&categories)
+            });
+            let joined = |handle: std::thread::ScopedJoinHandle<'_, _>| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("xtream catalog download panicked".to_string()))
+            };
+            (joined(live), joined(vod), joined(series))
+        });
 
         let mut channels = Vec::new();
-        channels.extend(self.fetch_live_channels(&profile, &live_categories)?);
-        channels.extend(self.fetch_vod_channels(&vod_categories)?);
-        channels.extend(self.fetch_series_channels(&series_categories)?);
+        channels.extend(live?);
+        channels.extend(vod?);
+        channels.extend(series?);
 
         if channels.is_empty() {
             return Err(
@@ -380,7 +454,12 @@ impl XtreamClient {
         }
 
         let payload = self.request_json(Some(action), &extra_pairs)?;
-        let records = parse_live_epg_entries(&payload);
+        let mut records = parse_live_epg_entries(&payload);
+        if action == "get_simple_data_table" {
+            // Unlike `get_short_epg`, this returns the whole listing, past days
+            // included, so its first entries are usually long over.
+            records = upcoming_live_epg_entries(records, unix_now());
+        }
 
         Ok(records.into_iter().take(limit).collect())
     }
@@ -516,16 +595,19 @@ impl XtreamClient {
             .http
             .get(url)
             .send()
-            .map_err(|err| format!("xtream request failed: {err}"))?;
-        let response = response
+            .map_err(|err| format!("xtream request failed: {}", err.without_url()))?;
+        let mut response = response
             .error_for_status()
-            .map_err(|err| format!("xtream server returned an error: {err}"))?;
-        let body = response
-            .text()
+            .map_err(|err| format!("xtream server returned an error: {}", err.without_url()))?;
+        // Reading through `Read` applies the timeout to each read rather than
+        // to the whole body (`text()` would), so big lists can finish.
+        let mut body = Vec::new();
+        response
+            .read_to_end(&mut body)
             .map_err(|err| format!("failed to read xtream response body: {err}"))?;
 
-        serde_json::from_str::<Value>(&body).map_err(|err| {
-            let preview = body.chars().take(160).collect::<String>();
+        serde_json::from_slice::<Value>(&body).map_err(|err| {
+            let preview = String::from_utf8_lossy(&body[..body.len().min(160)]);
             format!("xtream server did not return JSON ({err}). Response preview: {preview}")
         })
     }
@@ -617,6 +699,23 @@ fn parse_live_epg_entries(payload: &Value) -> Vec<LiveEpgEntryRecord> {
         .iter()
         .filter_map(parse_single_live_epg_entry)
         .collect()
+}
+
+/// Programmes that haven't finished by `now`, oldest first.
+fn upcoming_live_epg_entries(
+    mut records: Vec<LiveEpgEntryRecord>,
+    now: i64,
+) -> Vec<LiveEpgEntryRecord> {
+    records.retain(|entry| entry.end_timestamp.is_some_and(|end| end > now));
+    records.sort_by_key(|entry| entry.start_timestamp);
+    records
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn parse_single_live_epg_entry(item: &Value) -> Option<LiveEpgEntryRecord> {
@@ -883,6 +982,73 @@ mod tests {
         );
         assert_eq!(entries[0].start_timestamp, Some(1700000000));
         assert_eq!(entries[1].title, "Noon Update");
+    }
+
+    #[test]
+    fn full_listing_fallback_keeps_only_programmes_still_on() {
+        let payload: Value = serde_json::from_str(
+            r#"{ "epg_listings": [
+                { "title": "Yesterday", "start_timestamp": 100, "stop_timestamp": 200 },
+                { "title": "Later", "start_timestamp": 1300, "stop_timestamp": 1400 },
+                { "title": "On now", "start_timestamp": 900, "stop_timestamp": 1100 },
+                { "title": "No times" },
+                { "title": "Next", "start_timestamp": 1100, "stop_timestamp": 1300 }
+            ] }"#,
+        )
+        .expect("valid json");
+
+        let upcoming = upcoming_live_epg_entries(parse_live_epg_entries(&payload), 1000);
+        let titles: Vec<&str> = upcoming.iter().map(|entry| entry.title.as_str()).collect();
+        assert_eq!(titles, vec!["On now", "Next", "Later"]);
+    }
+
+    #[test]
+    fn import_downloads_the_catalog_lists_in_parallel() {
+        // Each list takes 400 ms to answer; one after another would take 1.2 s+.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
+        let addr = listener.local_addr().expect("addr");
+        thread::spawn(move || {
+            for stream in listener.incoming().take(7) {
+                let Ok(mut stream) = stream else { return };
+                thread::spawn(move || {
+                    let mut buffer = [0u8; 4096];
+                    let read = stream.read(&mut buffer).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                    let body = if request.contains("action=get_live_streams") {
+                        thread::sleep(Duration::from_millis(400));
+                        r#"[{ "stream_id": 1, "name": "Live" }]"#
+                    } else if request.contains("action=get_vod_streams") {
+                        thread::sleep(Duration::from_millis(400));
+                        r#"[{ "stream_id": 2, "name": "Movie" }]"#
+                    } else if request.contains("action=get_series ") {
+                        thread::sleep(Duration::from_millis(400));
+                        r#"[{ "series_id": 3, "name": "Show" }]"#
+                    } else if request.contains("action=") {
+                        "[]"
+                    } else {
+                        r#"{ "user_info": { "auth": 1 } }"#
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                });
+            }
+        });
+
+        let config = XtreamConfig {
+            server_url: format!("http://{addr}"),
+            username: "u".to_string(),
+            password: "p".to_string(),
+        };
+        let started = std::time::Instant::now();
+        let channels = import_xtream_channels(&config).expect("import should succeed");
+        let elapsed = started.elapsed();
+
+        assert_eq!(channels.len(), 3);
+        assert!(elapsed < Duration::from_millis(1100), "took {elapsed:?}");
     }
 
     fn spawn_xtream_test_server() -> String {

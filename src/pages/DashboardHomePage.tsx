@@ -54,7 +54,7 @@ export function DashboardHomePage() {
   );
   const schedules = useChannelSchedules(
     liveChannels.map((channel) => channel.id),
-    { limit: 3, enabled: source?.source_type === 'xtream' }
+    { enabled: source?.supports_guide ?? false }
   );
   const nowFor = (channel: ChannelRecord) =>
     scheduleSlots(schedules[channel.id] ?? [], nowSeconds).now;

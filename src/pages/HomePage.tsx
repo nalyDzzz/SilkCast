@@ -29,6 +29,8 @@ type SourceEditDraft = {
   serverUrl: string;
   username: string;
   password: string;
+  /** Optional XMLTV guide URL overriding the provider's or playlist's own. */
+  epgUrl: string;
 };
 
 const INITIAL_XTREAM_DRAFT = {
@@ -67,6 +69,7 @@ const buildSourceEditDraft = (source: SourceRecord): SourceEditDraft => {
       sourceType === 'xtream' ? readConfigString(source, 'username') : '',
     password:
       sourceType === 'xtream' ? readConfigString(source, 'password') : '',
+    epgUrl: readConfigString(source, 'epg_url'),
   };
 };
 
@@ -258,8 +261,8 @@ export function HomePage() {
       return;
     }
 
-    const config =
-      editDraft.sourceType === 'xtream'
+    const config = {
+      ...(editDraft.sourceType === 'xtream'
         ? {
             server_url: editDraft.serverUrl,
             username: editDraft.username,
@@ -267,7 +270,9 @@ export function HomePage() {
           }
         : {
             location: editDraft.location,
-          };
+          }),
+      epg_url: editDraft.epgUrl,
+    };
 
     setPendingUpdateId(editDraft.sourceId);
 
@@ -484,6 +489,19 @@ export function HomePage() {
                     required
                   />
                 )}
+
+                <Input
+                  value={editDraft.epgUrl}
+                  onChange={(event) =>
+                    updateEditDraftField('epgUrl', event.currentTarget.value)
+                  }
+                  placeholder={
+                    editDraft.sourceType === 'xtream'
+                      ? "Guide (XMLTV) URL, optional: defaults to the provider's"
+                      : 'Guide (XMLTV) URL, optional: defaults to the playlist header'
+                  }
+                  aria-label="Guide URL"
+                />
 
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button

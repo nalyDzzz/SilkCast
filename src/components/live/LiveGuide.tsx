@@ -139,7 +139,7 @@ export function LiveGuide({
   const rows = virtualizer.getVirtualItems();
   const schedules = useChannelSchedules(
     rows.map((row) => channels[row.index]?.id).filter((id): id is number => id !== undefined),
-    { limit: 8, enabled: guideEnabled }
+    { enabled: guideEnabled }
   );
   const nowLeft = windowOffset(nowSeconds, timeWindow);
 

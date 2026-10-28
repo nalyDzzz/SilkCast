@@ -79,7 +79,6 @@ export function LivePreview({
 }: LivePreviewProps) {
   const { title, tags } = cleanName(channel.name);
   const schedules = useChannelSchedules([channel.id], {
-    limit: 6,
     enabled: guideEnabled,
     refreshIfExhausted: true,
   });

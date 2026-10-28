@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import {
-  ALL_GROUPS,
   ChannelRecord,
   DEFAULT_SETTINGS,
   Phase1Settings,
@@ -8,12 +7,12 @@ import {
   PlayerEnvironment,
   SourceRecord,
 } from '../components/app/types';
-import * as channelsApi from '../lib/api/channelsApi';
 import * as playbackApi from '../lib/api/playbackApi';
 import * as recentsApi from '../lib/api/recentsApi';
 import * as settingsApi from '../lib/api/settingsApi';
 import * as sourcesApi from '../lib/api/sourcesApi';
 import { displayTitle } from '../lib/catalog/cleanName';
+import { useSourceActivityStore } from './sourceActivityStore';
 
 const LAST_SELECTED_SOURCE_KEY = 'silkcast:lastSelectedSourceId';
 const THEME_PREFERENCE_KEY = 'silkcast:theme';
@@ -133,9 +132,6 @@ type AppState = {
   hasPersistedSourceSelection: boolean;
   /** Set while the user is on the sources page by choice; stops the startup redirect. */
   managingSources: boolean;
-  groups: { name: string; channel_count: number }[];
-  selectedGroup: string;
-  channels: ChannelRecord[];
   recentChannels: { channel: ChannelRecord; played_at: number }[];
   activeChannel: ChannelRecord | null;
   /** Items the player can step through with previous/next (channels or episodes). */
@@ -147,8 +143,6 @@ type AppState = {
   theme: AppTheme;
   m3uName: string;
   m3uLocation: string;
-  searchQuery: string;
-  favoritesOnly: boolean;
   error: string | null;
   loading: boolean;
   importMessage: string | null;
@@ -157,25 +151,13 @@ type AppState = {
 type AppActions = {
   setM3uName: (value: string) => void;
   setM3uLocation: (value: string) => void;
-  setSearchQuery: (value: string) => void;
-  setFavoritesOnly: (value: boolean) => void;
   setSelectedSourceId: (sourceId: number | null) => void;
-  setSelectedGroup: (groupName: string) => void;
   setActiveChannel: (channel: ChannelRecord | null) => void;
   setSettings: (updater: (current: Phase1Settings) => Phase1Settings) => void;
   setTheme: (theme: AppTheme) => void;
   setPlayback: (playback: PlaybackStatus) => void;
   setError: (error: string | null) => void;
-  clearSourceLists: () => void;
   loadSources: () => Promise<void>;
-  loadGroups: (
-    sourceId: number,
-    mediaKind?: 'live' | 'movie' | 'series' | null
-  ) => Promise<void>;
-  loadChannels: (
-    sourceId: number,
-    mediaKind?: 'live' | 'movie' | 'series' | null
-  ) => Promise<void>;
   loadRecents: () => Promise<void>;
   openChannelInMpv: (
     channel: ChannelRecord,
@@ -195,20 +177,15 @@ type AppActions = {
   updateSource: (
     sourceId: number,
     name: string,
-    config: Record<string, unknown>,
-    mediaKind?: 'live' | 'movie' | 'series' | null
+    config: Record<string, unknown>
   ) => Promise<void>;
 
-  refreshSource: (
-    sourceId: number,
-    mediaKind?: 'live' | 'movie' | 'series' | null
-  ) => Promise<void>;
+  refreshSource: (sourceId: number) => Promise<void>;
   playChannel: (channelId: number) => Promise<void>;
   playChannelRecord: (
     channel: ChannelRecord,
     queue?: ChannelRecord[]
   ) => Promise<void>;
-  toggleFavorite: (channel: ChannelRecord) => Promise<void>;
   deleteSource: (source: SourceRecord) => Promise<void>;
   pausePlayback: (paused: boolean) => Promise<void>;
   stopPlayback: () => Promise<void>;
@@ -228,9 +205,6 @@ const initialState: AppState = {
   selectedSourceId: initialSelectedSourceId,
   hasPersistedSourceSelection: initialSelectedSourceId !== null,
   managingSources: false,
-  groups: [],
-  selectedGroup: ALL_GROUPS,
-  channels: [],
   recentChannels: [],
   activeChannel: null,
   playbackQueue: [],
@@ -240,8 +214,6 @@ const initialState: AppState = {
   theme: initialTheme,
   m3uName: '',
   m3uLocation: '',
-  searchQuery: '',
-  favoritesOnly: false,
   error: null,
   loading: false,
   importMessage: null,
@@ -252,8 +224,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setM3uName: (value) => set({ m3uName: value }),
   setM3uLocation: (value) => set({ m3uLocation: value }),
-  setSearchQuery: (value) => set({ searchQuery: value }),
-  setFavoritesOnly: (value) => set({ favoritesOnly: value }),
   setSelectedSourceId: (sourceId) => {
     const normalizedSourceId = normalizeSourceId(sourceId);
     writeLastSelectedSourceId(normalizedSourceId);
@@ -263,7 +233,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
       managingSources: false,
     });
   },
-  setSelectedGroup: (groupName) => set({ selectedGroup: groupName }),
   setActiveChannel: (channel) => set({ activeChannel: channel }),
   setSettings: (updater) =>
     set((state) => ({ settings: updater(state.settings) })),
@@ -273,13 +242,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setPlayback: (playback) => set({ playback }),
   setError: (error) => set({ error }),
-  clearSourceLists: () => set({ groups: [], channels: [] }),
 
   loadSources: async () => {
     const sourceListResponse = await sourcesApi.listRegisteredSources();
     const sourceList = sourceListResponse
       .map(normalizeSourceRecord)
       .filter((source): source is SourceRecord => source !== null);
+    useSourceActivityStore.getState().syncGuideStatus(sourceList);
 
     set((state) => {
       if (sourceList.length === 0) {
@@ -315,27 +284,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         hasPersistedSourceSelection: persistedSelectionIsValid,
       };
     });
-  },
-
-  loadGroups: async (sourceId, mediaKind = null) => {
-    const groups = await sourcesApi.listSourceGroups(sourceId, mediaKind);
-    set({ groups });
-  },
-
-  loadChannels: async (sourceId, mediaKind = null) => {
-    const { selectedGroup, searchQuery, favoritesOnly } = get();
-    const groupName = selectedGroup === ALL_GROUPS ? null : selectedGroup;
-    const query = searchQuery.trim() === '' ? null : searchQuery;
-
-    const channels = await channelsApi.listSourceChannels({
-      sourceId,
-      mediaKind,
-      groupName,
-      query,
-      favoritesOnly,
-    });
-
-    set({ channels });
   },
 
   loadRecents: async () => {
@@ -420,15 +368,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         m3uLocation: '',
         selectedSourceId: result.source_id,
         hasPersistedSourceSelection: false,
-        selectedGroup: ALL_GROUPS,
         importMessage: `Imported ${result.imported_channels} channels.`,
       });
 
-      await Promise.all([
-        get().loadSources(),
-        get().loadGroups(result.source_id),
-        get().loadChannels(result.source_id),
-      ]);
+      await get().loadSources();
     } catch (err) {
       set({ error: String(err) });
     }
@@ -448,21 +391,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({
         selectedSourceId: result.source_id,
         hasPersistedSourceSelection: false,
-        selectedGroup: ALL_GROUPS,
         importMessage: `Imported ${result.imported_channels} catalog items.`,
       });
 
-      await Promise.all([
-        get().loadSources(),
-        get().loadGroups(result.source_id),
-        get().loadChannels(result.source_id),
-      ]);
+      await get().loadSources();
     } catch (err) {
       set({ error: String(err) });
     }
   },
 
-  updateSource: async (sourceId, name, config, mediaKind = null) => {
+  updateSource: async (sourceId, name, config) => {
     set({ error: null, importMessage: null });
 
     try {
@@ -479,13 +417,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       await get().loadSources();
 
-      if (sourceId === get().selectedSourceId) {
-        await Promise.all([
-          get().loadGroups(sourceId, mediaKind),
-          get().loadChannels(sourceId, mediaKind),
-        ]);
-      }
-
       set({
         importMessage:
           source.source_type === 'xtream'
@@ -497,7 +428,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  refreshSource: async (sourceId, mediaKind = null) => {
+  refreshSource: async (sourceId) => {
     set({ error: null, importMessage: null });
 
     try {
@@ -509,13 +440,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
             ? `Refreshed ${result.imported_channels} catalog items.`
             : `Refreshed ${result.imported_channels} channels.`,
       });
-
-      if (sourceId === get().selectedSourceId) {
-        await Promise.all([
-          get().loadGroups(sourceId, mediaKind),
-          get().loadChannels(sourceId, mediaKind),
-        ]);
-      }
     } catch (err) {
       set({ error: String(err) });
     }
@@ -525,10 +449,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ error: null });
 
     try {
-      const channel =
-        get().channels.find((item) => item.id === channelId) ??
-        get().recentChannels.find((item) => item.channel.id === channelId)
-          ?.channel;
+      const channel = get().recentChannels.find(
+        (item) => item.channel.id === channelId
+      )?.channel;
       if (!channel) {
         throw new Error(`channel ${channelId} not found in local state`);
       }
@@ -570,35 +493,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  toggleFavorite: async (channel) => {
-    set({ error: null });
-
-    try {
-      await channelsApi.setChannelFavoriteState(
-        channel.id,
-        !channel.is_favorite
-      );
-
-      const selectedSourceId = get().selectedSourceId;
-      if (selectedSourceId !== null) {
-        await get().loadChannels(selectedSourceId);
-      }
-
-      await get().loadRecents();
-    } catch (err) {
-      set({ error: String(err) });
-    }
-  },
-
   deleteSource: async (source) => {
-    const deletingSelectedSource = get().selectedSourceId === source.id;
     const activeChannelBelongsToSource =
       get().activeChannel?.source_id === source.id;
 
     set({
       error: null,
       importMessage: null,
-      selectedGroup: ALL_GROUPS,
       activeChannel: activeChannelBelongsToSource ? null : get().activeChannel,
       playbackQueue: activeChannelBelongsToSource ? [] : get().playbackQueue,
     });
@@ -606,19 +507,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       await sourcesApi.deleteRegisteredSource(source.id);
       await get().loadSources();
-
-      if (deletingSelectedSource) {
-        const nextSelectedSourceId = get().selectedSourceId;
-
-        if (nextSelectedSourceId === null) {
-          get().clearSourceLists();
-        } else {
-          await Promise.all([
-            get().loadGroups(nextSelectedSourceId),
-            get().loadChannels(nextSelectedSourceId),
-          ]);
-        }
-      }
 
       set({
         importMessage: `Deleted "${source.name}".`,
@@ -707,11 +595,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       selectedSourceId: null,
       hasPersistedSourceSelection: false,
-      selectedGroup: ALL_GROUPS,
       activeChannel: null,
       playbackQueue: [],
-      groups: [],
-      channels: [],
     });
   },
 }));
