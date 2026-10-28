@@ -5,7 +5,7 @@
 //! and 4K variants of one network) share one copy, and catalog refreshes
 //! never touch it.
 
-use crate::foundation::open_connection;
+use crate::foundation::{open_connection, PooledConnection};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 use std::collections::HashSet;
@@ -235,7 +235,7 @@ pub fn list_guide_keys(db_path: &Path, source_id: i64) -> Result<HashSet<String>
 /// one short transaction. Readers keep the previous guide until then, and a
 /// failed or abandoned download leaves it untouched.
 pub struct GuideStaging {
-    connection: Connection,
+    connection: PooledConnection,
     source_id: i64,
     buffer: Vec<(String, StoredProgramme)>,
     staged: usize,

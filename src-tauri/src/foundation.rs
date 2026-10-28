@@ -1105,7 +1105,72 @@ fn unix_ts() -> i64 {
 /// "database is locked".
 const DB_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub(crate) fn open_connection(db_path: &Path) -> Result<Connection, String> {
+/// Idle connections kept for reuse. Opening one costs about a millisecond on
+/// Windows (file open, pragmas, schema load) against microseconds per query.
+const MAX_IDLE_CONNECTIONS: usize = 4;
+
+static IDLE_CONNECTIONS: Mutex<Vec<(PathBuf, Connection)>> = Mutex::new(Vec::new());
+
+/// A database connection that goes back to the idle pool when dropped.
+pub(crate) struct PooledConnection {
+    connection: Option<Connection>,
+    db_path: PathBuf,
+}
+
+impl std::ops::Deref for PooledConnection {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.connection
+            .as_ref()
+            .expect("pooled connection is present until drop")
+    }
+}
+
+impl std::ops::DerefMut for PooledConnection {
+    fn deref_mut(&mut self) -> &mut Connection {
+        self.connection
+            .as_mut()
+            .expect("pooled connection is present until drop")
+    }
+}
+
+impl Drop for PooledConnection {
+    fn drop(&mut self) {
+        let Some(connection) = self.connection.take() else {
+            return;
+        };
+        // Never hand out a connection that is still inside a transaction.
+        if !connection.is_autocommit() {
+            return;
+        }
+        if let Ok(mut idle) = IDLE_CONNECTIONS.lock() {
+            // Keep the most recently used connections; close the oldest.
+            if idle.len() >= MAX_IDLE_CONNECTIONS {
+                idle.remove(0);
+            }
+            idle.push((std::mem::take(&mut self.db_path), connection));
+        }
+    }
+}
+
+/// A connection to the app database, reused from the idle pool when possible.
+pub(crate) fn open_connection(db_path: &Path) -> Result<PooledConnection, String> {
+    let reused = IDLE_CONNECTIONS.lock().ok().and_then(|mut idle| {
+        let index = idle.iter().rposition(|(path, _)| path == db_path)?;
+        Some(idle.swap_remove(index).1)
+    });
+    let connection = match reused {
+        Some(connection) => connection,
+        None => open_new_connection(db_path)?,
+    };
+    Ok(PooledConnection {
+        connection: Some(connection),
+        db_path: db_path.to_path_buf(),
+    })
+}
+
+fn open_new_connection(db_path: &Path) -> Result<Connection, String> {
     let connection = Connection::open(db_path).map_err(|e| format!("db open failed: {e}"))?;
     connection
         .busy_timeout(DB_BUSY_TIMEOUT)
@@ -2036,6 +2101,56 @@ mod tests {
             "failed: https://***@host:8080/get.php then http://ok/x"
         );
         assert_eq!(redact_credentials("nothing secret"), "nothing secret");
+    }
+
+    #[test]
+    fn connections_are_reused_and_never_mid_transaction() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("failed to create foundation dirs");
+        init_storage(&context.db_path).expect("failed to initialize storage");
+
+        // TEMP tables live only in the connection that made them.
+        let has_marker = |connection: &Connection, name: &str| -> bool {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM temp.sqlite_master WHERE name = ?1",
+                    params![name],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("marker lookup")
+                == 1
+        };
+
+        let first = open_connection(&context.db_path).expect("open");
+        first
+            .execute_batch("CREATE TEMP TABLE reused_marker(x)")
+            .expect("marker");
+        drop(first);
+        let again = open_connection(&context.db_path).expect("open");
+        assert!(
+            has_marker(&again, "reused_marker"),
+            "an idle connection is reused"
+        );
+
+        // Pooled connections keep their per-connection settings.
+        let foreign_keys: i64 = again
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .expect("pragma");
+        assert_eq!(foreign_keys, 1);
+
+        again
+            .execute_batch("CREATE TEMP TABLE busy_marker(x); BEGIN;")
+            .expect("begin");
+        drop(again);
+        let next = open_connection(&context.db_path).expect("open");
+        assert!(
+            !has_marker(&next, "busy_marker"),
+            "a connection left in a transaction is not reused"
+        );
+        assert!(next.is_autocommit());
+
+        drop(next);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
