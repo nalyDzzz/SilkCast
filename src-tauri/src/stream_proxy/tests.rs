@@ -63,6 +63,13 @@ impl TestUpstream {
     fn requests(&self) -> Vec<RecordedRequest> {
         self.requests.lock().unwrap().clone()
     }
+
+    fn request_count(&self, path: &str) -> usize {
+        self.requests()
+            .iter()
+            .filter(|request| request.path == path)
+            .count()
+    }
 }
 
 fn serve_upstream_connection(
@@ -82,6 +89,14 @@ fn serve_upstream_connection(
             &mut stream,
             "302 Found",
             &[("Location", "/hls/x/index.m3u8")],
+            b"",
+            is_head,
+        ),
+        // Dispatcharr answers playlist URLs by redirecting to a raw MPEG-TS stream.
+        "/dispatch/live.m3u8" => write_response(
+            &mut stream,
+            "302 Found",
+            &[("Location", "/endless")],
             b"",
             is_head,
         ),
@@ -260,6 +275,17 @@ fn proxy_url(proxy: &StreamProxy, target: &str) -> String {
         proxy.base_url(),
         encode_uri_component(target)
     )
+}
+
+fn playlist_proxy_url(proxy: &StreamProxy, target: &str) -> String {
+    format!("{}&expect=playlist", proxy_url(proxy, target))
+}
+
+fn stream_route(url: &str, expect_playlist: bool) -> Route {
+    Route::Stream(StreamTarget {
+        url: Url::parse(url).unwrap(),
+        expect_playlist,
+    })
 }
 
 fn test_client() -> TestClient {
@@ -597,7 +623,7 @@ fn options_preflight_returns_cors_headers() {
 #[test]
 fn slow_live_stream_outlasts_idle_timeout() {
     let upstream = TestUpstream::spawn();
-    let proxy = StreamProxy::start_with_idle_timeout(None, Duration::from_secs(1))
+    let proxy = StreamProxy::start_with_timeouts(None, Duration::from_secs(1), PARKED_STREAM_TTL)
         .expect("proxy should start");
 
     let started = Instant::now();
@@ -615,7 +641,7 @@ fn slow_live_stream_outlasts_idle_timeout() {
 #[test]
 fn stalled_upstream_ends_response_after_idle_timeout() {
     let upstream = TestUpstream::spawn();
-    let proxy = StreamProxy::start_with_idle_timeout(None, Duration::from_secs(1))
+    let proxy = StreamProxy::start_with_timeouts(None, Duration::from_secs(1), PARKED_STREAM_TTL)
         .expect("proxy should start");
 
     let started = Instant::now();
@@ -664,7 +690,7 @@ fn route_request_requires_token_and_http_target() {
 
     assert_eq!(
         route_request(&Method::Get, &format!("/abc123/stream?url={target}"), token),
-        Route::Stream(Url::parse("http://provider.example/live/1.m3u8?a=1&b=2").unwrap())
+        stream_route("http://provider.example/live/1.m3u8?a=1&b=2", false)
     );
     assert_eq!(
         route_request(&Method::Options, "/abc123/stream", token),
@@ -706,9 +732,143 @@ fn route_request_forwards_ll_hls_delivery_directives() {
     );
     assert_eq!(
         route,
-        Route::Stream(
-            Url::parse("https://provider.example/hls/index.m3u8?token=t&_HLS_msn=12&_HLS_part=1")
-                .unwrap()
+        stream_route(
+            "https://provider.example/hls/index.m3u8?token=t&_HLS_msn=12&_HLS_part=1",
+            false
         )
     );
+}
+
+#[test]
+fn route_request_reads_the_playlist_expectation() {
+    let target = encode_uri_component("https://provider.example/live/1.m3u8");
+    assert_eq!(
+        route_request(
+            &Method::Get,
+            &format!("/tok/stream?url={target}&expect=playlist"),
+            "tok"
+        ),
+        stream_route("https://provider.example/live/1.m3u8", true)
+    );
+    assert_eq!(
+        route_request(
+            &Method::Get,
+            &format!("/tok/stream?url={target}&expect=other"),
+            "tok"
+        ),
+        stream_route("https://provider.example/live/1.m3u8", false)
+    );
+}
+
+#[test]
+fn expected_playlist_is_still_rewritten() {
+    let upstream = TestUpstream::spawn();
+    let proxy = StreamProxy::start(None).expect("proxy should start");
+
+    let response = test_client()
+        .get(playlist_proxy_url(&proxy, &upstream.url("/live/a.m3u8")))
+        .send()
+        .expect("proxy request should succeed");
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(
+        response_header(&response, "content-type"),
+        Some(HLS_CONTENT_TYPE)
+    );
+    assert!(response.text().unwrap().starts_with("#EXTM3U"));
+}
+
+#[test]
+fn media_behind_a_playlist_url_is_refused_then_handed_over() {
+    let upstream = TestUpstream::spawn();
+    let proxy = StreamProxy::start(None).expect("proxy should start");
+    let target = upstream.url("/dispatch/live.m3u8");
+
+    let refused = test_client()
+        .get(playlist_proxy_url(&proxy, &target))
+        .send()
+        .expect("proxy request should succeed");
+    assert_eq!(refused.status().as_u16(), NOT_A_PLAYLIST_STATUS);
+    assert_eq!(
+        response_header(&refused, "access-control-allow-origin"),
+        Some("*")
+    );
+
+    let mut response = test_client()
+        .get(proxy_url(&proxy, &target))
+        .send()
+        .expect("proxy request should succeed");
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(
+        response_header(&response, "content-type"),
+        Some("video/mp2t")
+    );
+    let mut buffer = vec![0u8; 64 * 1024];
+    response
+        .read_exact(&mut buffer)
+        .expect("the parked stream should flow, sniffed bytes included");
+    assert!(buffer.iter().all(|byte| *byte == 0x47));
+
+    // One upstream connection served both requests.
+    assert_eq!(upstream.request_count("/dispatch/live.m3u8"), 1);
+    assert_eq!(upstream.request_count("/endless"), 1);
+}
+
+#[test]
+fn unclaimed_parked_stream_closes_after_its_ttl() {
+    let upstream = TestUpstream::spawn();
+    let proxy =
+        StreamProxy::start_with_timeouts(None, UPSTREAM_IDLE_TIMEOUT, Duration::from_secs(1))
+            .expect("proxy should start");
+
+    let refused = test_client()
+        .get(playlist_proxy_url(
+            &proxy,
+            &upstream.url("/dispatch/live.m3u8"),
+        ))
+        .send()
+        .expect("proxy request should succeed");
+    assert_eq!(refused.status().as_u16(), NOT_A_PLAYLIST_STATUS);
+
+    assert!(
+        upstream
+            .events
+            .recv_timeout(Duration::from_millis(400))
+            .is_err(),
+        "the stream should stay open while parked"
+    );
+    let event = upstream
+        .events
+        .recv_timeout(Duration::from_secs(15))
+        .expect("the parked stream should close once its TTL passes");
+    assert_eq!(event, "endless upstream closed");
+}
+
+#[test]
+fn request_for_another_stream_closes_the_parked_one() {
+    let upstream = TestUpstream::spawn();
+    let proxy =
+        StreamProxy::start_with_timeouts(None, UPSTREAM_IDLE_TIMEOUT, Duration::from_secs(60))
+            .expect("proxy should start");
+
+    let refused = test_client()
+        .get(playlist_proxy_url(
+            &proxy,
+            &upstream.url("/dispatch/live.m3u8"),
+        ))
+        .send()
+        .expect("proxy request should succeed");
+    assert_eq!(refused.status().as_u16(), NOT_A_PLAYLIST_STATUS);
+
+    let other = test_client()
+        .get(proxy_url(&proxy, &upstream.url("/files/data.bin")))
+        .send()
+        .expect("proxy request should succeed");
+    assert_eq!(other.bytes().unwrap().as_ref(), RANGE_FILE);
+
+    let event = upstream
+        .events
+        .recv_timeout(Duration::from_secs(15))
+        .expect("the parked stream should close when the player moves on");
+    assert_eq!(event, "endless upstream closed");
 }
