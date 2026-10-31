@@ -119,7 +119,9 @@ export function planStream(
 
   switch (format) {
     case 'hls':
-      return { format, isLive, engines: ['hls'] };
+      // Some servers (Dispatcharr, for one) answer `.m3u8` URLs with raw
+      // MPEG-TS. The proxy reports that to hls.js (see buildPlaylistUrl).
+      return { format, isLive, engines: ['hls', 'mpegts'] };
     case 'mpegts':
       return { format, isLive, engines: ['mpegts', 'hls'] };
     case 'progressive':
@@ -148,6 +150,20 @@ export function buildPlaybackUrl(
   }
 
   return `${proxyBaseUrl.replace(/\/+$/, '')}/stream?url=${encodeURIComponent(streamUrl.trim())}`;
+}
+
+/**
+ * The URL hls.js loads. Through the proxy it carries `expect=playlist`: when
+ * the server sends media instead of a playlist, the proxy answers HTTP 415
+ * rather than streaming it into hls.js, and keeps the upstream connection open
+ * for the next engine's request.
+ */
+export function buildPlaylistUrl(
+  proxyBaseUrl: string | null | undefined,
+  streamUrl: string
+) {
+  const url = buildPlaybackUrl(proxyBaseUrl, streamUrl);
+  return proxyBaseUrl ? `${url}&expect=playlist` : url;
 }
 
 export function containerLabel(rawUrl: string) {

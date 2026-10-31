@@ -23,6 +23,8 @@ export type StreamControllerState = {
 
 export type StreamSource = {
   url: string;
+  /** What the HLS engine loads instead of `url` (see buildPlaylistUrl). */
+  playlistUrl?: string;
   engines: EngineKind[];
   isLive: boolean;
   /** Seconds to seek to once the first frame loads (resume support). */
@@ -252,7 +254,7 @@ export class StreamController {
     try {
       const instance = await this.factories[kind]({
         video: this.video,
-        url: source.url,
+        url: kind === 'hls' ? (source.playlistUrl ?? source.url) : source.url,
         isLive: source.isLive,
         isCurrent: () => session === this.session,
         callbacks: {
