@@ -9,6 +9,7 @@ import type { EngineKind } from '@/lib/player/streamSource';
 
 type FakeEngine = {
   callbacks: EngineCallbacks;
+  url: string;
   instance: EngineInstance & { destroy: ReturnType<typeof vi.fn> };
 };
 
@@ -40,9 +41,9 @@ function createFactories() {
 
   const makeFactory =
     (kind: EngineKind): EngineFactory =>
-    async ({ callbacks }) => {
+    async ({ callbacks, url }) => {
       const instance = { kind, destroy: vi.fn() };
-      started[kind].push({ callbacks, instance });
+      started[kind].push({ callbacks, url, instance });
       return instance;
     };
 
@@ -101,6 +102,28 @@ describe('StreamController', () => {
       phase: 'playing',
       failure: null,
     });
+  });
+
+  it('gives the HLS engine the playlist url and other engines the stream url', async () => {
+    const video = createVideo();
+    const { started, factories } = createFactories();
+    const controller = new StreamController(video, { factories });
+
+    controller.load({
+      url: 'http://proxy/stream',
+      playlistUrl: 'http://proxy/stream&expect=playlist',
+      engines: ['hls', 'mpegts'],
+      isLive: true,
+    });
+    await flush();
+    expect(started.hls[0].url).toBe('http://proxy/stream&expect=playlist');
+
+    started.hls[0].callbacks.onFatal({
+      category: 'format',
+      detail: 'not a playlist',
+    });
+    await flush();
+    expect(started.mpegts[0].url).toBe('http://proxy/stream');
   });
 
   it('reports HTTP client errors immediately without trying other engines', async () => {

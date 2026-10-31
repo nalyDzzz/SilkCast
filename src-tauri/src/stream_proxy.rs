@@ -7,8 +7,14 @@
 //! `GET|HEAD http://127.0.0.1:{port}/{token}/stream?url={encodeURIComponent(url)}`
 //!
 //! The random token keeps other local web pages from using it as an open proxy.
+//!
+//! The HLS engine adds `&expect=playlist`. When such a URL serves media instead
+//! of a playlist (Dispatcharr answers `.m3u8` with MPEG-TS), the proxy answers
+//! HTTP 415 so the player falls through to its MPEG-TS engine, and parks the open
+//! upstream stream for that engine's request (see [`parking`]).
 
 mod hls;
+mod parking;
 #[cfg(test)]
 mod tests;
 
@@ -28,6 +34,7 @@ use tiny_http::{Header, Method, Request, ResponseBox, Server, StatusCode};
 use url::{form_urlencoded, Url};
 
 use crate::foundation::append_log;
+use parking::{ParkedStream, StreamParking};
 
 /// User agent sent upstream; widely accepted by IPTV providers.
 pub const STREAM_PROXY_USER_AGENT: &str = "VLC/3.0.20 LibVLC/3.0.20";
@@ -44,6 +51,11 @@ const MAX_PLAYLIST_BYTES: usize = 10 * 1024 * 1024;
 const PLAYLIST_SNIFF_BYTES: usize = 64;
 const TOKEN_BYTES: usize = 16;
 const HLS_CONTENT_TYPE: &str = "application/vnd.apple.mpegurl";
+/// Answer to `expect=playlist` requests whose upstream body is not a playlist.
+/// The web player's HLS engine maps it to a format mismatch.
+const NOT_A_PLAYLIST_STATUS: u16 = 415;
+/// How long a stream refused to the HLS engine waits for the next engine.
+const PARKED_STREAM_TTL: Duration = Duration::from_secs(5);
 const EXPOSED_HEADERS: &str = "Content-Length, Content-Range, Accept-Ranges, Content-Type";
 
 /// A running proxy server. Dropping it stops accepting new requests.
@@ -55,12 +67,13 @@ pub struct StreamProxy {
 impl StreamProxy {
     /// Binds `127.0.0.1:0` and serves requests on a background thread.
     pub fn start(log_path: Option<PathBuf>) -> Result<Self, String> {
-        Self::start_with_idle_timeout(log_path, UPSTREAM_IDLE_TIMEOUT)
+        Self::start_with_timeouts(log_path, UPSTREAM_IDLE_TIMEOUT, PARKED_STREAM_TTL)
     }
 
-    fn start_with_idle_timeout(
+    fn start_with_timeouts(
         log_path: Option<PathBuf>,
         upstream_idle_timeout: Duration,
+        parked_stream_ttl: Duration,
     ) -> Result<Self, String> {
         let token = generate_token()?;
         let client = build_upstream_client(upstream_idle_timeout)?;
@@ -79,6 +92,7 @@ impl StreamProxy {
             base_url: base_url.clone(),
             client,
             log_path,
+            parking: StreamParking::new(parked_stream_ttl),
         });
 
         let accept_server = Arc::clone(&server);
@@ -113,6 +127,7 @@ struct ProxyContext {
     base_url: String,
     client: Client,
     log_path: Option<PathBuf>,
+    parking: StreamParking,
 }
 
 impl ProxyContext {
@@ -159,8 +174,15 @@ fn serve(server: &Server, context: Arc<ProxyContext>) {
 }
 
 #[derive(Debug, PartialEq)]
+struct StreamTarget {
+    url: Url,
+    /// The client can only use an HLS playlist (`expect=playlist`).
+    expect_playlist: bool,
+}
+
+#[derive(Debug, PartialEq)]
 enum Route {
-    Stream(Url),
+    Stream(StreamTarget),
     Preflight,
     BadRequest(&'static str),
     NotFound,
@@ -195,12 +217,15 @@ fn tokens_match(candidate: &str, token: &str) -> bool {
             == 0
 }
 
-fn parse_stream_target(query: &str) -> Result<Url, &'static str> {
+fn parse_stream_target(query: &str) -> Result<StreamTarget, &'static str> {
     let mut target: Option<String> = None;
+    let mut expect_playlist = false;
     let mut delivery_directives: Vec<(String, String)> = Vec::new();
     for (key, value) in form_urlencoded::parse(query.as_bytes()) {
         if key == "url" {
             target.get_or_insert_with(|| value.into_owned());
+        } else if key == "expect" {
+            expect_playlist = value == "playlist";
         } else if key.starts_with("_HLS_") {
             // hls.js appends LL-HLS delivery directives to the playlist URL it
             // requests (our proxy URL); forward them to the real playlist.
@@ -219,7 +244,10 @@ fn parse_stream_target(query: &str) -> Result<Url, &'static str> {
             pairs.append_pair(key, value);
         }
     }
-    Ok(target)
+    Ok(StreamTarget {
+        url: target,
+        expect_playlist,
+    })
 }
 
 fn handle_request(request: Request, context: &ProxyContext) {
@@ -234,18 +262,27 @@ fn handle_request(request: Request, context: &ProxyContext) {
     let _ = request.respond(response);
 }
 
-fn proxy_stream(request: &Request, target: &Url, context: &ProxyContext) -> ResponseBox {
+fn proxy_stream(request: &Request, target: &StreamTarget, context: &ProxyContext) -> ResponseBox {
     let is_head = *request.method() == Method::Head;
-    let host = target.host_str().unwrap_or("unknown host").to_string();
+    let range = request_header(request, "Range");
 
+    // Claiming also closes a parked stream that this request can't use.
+    if let Some(parked) = context.parking.claim(&target.url) {
+        if !is_head && range.is_none() && !target.expect_playlist {
+            return passthrough_response(parked.upstream, parked.prefix, parked.host, context);
+        }
+    }
+
+    let target_url = &target.url;
+    let host = target_url.host_str().unwrap_or("unknown host").to_string();
     let mut upstream_request = if is_head {
-        context.client.head(target.clone())
+        context.client.head(target_url.clone())
     } else {
-        context.client.get(target.clone())
+        context.client.get(target_url.clone())
     };
     // Ask for identity so bodies and lengths (including ranges) pass through exactly.
     upstream_request = upstream_request.header(ACCEPT_ENCODING, "identity");
-    if let Some(range) = request_header(request, "Range") {
+    if let Some(range) = range {
         upstream_request = upstream_request.header(RANGE, range);
     }
 
@@ -276,7 +313,7 @@ fn proxy_stream(request: &Request, target: &Url, context: &ProxyContext) -> Resp
         return head_response(&upstream);
     }
     if status.as_u16() == 200 {
-        return playlist_aware_response(upstream, host, context);
+        return playlist_aware_response(upstream, host, target, context);
     }
     passthrough_response(upstream, Vec::new(), host, context)
 }
@@ -285,13 +322,15 @@ fn proxy_stream(request: &Request, target: &Url, context: &ProxyContext) -> Resp
 fn playlist_aware_response(
     mut upstream: UpstreamResponse,
     host: String,
+    target: &StreamTarget,
     context: &ProxyContext,
 ) -> ResponseBox {
     let content_type = upstream_header(&upstream, &CONTENT_TYPE).map(str::to_string);
     let declared_playlist = content_type
         .as_deref()
         .is_some_and(hls::is_playlist_content_type);
-    let maybe_playlist = declared_playlist
+    let maybe_playlist = target.expect_playlist
+        || declared_playlist
         || hls::has_playlist_extension(upstream.url())
         || content_type.as_deref().is_none_or(is_generic_content_type);
     if !maybe_playlist {
@@ -312,6 +351,9 @@ fn playlist_aware_response(
         }
     };
     if !declared_playlist && !hls::looks_like_playlist(&prefix) {
+        if target.expect_playlist {
+            return refuse_media_for_playlist(upstream, prefix, host, target, context);
+        }
         return passthrough_response(upstream, prefix, host, context);
     }
 
@@ -345,6 +387,30 @@ fn playlist_aware_response(
     headers.push(header("Content-Type", HLS_CONTENT_TYPE));
     headers.push(header("Cache-Control", "no-cache"));
     build_response(200, headers, Box::new(Cursor::new(rewritten)), Some(length))
+}
+
+/// Tells the HLS engine its playlist URL serves media, and keeps the stream open
+/// for the engine the player tries next.
+fn refuse_media_for_playlist(
+    upstream: UpstreamResponse,
+    prefix: Vec<u8>,
+    host: String,
+    target: &StreamTarget,
+    context: &ProxyContext,
+) -> ResponseBox {
+    context.log(
+        "INFO",
+        &format!(
+            "stream proxy: {host} served media for a playlist URL; handing it to the next engine"
+        ),
+    );
+    context.parking.park(ParkedStream {
+        target: target.url.clone(),
+        upstream,
+        prefix,
+        host,
+    });
+    text_response(NOT_A_PLAYLIST_STATUS, "upstream is not an HLS playlist")
 }
 
 fn is_generic_content_type(content_type: &str) -> bool {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildPlaybackUrl,
+  buildPlaylistUrl,
   containerLabel,
   detectStreamFormat,
   planStream,
@@ -40,8 +41,11 @@ describe('planStream', () => {
     ]);
   });
 
-  it('uses hls.js only for HLS playlists', () => {
-    expect(planStream('http://host/a.m3u8', 'live').engines).toEqual(['hls']);
+  it('falls back to MPEG-TS when an HLS URL serves a raw stream', () => {
+    expect(planStream('http://host/a.m3u8', 'live').engines).toEqual([
+      'hls',
+      'mpegts',
+    ]);
   });
 
   it('has no engines for containers the webview cannot demux', () => {
@@ -62,6 +66,22 @@ describe('buildPlaybackUrl', () => {
       )
     ).toBe(
       'http://127.0.0.1:5000/token/stream?url=http%3A%2F%2Fhost%2Fa.m3u8%3Fx%3D1%26y%3D2'
+    );
+  });
+});
+
+describe('buildPlaylistUrl', () => {
+  it('asks the proxy to refuse anything but a playlist', () => {
+    expect(
+      buildPlaylistUrl('http://127.0.0.1:5000/token', 'http://host/a.m3u8')
+    ).toBe(
+      'http://127.0.0.1:5000/token/stream?url=http%3A%2F%2Fhost%2Fa.m3u8&expect=playlist'
+    );
+  });
+
+  it('leaves the provider url alone when no proxy is available', () => {
+    expect(buildPlaylistUrl(null, 'http://host/a.m3u8')).toBe(
+      'http://host/a.m3u8'
     );
   });
 });

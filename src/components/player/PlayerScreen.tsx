@@ -26,7 +26,11 @@ import {
   writeStoredVolume,
 } from '@/lib/player/playerStorage';
 import type { StreamSource } from '@/lib/player/streamController';
-import { buildPlaybackUrl, planStream } from '@/lib/player/streamSource';
+import {
+  buildPlaybackUrl,
+  buildPlaylistUrl,
+  planStream,
+} from '@/lib/player/streamSource';
 import { cn } from '@/lib/utils';
 import { displayTitle } from '@/lib/catalog/cleanName';
 
@@ -95,6 +99,7 @@ export function PlayerScreen({
     const plan = planStream(channel.stream_url, channel.media_kind);
     return {
       url: buildPlaybackUrl(proxyBaseUrl, channel.stream_url),
+      playlistUrl: buildPlaylistUrl(proxyBaseUrl, channel.stream_url),
       engines: plan.engines,
       isLive: plan.isLive,
       startPosition: plan.isLive

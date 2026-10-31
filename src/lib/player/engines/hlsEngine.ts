@@ -9,9 +9,22 @@ const FORMAT_ERROR_DETAILS = new Set([
   'levelEmptyError',
 ]);
 
-function mapHlsError(data: ErrorData): PlaybackFailure {
+/**
+ * The stream proxy's answer when a playlist URL serves media instead (see
+ * buildPlaylistUrl). The next engine can usually play it.
+ */
+const NOT_A_PLAYLIST_STATUS = 415;
+
+export function mapHlsError(data: ErrorData): PlaybackFailure {
   const httpStatus = data.response?.code;
   const detail = `${data.type}: ${data.details}${data.reason ? ` (${data.reason})` : ''}`;
+
+  if (httpStatus === NOT_A_PLAYLIST_STATUS) {
+    return {
+      category: 'format',
+      detail: `${detail}: the server sent media, not an HLS playlist`,
+    };
+  }
 
   if (typeof httpStatus === 'number' && httpStatus >= 400) {
     return { category: 'http', detail, httpStatus };

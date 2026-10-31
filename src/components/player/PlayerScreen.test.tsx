@@ -106,9 +106,24 @@ describe('PlayerScreen', () => {
     expect(started[0]).toMatchObject({
       kind: 'hls',
       isLive: true,
-      url: `${PROXY}/stream?url=${encodeURIComponent('http://provider.example/live/u/p/7.m3u8')}`,
+      url: `${PROXY}/stream?url=${encodeURIComponent('http://provider.example/live/u/p/7.m3u8')}&expect=playlist`,
     });
     expect(screen.getByText('Connecting to stream…')).toBeInTheDocument();
+  });
+
+  it('plays MPEG-TS served behind an HLS URL with mpegts.js', async () => {
+    renderPlayer();
+
+    await waitFor(() => expect(started).toHaveLength(1));
+    act(() => {
+      lastCallbacks().onFatal({ category: 'format', detail: 'not HLS' });
+    });
+
+    await waitFor(() => expect(started).toHaveLength(2));
+    expect(started[1]).toMatchObject({
+      kind: 'mpegts',
+      url: `${PROXY}/stream?url=${encodeURIComponent('http://provider.example/live/u/p/7.m3u8')}`,
+    });
   });
 
   it('falls back from MPEG-TS to HLS for extensionless live streams', async () => {
