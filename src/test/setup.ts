@@ -58,6 +58,8 @@ Element.prototype.scrollIntoView = vi.fn();
 // Mock @tauri-apps/api/core
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
+  // plugin-updater's Update extends this as soon as it loads.
+  Resource: class {},
 }));
 
 // Mock @tauri-apps/api/event

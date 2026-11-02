@@ -5,7 +5,8 @@ import { renderWithRouter } from '../test/renderWithRouter';
 import { SettingsPage } from './SettingsPage';
 import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
-import { checkForAppUpdate } from '../lib/api/updatesApi';
+import { checkForAppUpdate, installAppUpdate, type Update } from '../lib/api/updatesApi';
+import { useAppUpdateStore } from '../store/appUpdateStore';
 
 vi.mock('../lib/api/updatesApi', () => ({
   checkForAppUpdate: vi.fn(),
@@ -37,7 +38,18 @@ function resetStore(overrides: Record<string, unknown> = {}) {
 }
 
 describe('SettingsPage', () => {
-  beforeEach(() => resetStore());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStore();
+    useAppUpdateStore.setState({
+      phase: 'idle',
+      update: null,
+      upToDate: false,
+      checkError: null,
+      downloadedBytes: 0,
+      downloadTotalBytes: null,
+    });
+  });
 
   it('renders the heading', () => {
     renderWithRouter(<SettingsPage />);
@@ -97,5 +109,18 @@ describe('SettingsPage', () => {
     expect(
       await screen.findByText('SilkCast is up to date.')
     ).toBeInTheDocument();
+  });
+
+  it('offers an update that an automatic check already found', async () => {
+    const update = { version: '0.5.0' } as Update;
+    vi.mocked(installAppUpdate).mockResolvedValue();
+    useAppUpdateStore.setState({ update });
+    const user = userEvent.setup();
+
+    renderWithRouter(<SettingsPage />);
+    expect(screen.getByText('Version 0.5.0 is ready to install.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Install Update' }));
+
+    expect(installAppUpdate).toHaveBeenCalledWith(update, expect.any(Function));
   });
 });
