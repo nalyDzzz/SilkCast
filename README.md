@@ -154,9 +154,12 @@ The workflow builds Windows installers and uploads them to a draft GitHub Releas
 
 ## App Updates
 
-SilkCast uses the Tauri updater to check GitHub Releases for newer versions. The
-Settings page includes a manual update check that downloads, installs, and
-relaunches the app when a signed update is available.
+SilkCast uses the Tauri updater to check GitHub Releases for newer versions.
+Release builds check a few seconds after launch and every six hours after that;
+failed checks stay silent. When a signed update is available, a toast announces it
+once and the top bar shows an "Update available" button until it's installed. Both
+download and install the update, then relaunch the app. Toasts wait until the
+full-window player closes. The Settings page also has a manual check.
 
 Updater releases require these GitHub Actions secrets:
 

@@ -5,6 +5,7 @@ import { useCommandPaletteStore } from '@/components/command/commandPaletteStore
 import { SourceSwitcher } from '@/components/sources/SourceSwitcher';
 import { Kbd } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { UpdateIndicator } from '@/components/updates/UpdateIndicator';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
@@ -33,7 +34,8 @@ function IconLink({ to, label, children }: { to: string; label: string; children
 
 /**
  * The app's only navigation: wordmark, sections, global search (Ctrl K), the
- * source switcher and settings. Floats over the Home hero when `overlay` is set.
+ * update notice, source switcher and settings. Floats over the Home hero when
+ * `overlay` is set.
  */
 export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; solid?: boolean }) {
   const openPalette = useCommandPaletteStore((state) => state.setOpen);
@@ -52,13 +54,13 @@ export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; s
         <Wordmark />
       </Link>
 
-      <nav aria-label="Main" className="flex items-center gap-6">
+      <nav aria-label="Main" className="flex shrink-0 items-center gap-6">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
-            className="relative py-2 text-[15px] font-medium text-muted-foreground transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-thread after:opacity-0 after:transition-opacity hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100"
+            className="relative py-2 text-[15px] font-medium whitespace-nowrap text-muted-foreground transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-thread after:opacity-0 after:transition-opacity hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100"
           >
             {item.label}
           </NavLink>
@@ -88,6 +90,7 @@ export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; s
           </TooltipTrigger>
           <TooltipContent>Search (Ctrl K)</TooltipContent>
         </Tooltip>
+        <UpdateIndicator />
         <SourceSwitcher />
         <IconLink to="/dashboard/help" label="Help">
           <CircleHelp />
