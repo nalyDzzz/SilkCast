@@ -54,13 +54,13 @@ export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; s
         <Wordmark />
       </Link>
 
-      <nav aria-label="Main" className="flex items-center gap-6">
+      <nav aria-label="Main" className="flex shrink-0 items-center gap-6">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
-            className="relative py-2 text-[15px] font-medium text-muted-foreground transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-thread after:opacity-0 after:transition-opacity hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100"
+            className="relative py-2 text-[15px] font-medium whitespace-nowrap text-muted-foreground transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-thread after:opacity-0 after:transition-opacity hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100"
           >
             {item.label}
           </NavLink>

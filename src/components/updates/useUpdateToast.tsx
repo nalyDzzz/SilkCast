@@ -32,11 +32,15 @@ export function useUpdateToast() {
     toast(`SilkCast ${version} is available`, {
       id: UPDATE_TOAST_ID,
       icon: <CircleArrowUp className="size-4 text-thread" />,
-      description: 'Install it now, or any time from the top bar.',
+      description: 'Installing restarts the app. You can also do it later from the top bar.',
       duration: UPDATE_TOAST_DURATION_MS,
       action: {
         label: 'Install',
         onClick: () => void installPendingUpdate(),
+      },
+      actionButtonStyle: {
+        background: 'var(--primary)',
+        color: 'var(--primary-foreground)',
       },
     });
   }, [version, idle]);

@@ -10,6 +10,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { installPendingUpdate } from '@/components/updates/installPendingUpdate';
 import { openReleaseNotes } from '@/lib/api/updatesApi';
 import { selectDownloadProgress, useAppUpdateStore } from '@/store/appUpdateStore';
@@ -44,20 +45,26 @@ export function UpdateIndicator() {
 
   return (
     <Popover>
-      <PopoverTrigger
-        aria-label={pillLabel}
-        className="relative flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-full border border-thread/45 bg-thread/10 px-3 text-sm font-semibold transition-colors hover:bg-thread/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none data-[state=open]:bg-thread/20"
-      >
-        <CircleArrowUp className="size-[18px] shrink-0 text-thread" />
-        <span className="hidden whitespace-nowrap lg:inline">{pillLabel}</span>
-        {busy ? (
-          <ThreadProgress
-            value={installing ? 1 : (progress ?? 0)}
-            bead={false}
-            className="absolute inset-x-3 bottom-1 w-auto"
-          />
-        ) : null}
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger
+            aria-label={pillLabel}
+            className="relative flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-full border border-thread/45 bg-thread/10 px-[10px] text-sm font-semibold transition-colors hover:bg-thread/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none data-[state=open]:bg-thread/20 xl:px-3"
+          >
+            <CircleArrowUp className="size-[18px] shrink-0 text-thread" />
+            {/* Narrower windows need this room for search and the source name. */}
+            <span className="hidden whitespace-nowrap xl:inline">{pillLabel}</span>
+            {busy ? (
+              <ThreadProgress
+                value={installing ? 1 : (progress ?? 0)}
+                bead={false}
+                className="absolute inset-x-3 bottom-1 w-auto"
+              />
+            ) : null}
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{pillLabel}</TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" sideOffset={8} className="w-80 space-y-3.5">
         <PopoverHeader>
           <PopoverTitle className="text-[15px]">
