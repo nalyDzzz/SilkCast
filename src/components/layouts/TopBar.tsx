@@ -5,6 +5,7 @@ import { useCommandPaletteStore } from '@/components/command/commandPaletteStore
 import { SourceSwitcher } from '@/components/sources/SourceSwitcher';
 import { Kbd } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { UpdateIndicator } from '@/components/updates/UpdateIndicator';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
@@ -33,7 +34,8 @@ function IconLink({ to, label, children }: { to: string; label: string; children
 
 /**
  * The app's only navigation: wordmark, sections, global search (Ctrl K), the
- * source switcher and settings. Floats over the Home hero when `overlay` is set.
+ * update notice, source switcher and settings. Floats over the Home hero when
+ * `overlay` is set.
  */
 export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; solid?: boolean }) {
   const openPalette = useCommandPaletteStore((state) => state.setOpen);
@@ -88,6 +90,7 @@ export function TopBar({ overlay = false, solid = true }: { overlay?: boolean; s
           </TooltipTrigger>
           <TooltipContent>Search (Ctrl K)</TooltipContent>
         </Tooltip>
+        <UpdateIndicator />
         <SourceSwitcher />
         <IconLink to="/dashboard/help" label="Help">
           <CircleHelp />
