@@ -2,6 +2,7 @@ mod foundation;
 mod guide_refresh;
 mod guide_store;
 mod m3u;
+mod media_details;
 mod playback;
 mod player_environment;
 mod stream_proxy;
@@ -23,6 +24,7 @@ use guide_store::{
     store_key_programmes, StoredProgramme,
 };
 use m3u::{load_m3u_location, parse_m3u_channels, parse_m3u_guide_urls};
+use media_details::{details_for_channel, remember_series_details, DetailsKind, MediaDetails};
 use playback::{EmbeddedSurfaceBounds, PlaybackStatus};
 use player_environment::{PlayerEnvironment, PlayerEnvironmentState};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -34,9 +36,9 @@ use std::thread;
 use stream_proxy::StreamProxy;
 use tauri::{Manager, State};
 use xtream::{
-    extract_live_stream_id, extract_stream_key_from_url, import_xtream_channels,
-    list_xtream_live_epg, list_xtream_series_episodes, LiveEpgEntryRecord, SeriesEpisodeRecord,
-    XtreamConfig,
+    extract_live_stream_id, extract_stream_key_from_url, fetch_xtream_series_info,
+    fetch_xtream_vod_info, import_xtream_channels, list_xtream_live_epg,
+    list_xtream_series_episodes, LiveEpgEntryRecord, SeriesEpisodeRecord, XtreamConfig,
 };
 
 #[derive(Debug, Serialize)]
@@ -448,7 +450,37 @@ fn list_series_episodes_core(
         })?;
 
     let xtream_config = XtreamConfig::from_value(&source.config)?;
-    list_xtream_series_episodes(&xtream_config, &series_id)
+    let series = list_xtream_series_episodes(&xtream_config, &series_id)?;
+    // The same payload carries the series details; keep them for its header.
+    // Best effort: the episodes are what was asked for.
+    let _ = remember_series_details(
+        &state.context.db_path,
+        &channel,
+        &series.payload,
+        unix_now(),
+    );
+    Ok(series.episodes)
+}
+
+/// Plot, credits, artwork and rating for a movie or series, cached for a week.
+/// `None` for items whose source has no details API (live channels, playlists).
+#[tauri::command]
+async fn get_media_details(
+    channel_id: i64,
+    app: tauri::AppHandle,
+) -> Result<Option<MediaDetails>, String> {
+    run_blocking(app, move |app| {
+        details_for_channel(
+            &app.state::<SharedState>().context.db_path,
+            channel_id,
+            unix_now(),
+            |config, target| match target.kind {
+                DetailsKind::Movie => fetch_xtream_vod_info(config, &target.item_id),
+                DetailsKind::Series => fetch_xtream_series_info(config, &target.item_id),
+            },
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1611,6 +1643,7 @@ pub fn run() {
             list_source_channels,
             search_source_channels,
             list_series_episodes,
+            get_media_details,
             list_channel_epg,
             list_channels_epg,
             refresh_channel_epg,

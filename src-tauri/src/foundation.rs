@@ -262,6 +262,10 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
         [],
     );
 
+    connection
+        .execute_batch(crate::media_details::MEDIA_DETAILS_SCHEMA)
+        .map_err(|e| format!("media details migration failed: {e}"))?;
+
     crate::guide_store::init_guide_storage(&connection)
 }
 
