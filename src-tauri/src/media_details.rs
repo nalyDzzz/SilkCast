@@ -286,18 +286,25 @@ fn text(info: &Value, keys: &[&str]) -> Option<String> {
 }
 
 /// A comma (or slash) separated string, or a JSON array, as distinct names.
+/// Panels may send several of the keys, some empty (`cast: ""` beside a
+/// filled `actors`), so the first key with any names wins.
 fn list(info: &Value, keys: &[&str], separators: &[char], max: usize) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    let Some(value) = keys.iter().find_map(|key| info.get(*key)) else {
-        return names;
-    };
+    keys.iter()
+        .filter_map(|key| info.get(*key))
+        .map(|value| names_in(value, separators, max))
+        .find(|names| !names.is_empty())
+        .unwrap_or_default()
+}
+
+fn names_in(value: &Value, separators: &[char], max: usize) -> Vec<String> {
     let parts: Vec<String> = match value {
         Value::Array(items) => items.iter().filter_map(scalar_text).collect(),
         other => scalar_text(other)
             .map(|joined| joined.split(separators).map(str::to_string).collect())
             .unwrap_or_default(),
     };
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
     for part in parts {
         let name = part.trim();
         if is_placeholder(name) || !seen.insert(name.to_lowercase()) {
@@ -561,6 +568,15 @@ mod tests {
             }
         }));
         assert!(odd.is_empty(), "{odd:?}");
+    }
+
+    #[test]
+    fn an_empty_cast_falls_back_to_actors() {
+        let details = parse_media_details(&json!({
+            "info": { "cast": "", "actors": "Kel Mitchell, Kenan Thompson", "director": [] , "directors": "Phil Traill" }
+        }));
+        assert_eq!(details.cast, vec!["Kel Mitchell", "Kenan Thompson"]);
+        assert_eq!(details.directors, vec!["Phil Traill"]);
     }
 
     #[test]

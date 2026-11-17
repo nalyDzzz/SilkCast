@@ -46,6 +46,17 @@ export function FavoriteButton({
   );
 }
 
+/**
+ * A 404 for one title usually means the provider renumbered its catalog
+ * since the last refresh (Dispatcharr does this); its stream is then
+ * probably stale too.
+ */
+export function detailsErrorMessage(error: string) {
+  return /\b404\b/.test(error)
+    ? "Your provider no longer lists this title. Refreshing the source usually fixes it."
+    : "Couldn't load details from the provider.";
+}
+
 /** Shown when the provider's details call failed; the page still works without them. */
 export function DetailsError({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   if (!error) {
@@ -53,7 +64,7 @@ export function DetailsError({ error, onRetry }: { error: string | null; onRetry
   }
   return (
     <p className="mt-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-      Couldn&apos;t load details from the provider.
+      {detailsErrorMessage(error)}
       <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={onRetry}>
         <RotateCw />
         Retry

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChannelRecord } from '@/components/app/types';
+import { detailsErrorMessage } from '@/components/details/DetailsActions';
 import {
   detailFacts,
   formatNames,
@@ -61,6 +62,15 @@ describe('detailsFormat', () => {
       rating: '7.4',
       ageRating: 'R',
     });
+  });
+
+  it('explains a missing title as a stale catalog', () => {
+    expect(
+      detailsErrorMessage('xtream server returned an error: HTTP status client error (404 Not Found)')
+    ).toMatch(/Refreshing the source/);
+    expect(detailsErrorMessage('xtream request failed: timed out')).toBe(
+      "Couldn't load details from the provider."
+    );
   });
 
   it('keeps the grid poster so the header does not swap images', () => {

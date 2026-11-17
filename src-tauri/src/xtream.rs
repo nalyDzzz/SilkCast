@@ -176,26 +176,18 @@ impl XtreamEpgSession {
         self.client.fetch_live_epg(stream_id, limit)
     }
 }
-/// A series' episodes and the `get_series_info` payload they came from, whose
-/// `info` block holds the series details.
-pub struct XtreamSeriesInfo {
-    pub episodes: Vec<SeriesEpisodeRecord>,
-    pub payload: Value,
-}
-
-pub fn list_xtream_series_episodes(
-    config: &XtreamConfig,
-    series_id: &str,
-) -> Result<XtreamSeriesInfo, String> {
-    let client = XtreamClient::new(config.clone())?;
-    let payload = client.fetch_series_info(series_id)?;
-    let episodes = client.series_episodes_from_payload(&payload)?;
-    Ok(XtreamSeriesInfo { episodes, payload })
-}
-
 /// The raw `get_series_info` payload: details under `info`, plus episodes.
 pub fn fetch_xtream_series_info(config: &XtreamConfig, series_id: &str) -> Result<Value, String> {
     XtreamClient::new(config.clone())?.fetch_series_info(series_id)
+}
+
+/// The playable episodes in a `get_series_info` payload, in season order.
+/// Errors when there are none.
+pub fn xtream_series_episodes(
+    config: &XtreamConfig,
+    payload: &Value,
+) -> Result<Vec<SeriesEpisodeRecord>, String> {
+    XtreamClient::new(config.clone())?.series_episodes_from_payload(payload)
 }
 
 /// The raw `get_vod_info` payload: a movie's details under `info`. A metadata
@@ -968,7 +960,7 @@ mod tests {
     }
 
     #[test]
-    fn list_xtream_series_episodes_fetches_episode_records() {
+    fn series_info_payload_yields_episode_records() {
         let server_url = spawn_xtream_test_server_with_limit(1);
         let config = XtreamConfig {
             server_url,
@@ -976,10 +968,9 @@ mod tests {
             password: "secret".to_string(),
         };
 
-        let series =
-            list_xtream_series_episodes(&config, "999").expect("episode lookup should succeed");
-        assert_eq!(series.payload["info"]["plot"], "A show about threads.");
-        let episodes = series.episodes;
+        let payload = fetch_xtream_series_info(&config, "999").expect("lookup should succeed");
+        assert_eq!(payload["info"]["plot"], "A show about threads.");
+        let episodes = xtream_series_episodes(&config, &payload).expect("episodes should parse");
         assert_eq!(episodes.len(), 2);
         assert_eq!(episodes[0].season_number, 1);
         assert_eq!(episodes[0].episode_number, 1);

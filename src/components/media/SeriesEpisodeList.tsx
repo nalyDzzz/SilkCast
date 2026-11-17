@@ -149,10 +149,12 @@ export function SeriesEpisodeList({
   const primaryEpisode = continueEpisode ?? firstEpisode;
   const counts = loading
     ? ['Loading episodes…']
-    : [
-        `${seasons.length} ${seasons.length === 1 ? 'season' : 'seasons'}`,
-        `${episodes.length} ${episodes.length === 1 ? 'episode' : 'episodes'}`,
-      ];
+    : episodes.length === 0
+      ? []
+      : [
+          `${seasons.length} ${seasons.length === 1 ? 'season' : 'seasons'}`,
+          `${episodes.length} ${episodes.length === 1 ? 'episode' : 'episodes'}`,
+        ];
 
   const header = (
     <>

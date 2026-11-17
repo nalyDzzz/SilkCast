@@ -37,8 +37,8 @@ use stream_proxy::StreamProxy;
 use tauri::{Manager, State};
 use xtream::{
     extract_live_stream_id, extract_stream_key_from_url, fetch_xtream_series_info,
-    fetch_xtream_vod_info, import_xtream_channels, list_xtream_live_epg,
-    list_xtream_series_episodes, LiveEpgEntryRecord, SeriesEpisodeRecord, XtreamConfig,
+    fetch_xtream_vod_info, import_xtream_channels, list_xtream_live_epg, xtream_series_episodes,
+    LiveEpgEntryRecord, SeriesEpisodeRecord, XtreamConfig,
 };
 
 #[derive(Debug, Serialize)]
@@ -450,16 +450,12 @@ fn list_series_episodes_core(
         })?;
 
     let xtream_config = XtreamConfig::from_value(&source.config)?;
-    let series = list_xtream_series_episodes(&xtream_config, &series_id)?;
-    // The same payload carries the series details; keep them for its header.
-    // Best effort: the episodes are what was asked for.
-    let _ = remember_series_details(
-        &state.context.db_path,
-        &channel,
-        &series.payload,
-        unix_now(),
-    );
-    Ok(series.episodes)
+    let payload = fetch_xtream_series_info(&xtream_config, &series_id)?;
+    // The same payload carries the series details: keep them for the page's
+    // header, even when it has no episodes. Best effort; the episodes are
+    // what was asked for.
+    let _ = remember_series_details(&state.context.db_path, &channel, &payload, unix_now());
+    xtream_series_episodes(&xtream_config, &payload)
 }
 
 /// Other items from the same group, for a details page's "More in …" row.
