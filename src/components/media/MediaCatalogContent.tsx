@@ -1,8 +1,4 @@
-import {
-  ChannelRecord,
-  SeriesEpisodeRecord,
-} from '@/components/app/types';
-import { SeriesEpisodeList } from '@/components/media/SeriesEpisodeList';
+import type { ChannelRecord } from '@/components/app/types';
 import {
   readScrollOffset,
   writeScrollOffset,
@@ -20,20 +16,12 @@ type MediaCatalogContentProps = {
   playingItemId: number | null;
   lastPlayedItemId: number | null;
   brokenPosterIds: Record<number, true>;
-  isViewingSeriesEpisodes: boolean;
-  selectedSeriesItem: ChannelRecord | null;
-  seriesEpisodes: SeriesEpisodeRecord[];
-  episodeRecords: ChannelRecord[];
-  seriesEpisodesLoading: boolean;
-  seriesEpisodesError: string | null;
   /** Identifies the current list for scroll-position restore. */
   scrollKey: string;
-  onRetryEpisodes: () => void;
   onPlayItem: (item: ChannelRecord) => Promise<void>;
-  onToggleFavorite: (item: ChannelRecord) => Promise<void>;
+  onOpenMovie: (item: ChannelRecord) => void;
+  onToggleFavorite: (item: ChannelRecord) => Promise<boolean>;
   onOpenSeries: (item: ChannelRecord) => Promise<void>;
-  onPlaySeriesEpisode: (episode: SeriesEpisodeRecord) => void;
-  onBackToSeriesCatalog: () => void;
   onPosterError: (itemId: number) => void;
 };
 
@@ -43,39 +31,15 @@ export function MediaCatalogContent({
   playingItemId,
   lastPlayedItemId,
   brokenPosterIds,
-  isViewingSeriesEpisodes,
-  selectedSeriesItem,
-  seriesEpisodes,
-  episodeRecords,
-  seriesEpisodesLoading,
-  seriesEpisodesError,
   scrollKey,
-  onRetryEpisodes,
   onPlayItem,
+  onOpenMovie,
   onToggleFavorite,
   onOpenSeries,
-  onPlaySeriesEpisode,
-  onBackToSeriesCatalog,
   onPosterError,
 }: MediaCatalogContentProps) {
   // Read once per list; positions are saved while the player is open.
   const resumeEntries = useMemo(() => getResumeEntries(), [items]);
-
-  if (isViewingSeriesEpisodes && selectedSeriesItem) {
-    return (
-      <SeriesEpisodeList
-        series={selectedSeriesItem}
-        episodes={seriesEpisodes}
-        episodeRecords={episodeRecords}
-        loading={seriesEpisodesLoading}
-        error={seriesEpisodesError}
-        playingSeriesId={playingItemId}
-        onBack={onBackToSeriesCatalog}
-        onRetry={onRetryEpisodes}
-        onPlayEpisode={onPlaySeriesEpisode}
-      />
-    );
-  }
 
   const resumeProgress = (item: ChannelRecord) => {
     const entry = resumeEntries[resumeKeyFor(item)];
@@ -96,11 +60,10 @@ export function MediaCatalogContent({
           isLastPlayed={lastPlayedItemId === item.id}
           isPosterBroken={Boolean(brokenPosterIds[item.id])}
           progress={mediaKind === 'movie' ? resumeProgress(item) : null}
-          onPlay={(nextItem) =>
-            mediaKind === 'series'
-              ? void onOpenSeries(nextItem)
-              : void onPlayItem(nextItem)
+          onOpen={(nextItem) =>
+            mediaKind === 'series' ? void onOpenSeries(nextItem) : onOpenMovie(nextItem)
           }
+          onPlay={mediaKind === 'movie' ? (nextItem) => void onPlayItem(nextItem) : undefined}
           onToggleFavorite={(nextItem) => void onToggleFavorite(nextItem)}
           onPosterError={onPosterError}
         />

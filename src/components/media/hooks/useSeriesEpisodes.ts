@@ -33,7 +33,7 @@ export function useSeriesEpisodes({
 
   const selectedSeriesItem =
     mediaKind === 'series' && supportsSeriesEpisodeList
-      ? view.selectedSeries
+      ? view.selectedItem
       : null;
   const selectedSeriesId = selectedSeriesItem?.id ?? null;
   const cachedEpisodes = useCatalogViewStore((state) =>
@@ -98,7 +98,7 @@ export function useSeriesEpisodes({
       }
 
       setLoadError(null);
-      updateView(mediaKind, selectedSourceId, { selectedSeries: item });
+      updateView(mediaKind, selectedSourceId, { selectedItem: item });
     },
     [
       mediaKind,
@@ -122,7 +122,7 @@ export function useSeriesEpisodes({
   );
 
   const handleBackToSeriesCatalog = useCallback(() => {
-    updateView(mediaKind, selectedSourceId, { selectedSeries: null });
+    updateView(mediaKind, selectedSourceId, { selectedItem: null });
   }, [mediaKind, selectedSourceId, updateView]);
 
   const handleRetryEpisodes = useCallback(() => {

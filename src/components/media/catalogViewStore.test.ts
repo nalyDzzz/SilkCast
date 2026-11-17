@@ -38,7 +38,7 @@ describe('catalogViewStore', () => {
 
   it('drops stale ids and cached results when a source catalog changes', () => {
     const store = useCatalogViewStore.getState();
-    store.updateView('series', 5, { selectedSeries: series, query: 'sh' });
+    store.updateView('series', 5, { selectedItem: series, query: 'sh' });
     store.cacheEpisodes(77, []);
     catalogResultCache.rememberItems('5|series||sh|false', [series]);
     const versionBefore = useCatalogViewStore.getState().catalogVersion;
@@ -47,7 +47,7 @@ describe('catalogViewStore', () => {
 
     const state = useCatalogViewStore.getState();
     expect(state.views.series).toMatchObject({
-      selectedSeries: null,
+      selectedItem: null,
       query: 'sh',
     });
     expect(state.episodesBySeriesId).toEqual({});
@@ -57,12 +57,12 @@ describe('catalogViewStore', () => {
 
   it('leaves other sources’ open series alone', () => {
     useCatalogViewStore.getState().updateView('series', 5, {
-      selectedSeries: series,
+      selectedItem: series,
     });
 
     invalidateSourceCatalog(9);
 
-    expect(useCatalogViewStore.getState().views.series?.selectedSeries).toBe(
+    expect(useCatalogViewStore.getState().views.series?.selectedItem).toBe(
       series
     );
   });

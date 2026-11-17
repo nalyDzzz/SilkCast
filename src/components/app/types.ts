@@ -39,6 +39,25 @@ export type SeriesEpisodeRecord = {
   stream_url: string;
 };
 
+/** Provider details for a movie or series (Xtream `get_vod_info` / `get_series_info`). */
+export type MediaDetails = {
+  plot: string | null;
+  genres: string[];
+  directors: string[];
+  cast: string[];
+  /** `YYYY-MM-DD`, or just the year when that's all the provider has. */
+  release_date: string | null;
+  year: number | null;
+  runtime_minutes: number | null;
+  /** Out of 10. */
+  rating: number | null;
+  age_rating: string | null;
+  country: string | null;
+  poster_url: string | null;
+  backdrop_urls: string[];
+  trailer_url: string | null;
+};
+
 export type LiveEpgEntryRecord = {
   title: string;
   description: string | null;

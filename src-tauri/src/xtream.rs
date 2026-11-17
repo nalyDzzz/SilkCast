@@ -176,12 +176,29 @@ impl XtreamEpgSession {
         self.client.fetch_live_epg(stream_id, limit)
     }
 }
-pub fn list_xtream_series_episodes(
+/// The raw `get_series_info` payload: details under `info`, plus episodes.
+pub fn fetch_xtream_series_info(config: &XtreamConfig, series_id: &str) -> Result<Value, String> {
+    XtreamClient::new(config.clone())?.fetch_series_info(series_id)
+}
+
+/// The playable episodes in a `get_series_info` payload, in season order.
+/// Errors when there are none.
+pub fn xtream_series_episodes(
     config: &XtreamConfig,
-    series_id: &str,
+    payload: &Value,
 ) -> Result<Vec<SeriesEpisodeRecord>, String> {
-    let client = XtreamClient::new(config.clone())?;
-    client.fetch_series_episodes(series_id)
+    XtreamClient::new(config.clone())?.series_episodes_from_payload(payload)
+}
+
+/// The raw `get_vod_info` payload: a movie's details under `info`. A metadata
+/// call; it doesn't open a stream or use one of the account's connections.
+pub fn fetch_xtream_vod_info(config: &XtreamConfig, vod_id: &str) -> Result<Value, String> {
+    let vod_id = vod_id.trim();
+    if vod_id.is_empty() {
+        return Err("movie details lookup requires a valid movie ID".to_string());
+    }
+    XtreamClient::new(config.clone())?
+        .request_json(Some("get_vod_info"), &[("vod_id", vod_id.to_string())])
 }
 
 struct XtreamClient {
@@ -464,16 +481,22 @@ impl XtreamClient {
         Ok(records.into_iter().take(limit).collect())
     }
 
-    fn fetch_series_episodes(&self, series_id: &str) -> Result<Vec<SeriesEpisodeRecord>, String> {
+    fn fetch_series_info(&self, series_id: &str) -> Result<Value, String> {
         let normalized_series_id = series_id.trim();
         if normalized_series_id.is_empty() {
             return Err("series episode lookup requires a valid series ID".to_string());
         }
 
-        let payload = self.request_json(
+        self.request_json(
             Some("get_series_info"),
             &[("series_id", normalized_series_id.to_string())],
-        )?;
+        )
+    }
+
+    fn series_episodes_from_payload(
+        &self,
+        payload: &Value,
+    ) -> Result<Vec<SeriesEpisodeRecord>, String> {
         let episodes_payload = payload
             .get("episodes")
             .ok_or_else(|| "Xtream response missing `episodes` payload".to_string())?;
@@ -937,7 +960,7 @@ mod tests {
     }
 
     #[test]
-    fn list_xtream_series_episodes_fetches_episode_records() {
+    fn series_info_payload_yields_episode_records() {
         let server_url = spawn_xtream_test_server_with_limit(1);
         let config = XtreamConfig {
             server_url,
@@ -945,8 +968,9 @@ mod tests {
             password: "secret".to_string(),
         };
 
-        let episodes =
-            list_xtream_series_episodes(&config, "999").expect("episode lookup should succeed");
+        let payload = fetch_xtream_series_info(&config, "999").expect("lookup should succeed");
+        assert_eq!(payload["info"]["plot"], "A show about threads.");
+        let episodes = xtream_series_episodes(&config, &payload).expect("episodes should parse");
         assert_eq!(episodes.len(), 2);
         assert_eq!(episodes[0].season_number, 1);
         assert_eq!(episodes[0].episode_number, 1);
@@ -961,6 +985,21 @@ mod tests {
             episodes[1].stream_url,
             format!("{}/series/alice/secret/5552.mkv", config.server_url)
         );
+    }
+
+    #[test]
+    fn fetch_xtream_vod_info_asks_for_the_movie_by_id() {
+        let server_url = spawn_xtream_test_server_with_limit(1);
+        let config = XtreamConfig {
+            server_url,
+            username: "alice".to_string(),
+            password: "secret".to_string(),
+        };
+
+        let payload =
+            fetch_xtream_vod_info(&config, " 202 ").expect("details lookup should succeed");
+        assert_eq!(payload["info"]["plot"], "A thread unravels.");
+        assert!(fetch_xtream_vod_info(&config, "  ").is_err());
     }
 
     #[test]
@@ -1087,7 +1126,13 @@ mod tests {
                         }
                     })
                     .unwrap_or_default();
+                let asks_for_movie_202 = url
+                    .query_pairs()
+                    .any(|(key, value)| key == "vod_id" && value == "202");
                 let body = match action.as_str() {
+                    "get_vod_info" if asks_for_movie_202 => {
+                        r#"{ "info": { "plot": "A thread unravels.", "genre": "Drama" } }"#
+                    }
                     "" => {
                         r#"{
   "user_info": {
@@ -1139,6 +1184,7 @@ mod tests {
                     }
                     "get_series_info" => {
                         r#"{
+  "info": { "name": "SilkCast Show", "plot": "A show about threads." },
   "episodes": {
     "1": [
       {

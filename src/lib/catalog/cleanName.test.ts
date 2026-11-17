@@ -21,6 +21,12 @@ describe('cleanName', () => {
     ['UK| 24/7 HD/RAW', '24/7', null, ['UK', 'HD']],
     ['US| BBC ONE HD', 'BBC One', null, ['US', 'HD']],
     ['US| 24/7 ACTION/ADVENTURE ᴿᴬᵂ ⁶⁰ᶠᵖˢ', '24/7 Action/Adventure', null, ['US', '60 fps']],
+    ['A+ - Severance', 'Severance', null, []],
+    ['D+ | Night Ferry (2022)', 'Night Ferry', 2022, []],
+    ['DE - FILME 1940/2024', 'Filme 1940/2024', null, ['DE']],
+    ['Movies 1990-2000', 'Movies 1990-2000', null, []],
+    ['Blade Runner 2049 (2017)', 'Blade Runner 2049', 2017, []],
+    ['APPLE+ SERIES ⁴ᴷ ³⁸⁴⁰ᴾ ᴰᵒˡᵇʸ ⱽᶦˢᶦᵒⁿ', 'Apple+ Series', null, ['4K']],
   ])('cleans %j', (raw, title, year, tags) => {
     const result = cleanName(raw);
     expect(result.title).toBe(title);

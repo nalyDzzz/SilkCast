@@ -7,6 +7,7 @@ import { useMediaCatalogData } from '@/components/media/hooks/useMediaCatalogDat
 import { useMediaCatalogEvents } from '@/components/media/hooks/useMediaCatalogEvents';
 import { useMediaCatalogFilters } from '@/components/media/hooks/useMediaCatalogFilters';
 import { useMediaCatalogPlayback } from '@/components/media/hooks/useMediaCatalogPlayback';
+import { useCatalogDetailsView } from '@/components/media/hooks/useCatalogDetailsView';
 import { useSeriesEpisodes } from '@/components/media/hooks/useSeriesEpisodes';
 import { MEDIA_COPY, type MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
 import { useAppStore } from '@/store/appStore';
@@ -34,6 +35,7 @@ export function useMediaCatalog(mediaKind: MediaCatalogKind) {
     loadPlaybackStatus,
     setPlayback,
     playChannelRecord,
+    openChannelInMpv,
   } = useAppStore(
     useShallow((state) => ({
       activeChannel: state.activeChannel,
@@ -47,6 +49,7 @@ export function useMediaCatalog(mediaKind: MediaCatalogKind) {
       loadPlaybackStatus: state.loadPlaybackStatus,
       setPlayback: state.setPlayback,
       playChannelRecord: state.playChannelRecord,
+      openChannelInMpv: state.openChannelInMpv,
     }))
   );
 
@@ -80,6 +83,7 @@ export function useMediaCatalog(mediaKind: MediaCatalogKind) {
     singularLabel: copy.singularLabel,
     preferredPlayer: settings.preferred_player,
     playChannelRecord,
+    openChannelInMpv,
     navigateToPlayer,
     reportError: data.reportError,
   });
@@ -91,6 +95,12 @@ export function useMediaCatalog(mediaKind: MediaCatalogKind) {
     (item: ChannelRecord) => handlePlayItem(item, mediaKind === 'live' ? items : undefined),
     [handlePlayItem, items, mediaKind]
   );
+
+  const details = useCatalogDetailsView({
+    mediaKind,
+    selectedSourceId,
+    toggleFavorite: data.handleToggleFavorite,
+  });
 
   const series = useSeriesEpisodes({
     mediaKind,
@@ -125,6 +135,7 @@ export function useMediaCatalog(mediaKind: MediaCatalogKind) {
     data,
     playback,
     playCatalogItem,
+    details,
     series,
     scrollKey: catalogScrollKey(mediaKind, { ...filters.view, query: filters.debouncedQuery }),
   };

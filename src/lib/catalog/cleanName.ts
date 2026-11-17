@@ -22,6 +22,8 @@ const SUPERSCRIPTS: Record<string, string> = {
   'ⱽ': 'V', 'ᵂ': 'W', 'ᵃ': 'A', 'ᵇ': 'B', 'ᵈ': 'D', 'ᵉ': 'E', 'ᵍ': 'G', 'ʰ': 'H', 'ⁱ': 'I',
   'ʲ': 'J', 'ᵏ': 'K', 'ˡ': 'L', 'ᵐ': 'M', 'ⁿ': 'N', 'ᵒ': 'O', 'ᵖ': 'P', 'ʳ': 'R', 'ᵗ': 'T', 'ᵘ': 'U',
   'ᵛ': 'V', 'ʷ': 'W', 'ˣ': 'X', 'ʸ': 'Y', 'ᶻ': 'Z', '⁺': '+',
+  // Small-capital modifiers some providers mix in ("ⱽᶦˢᶦᵒⁿ").
+  'ᶦ': 'I', 'ᶫ': 'L', 'ᶰ': 'N', 'ᶸ': 'U',
 };
 const SUPERSCRIPT_RUN = new RegExp(`[${Object.keys(SUPERSCRIPTS).join('')}]+`, 'g');
 
@@ -35,6 +37,8 @@ const ENDS_WITH_DIVIDER = new RegExp(`[#=*~━─═▬]{2,}\\s*$`);
 
 const COUNTRY_PREFIX = /^\s*[[(|]?\s*([A-Z]{2,3})\s*[\])|:]\s*|^\s*([A-Z]{2,3})\s+-\s+/;
 const QUALITY_PREFIX = /^\s*(3D|4K|8K|UHD|FHD|HD|SD|HEVC|H\.?265)(?:[-\s]*[A-Z]\+?)?\s*[-|:]\s*/i;
+/** Streaming-service tags: "A+ - Title" (Apple TV+), "D+ | Title". */
+const SERVICE_PREFIX = /^\s*[A-Z]{1,2}\+\s*[-|:]\s+/;
 /** "3D-DE - Title", "4K EN | Title": a quality and a country in one prefix. */
 const QUALITY_COUNTRY_PREFIX = /^\s*(3D|4K|8K|UHD|FHD|HD|SD)[-\s]+([A-Z]{2,3})\s*[-|:]\s*/;
 const BRACKETED = /[[(]\s*(multi[\s-]?subs?|subs?|subbed|multi|dual audio|[A-Z]{2,3})\s*[\])]/gi;
@@ -59,6 +63,12 @@ const ACRONYMS = new Set([
 ]);
 
 const SMALL_WORDS = new Set(['a', 'an', 'and', 'at', 'by', 'for', 'in', 'of', 'on', 'or', 'the', 'to', 'v', 'vs']);
+
+/** "1940/2024", "1990-2000": a span of years, not a release year. */
+function endsWithYearSpan(text: string, yearMatch: RegExpExecArray) {
+  const joiner = yearMatch[0].slice(0, yearMatch[0].search(/\d/));
+  return /(?:19|20)\d{2}\s*[/-]\s*$/.test(text.slice(0, yearMatch.index) + joiner);
+}
 
 function normaliseSuperscripts(value: string) {
   return value.replace(SUPERSCRIPT_RUN, (run) => ` ${[...run].map((ch) => SUPERSCRIPTS[ch]).join('')} `);
@@ -150,6 +160,11 @@ function computeCleanName(input: string): CleanName {
       text = text.slice(quality[0].length);
       continue;
     }
+    const service = SERVICE_PREFIX.exec(text);
+    if (service) {
+      text = text.slice(service[0].length);
+      continue;
+    }
     break;
   }
 
@@ -188,7 +203,7 @@ function computeCleanName(input: string): CleanName {
 
   let year: number | null = null;
   const yearMatch = TRAILING_YEAR.exec(text);
-  if (yearMatch && yearMatch.index > 0) {
+  if (yearMatch && yearMatch.index > 0 && !endsWithYearSpan(text, yearMatch)) {
     year = Number(yearMatch[1]);
     text = text.slice(0, yearMatch.index);
   }

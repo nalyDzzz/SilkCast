@@ -136,8 +136,15 @@ export function HelpPage() {
               <strong>Favorites</strong> chip shows only your favorites.
             </li>
             <li>
-              Filters, the open series, and your scroll position are kept when
-              you open the player and come back.
+              <strong>Movie and series pages</strong>: click a poster to see
+              the plot, cast, rating, and runtime from your provider, with{' '}
+              <strong>Resume</strong>, <strong>Play from start</strong>, the
+              trailer, and more from the same group. The round Play button on a
+              poster skips the page and starts playing.
+            </li>
+            <li>
+              Filters, the open movie or series, and your scroll position are
+              kept when you open the player and come back.
             </li>
             <li>
               <strong>Live TV</strong> has two views: <strong>Channels</strong>{' '}

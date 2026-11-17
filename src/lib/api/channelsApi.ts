@@ -22,6 +22,11 @@ export function searchSourceChannels(sourceId: number, query: string, limitPerKi
   });
 }
 
+/** Other items from the same group, the ones after `channelId` by name first. */
+export function listRelatedItems(channelId: number, limit: number) {
+  return tauriInvoke<ChannelRecord[]>('list_related_items', { channelId, limit });
+}
+
 export function setChannelFavoriteState(channelId: number, favorite: boolean) {
   return tauriInvoke<void>('set_channel_favorite_state', {
     channelId,

@@ -11,6 +11,10 @@ type UseMediaCatalogPlaybackArgs = {
     channel: ChannelRecord,
     queue?: ChannelRecord[]
   ) => Promise<void>;
+  openChannelInMpv: (
+    channel: ChannelRecord,
+    options?: { startSeconds?: number | null }
+  ) => Promise<void>;
   navigateToPlayer: () => void;
   reportError: (message: string) => void;
 };
@@ -19,6 +23,7 @@ export function useMediaCatalogPlayback({
   singularLabel,
   preferredPlayer,
   playChannelRecord,
+  openChannelInMpv,
   navigateToPlayer,
   reportError,
 }: UseMediaCatalogPlaybackArgs) {
@@ -62,6 +67,27 @@ export function useMediaCatalogPlayback({
     [navigateToPlayer, playChannelRecord, preferredPlayer, reportError]
   );
 
+  /** MPV regardless of the preferred player, from `startSeconds` when given. */
+  const handleOpenInMpv = useCallback(
+    async (item: ChannelRecord, startSeconds: number | null) => {
+      setPlayingItemId(item.id);
+      try {
+        await openChannelInMpv(item, { startSeconds });
+        const storeError = useAppStore.getState().error;
+        if (storeError !== null) {
+          toast.error("Couldn't open MPV", { description: storeError });
+          return;
+        }
+        setLastPlayedItemId(item.id);
+        setLastPlayedItemUrl(item.stream_url);
+        toast.success(`Playing "${displayTitle(item.name)}" in MPV`);
+      } finally {
+        setPlayingItemId(null);
+      }
+    },
+    [openChannelInMpv]
+  );
+
   const handlePosterError = useCallback((itemId: number) => {
     setBrokenPosterIds((current) => {
       if (current[itemId]) {
@@ -97,6 +123,7 @@ export function useMediaCatalogPlayback({
     lastPlayedItemUrl,
     brokenPosterIds,
     handlePlayItem,
+    handleOpenInMpv,
     handlePosterError,
     handleExternalPlaybackClosed,
   };

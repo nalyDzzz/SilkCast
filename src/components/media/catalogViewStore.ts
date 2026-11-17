@@ -4,11 +4,13 @@ import type {
   GroupRecord,
   SeriesEpisodeRecord,
 } from '@/components/app/types';
+import { clearMediaDetails } from '@/components/details/mediaDetailsStore';
 import type { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
 
 /**
  * Per-catalog browsing state that must survive leaving the page (e.g. opening
- * the player and coming back): filters and the series being browsed.
+ * the player and coming back): filters and the movie or series whose details
+ * page is open.
  */
 export type CatalogView = {
   sourceId: number | null;
@@ -16,7 +18,8 @@ export type CatalogView = {
   group: string | null;
   query: string;
   favoritesOnly: boolean;
-  selectedSeries: ChannelRecord | null;
+  /** The movie or series whose details page is open, if any. */
+  selectedItem: ChannelRecord | null;
 };
 
 type CatalogViewStore = {
@@ -38,7 +41,7 @@ export function defaultCatalogView(sourceId: number | null): CatalogView {
     group: null,
     query: '',
     favoritesOnly: false,
-    selectedSeries: null,
+    selectedItem: null,
   };
 }
 
@@ -138,18 +141,19 @@ export const catalogResultCache = {
 
 /**
  * A source's catalog was re-imported or removed: channel ids changed, so drop
- * cached results, cached episodes, and any open series, and tell mounted
+ * cached results, episodes and details, and any open details page, and tell mounted
  * catalogs to refetch.
  */
 export function invalidateSourceCatalog(sourceId: number | null) {
   catalogResultCache.clear();
   scrollOffsets.clear();
+  clearMediaDetails();
   useCatalogViewStore.setState((state) => {
     const views = { ...state.views };
     for (const kind of Object.keys(views) as MediaCatalogKind[]) {
       const view = views[kind];
       if (view && (sourceId === null || view.sourceId === sourceId)) {
-        views[kind] = { ...view, selectedSeries: null };
+        views[kind] = { ...view, selectedItem: null };
       }
     }
     return {

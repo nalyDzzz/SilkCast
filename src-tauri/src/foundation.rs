@@ -262,6 +262,10 @@ pub fn init_storage(db_path: &Path) -> Result<(), String> {
         [],
     );
 
+    connection
+        .execute_batch(crate::media_details::MEDIA_DETAILS_SCHEMA)
+        .map_err(|e| format!("media details migration failed: {e}"))?;
+
     crate::guide_store::init_guide_storage(&connection)
 }
 
@@ -517,6 +521,7 @@ pub fn store_source_catalog(
         return Err(format!("source {source_id} not found"));
     }
     let count = sync_channels(&tx, source_id, &catalog.channels)?;
+    crate::media_details::forget_source_details(&tx, source_id)?;
     crate::guide_store::write_detected_guide_url(
         &tx,
         source_id,
@@ -898,6 +903,62 @@ pub fn list_channels_for_source(
         channels.push(decode_channel_record(&row)?);
     }
 
+    Ok(channels)
+}
+
+/// Up to `limit` other items from the same source, media kind and group as
+/// `channel_id`: the ones after it in name order, wrapping round to the start,
+/// so neighbouring titles show up rather than the group's first page.
+pub fn list_related_channels(
+    db_path: &Path,
+    channel_id: i64,
+    limit: usize,
+) -> Result<Vec<ChannelRecord>, String> {
+    let Some(channel) = get_channel_by_id(db_path, channel_id)? else {
+        return Ok(Vec::new());
+    };
+    let connection = open_connection(db_path)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              c.id,
+              c.source_id,
+              c.name,
+              c.group_name,
+              c.logo,
+              c.tvg_id,
+              c.tvg_name,
+              c.stream_url,
+              c.media_kind,
+              CASE WHEN f.channel_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+            FROM channels c
+            LEFT JOIN favorites f ON f.channel_id = c.id
+            WHERE c.source_id = ?1
+              AND c.media_kind = ?2
+              AND c.group_name = ?3
+              AND c.id != ?4
+            ORDER BY (c.name COLLATE NOCASE < ?5), c.name COLLATE NOCASE ASC
+            LIMIT ?6
+            "#,
+        )
+        .map_err(|e| format!("prepare failed: {e}"))?;
+
+    let mut rows = statement
+        .query(params![
+            channel.source_id,
+            channel.media_kind,
+            channel.group_name,
+            channel.id,
+            channel.name,
+            limit as i64,
+        ])
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    let mut channels = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| format!("read row failed: {e}"))? {
+        channels.push(decode_channel_record(&row)?);
+    }
     Ok(channels)
 }
 
@@ -1489,6 +1550,57 @@ mod tests {
         .expect("failed to insert channels");
 
         source_id
+    }
+
+    #[test]
+    fn related_channels_follow_the_item_in_its_group_and_wrap_round() {
+        let root = make_temp_root();
+        let context = ensure_foundation_dirs(&root).expect("dirs");
+        init_storage(&context.db_path).expect("storage");
+        let source_id = create_source(&context.db_path, "m3u", "P", &json!({})).expect("source");
+        let movie = |name: &str, group: &str| ChannelInsertRecord {
+            name: name.to_string(),
+            group_name: Some(group.to_string()),
+            logo: None,
+            tvg_id: None,
+            tvg_name: None,
+            stream_url: format!("https://stream.example/{name}.mp4"),
+            media_kind: "movie".to_string(),
+        };
+        replace_channels_for_source(
+            &context.db_path,
+            source_id,
+            &[
+                movie("Delta", "Classics"),
+                movie("alpha", "Classics"),
+                movie("Echo", "Classics"),
+                movie("Charlie", "Classics"),
+                movie("Bravo", "Classics"),
+                movie("Zulu", "New"),
+            ],
+        )
+        .expect("channels");
+        let all = list_channels_for_source(&context.db_path, source_id, None, None, None, false)
+            .expect("list");
+        let id_of = |name: &str| all.iter().find(|c| c.name == name).expect("item").id;
+        let names =
+            |items: Vec<ChannelRecord>| items.into_iter().map(|c| c.name).collect::<Vec<_>>();
+
+        let after_charlie =
+            list_related_channels(&context.db_path, id_of("Charlie"), 3).expect("related");
+        assert_eq!(names(after_charlie), vec!["Delta", "Echo", "alpha"]);
+        let after_echo =
+            list_related_channels(&context.db_path, id_of("Echo"), 10).expect("related");
+        assert_eq!(
+            names(after_echo),
+            vec!["alpha", "Bravo", "Charlie", "Delta"]
+        );
+        assert!(list_related_channels(&context.db_path, id_of("Zulu"), 5)
+            .expect("related")
+            .is_empty());
+        assert!(list_related_channels(&context.db_path, 999_999, 5)
+            .expect("missing")
+            .is_empty());
     }
 
     #[test]
