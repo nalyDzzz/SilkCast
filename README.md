@@ -22,7 +22,11 @@ Core source import, catalog browsing, playback, recents, and settings are implem
   - **Channels**: pick a channel to see its current programme, time left, and Now / Next / Later (arrow keys move, Enter watches)
   - **Guide**: a three-hour timeline per channel, cut by a NOW line
 - Movies and Series poster grids with a searchable group picker, favorites, and resume progress
-- Series details with seasons, numbered episodes, and per-episode progress
+- Movie and series pages with the provider's plot, cast, director, genres, rating, runtime, backdrop and trailer
+  (Xtream `get_vod_info` / `get_series_info`, cached for a week), Resume / Play from start / Open in MPV, and
+  more titles from the same group. Clicking a poster opens the page; its round Play button plays straight away.
+- Series pages with seasons, numbered episodes, and per-episode progress
+- Home's continue-watching hero shows the provider's backdrop, facts and plot
 - Watch history by media type
 - In-app player for HLS, raw MPEG-TS, MP4, MKV, and WebM streams:
   - channel zapping (buttons, Page Up/Down, or the channel panel) without leaving the player
