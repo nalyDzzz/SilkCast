@@ -4,6 +4,7 @@ import type {
   GroupRecord,
   SeriesEpisodeRecord,
 } from '@/components/app/types';
+import { clearMediaDetails } from '@/components/details/mediaDetailsStore';
 import type { MediaCatalogKind } from '@/components/media/mediaCatalogConfig';
 
 /**
@@ -140,12 +141,13 @@ export const catalogResultCache = {
 
 /**
  * A source's catalog was re-imported or removed: channel ids changed, so drop
- * cached results, cached episodes, and any open details page, and tell mounted
+ * cached results, episodes and details, and any open details page, and tell mounted
  * catalogs to refetch.
  */
 export function invalidateSourceCatalog(sourceId: number | null) {
   catalogResultCache.clear();
   scrollOffsets.clear();
+  clearMediaDetails();
   useCatalogViewStore.setState((state) => {
     const views = { ...state.views };
     for (const kind of Object.keys(views) as MediaCatalogKind[]) {

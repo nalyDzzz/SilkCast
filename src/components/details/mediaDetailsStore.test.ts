@@ -1,7 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelRecord } from '@/components/app/types';
-import { useMediaDetails, useMediaDetailsStore } from '@/components/details/mediaDetailsStore';
+import {
+  SESSION_DETAILS_TTL_MS,
+  loadMediaDetails,
+  useMediaDetails,
+  useMediaDetailsStore,
+} from '@/components/details/mediaDetailsStore';
+import { invalidateSourceCatalog } from '@/components/media/catalogViewStore';
 import { getMediaDetails } from '@/lib/api/mediaDetailsApi';
 import { mediaDetails } from '@/test/mediaDetails';
 
@@ -45,6 +51,35 @@ describe('useMediaDetails', () => {
 
     expect(getMediaDetails).not.toHaveBeenCalled();
     expect(live.result.current).toMatchObject({ details: null, loading: false, error: null });
+  });
+
+  it('reloads old details in the background and keeps showing them', async () => {
+    vi.mocked(getMediaDetails)
+      .mockResolvedValueOnce(mediaDetails({ plot: 'First.' }))
+      .mockResolvedValueOnce(mediaDetails({ plot: 'Updated.' }));
+    const { result } = renderHook(() => useMediaDetails(item(5, 'movie')));
+    await waitFor(() => expect(result.current.details?.plot).toBe('First.'));
+
+    loadMediaDetails(5, Date.now() + 60_000);
+    expect(getMediaDetails).toHaveBeenCalledTimes(1);
+
+    act(() => loadMediaDetails(5, Date.now() + SESSION_DETAILS_TTL_MS + 1));
+    expect(result.current.details?.plot).toBe('First.');
+    await waitFor(() => expect(result.current.details?.plot).toBe('Updated.'));
+    expect(getMediaDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets details when a catalog changes', async () => {
+    vi.mocked(getMediaDetails)
+      .mockResolvedValueOnce(mediaDetails({ plot: 'Before refresh.' }))
+      .mockResolvedValueOnce(mediaDetails({ plot: 'After refresh.' }));
+    const { result } = renderHook(() => useMediaDetails(item(6, 'movie')));
+    await waitFor(() => expect(result.current.details?.plot).toBe('Before refresh.'));
+
+    act(() => invalidateSourceCatalog(1));
+    // The open page asks again by itself.
+    await waitFor(() => expect(result.current.details?.plot).toBe('After refresh.'));
+    expect(getMediaDetails).toHaveBeenCalledTimes(2);
   });
 
   it('reports failures and retries on request', async () => {

@@ -521,6 +521,7 @@ pub fn store_source_catalog(
         return Err(format!("source {source_id} not found"));
     }
     let count = sync_channels(&tx, source_id, &catalog.channels)?;
+    crate::media_details::forget_source_details(&tx, source_id)?;
     crate::guide_store::write_detected_guide_url(
         &tx,
         source_id,

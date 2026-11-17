@@ -7,7 +7,7 @@
 
 use crate::foundation::{get_channel_by_id, get_source_by_id, open_connection, ChannelRecord};
 use crate::xtream::{extract_stream_key_from_url, XtreamConfig};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -166,6 +166,18 @@ pub fn remember_series_details(
         &parse_media_details(payload),
         now,
     )
+}
+
+/// Drops a source's cached details when its catalog is re-imported or its
+/// account changes: ids can then point at different titles (Dispatcharr
+/// renumbers its catalog; an edited source may be another provider).
+pub fn forget_source_details(tx: &Transaction<'_>, source_id: i64) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM media_details WHERE source_id = ?1",
+        params![source_id],
+    )
+    .map_err(|e| format!("clear media details failed: {e}"))?;
+    Ok(())
 }
 
 fn is_fresh(details: &MediaDetails, fetched_at: i64, now: i64) -> bool {
@@ -458,7 +470,7 @@ mod tests {
     use super::*;
     use crate::foundation::{
         create_source, ensure_foundation_dirs, init_storage, list_channels_for_source,
-        replace_channels_for_source, ChannelInsertRecord,
+        replace_channels_for_source, store_source_catalog, ChannelInsertRecord, FetchedCatalog,
     };
     use serde_json::json;
     use std::cell::Cell;
@@ -816,6 +828,36 @@ mod tests {
         .expect("lookup")
         .expect("details");
         assert_eq!(details.plot.as_deref(), Some("From episodes"));
+    }
+
+    #[test]
+    fn a_catalog_refresh_or_edit_forgets_the_cached_details() {
+        let fx = fixture();
+        details_for_channel(&fx.db_path, fx.movie_id, 0, |_, _| Ok(payload("Old title")))
+            .expect("lookup");
+        let movie = get_channel_by_id(&fx.db_path, fx.movie_id)
+            .expect("read")
+            .expect("movie");
+        let same_items = FetchedCatalog {
+            channels: vec![ChannelInsertRecord {
+                name: movie.name.clone(),
+                group_name: Some(movie.group_name.clone()),
+                logo: None,
+                tvg_id: movie.tvg_id.clone(),
+                tvg_name: None,
+                stream_url: movie.stream_url.clone(),
+                media_kind: "movie".to_string(),
+            }],
+            detected_guide_url: None,
+        };
+        store_source_catalog(&fx.db_path, movie.source_id, None, &same_items).expect("refresh");
+
+        let refetched = details_for_channel(&fx.db_path, fx.movie_id, 10, |_, _| {
+            Ok(payload("Renumbered"))
+        })
+        .expect("lookup")
+        .expect("details");
+        assert_eq!(refetched.plot.as_deref(), Some("Renumbered"));
     }
 
     #[test]
