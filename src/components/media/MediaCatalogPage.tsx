@@ -30,6 +30,7 @@ export function MediaCatalogPage({ mediaKind }: MediaCatalogPageProps) {
         onPlay={(item) => void catalog.playCatalogItem(item)}
         onOpenInMpv={(item, startSeconds) => void playback.handleOpenInMpv(item, startSeconds)}
         onToggleFavorite={(item) => void details.toggleDetailsFavorite(item)}
+        onOpenRelated={details.openMovie}
       />
     );
   }

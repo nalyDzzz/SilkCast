@@ -11,6 +11,7 @@ import {
 import { Credits, FactsRow, Plot } from '@/components/details/DetailsFacts';
 import { DetailsLayout, DetailsTitle } from '@/components/details/DetailsLayout';
 import { DetailsEyebrow } from '@/components/details/DetailsPoster';
+import { RelatedRail } from '@/components/details/RelatedRail';
 import { backdropFor, detailFacts, posterFor } from '@/components/details/detailsFormat';
 import { useMediaDetails } from '@/components/details/mediaDetailsStore';
 import { formatSecondsLeft } from '@/components/home/homeItems';
@@ -31,8 +32,8 @@ type MovieDetailsProps = {
   onPlay: (movie: ChannelRecord) => void;
   onOpenInMpv: (movie: ChannelRecord, startSeconds: number | null) => void;
   onToggleFavorite: (movie: ChannelRecord) => void;
-  /** Rendered under the header, e.g. more movies from the same group. */
-  children?: React.ReactNode;
+  /** Opens another movie's page from the "More in …" row. */
+  onOpenRelated: (movie: ChannelRecord) => void;
 };
 
 /**
@@ -50,7 +51,7 @@ export function MovieDetails({
   onPlay,
   onOpenInMpv,
   onToggleFavorite,
-  children,
+  onOpenRelated,
 }: MovieDetailsProps) {
   const { details, loading, error, retry } = useMediaDetails(movie);
   const facts = detailFacts(movie, details);
@@ -143,7 +144,7 @@ export function MovieDetails({
       onBack={onBack}
       header={header}
     >
-      {children}
+      <RelatedRail item={movie} onOpen={onOpenRelated} />
     </DetailsLayout>
   );
 }

@@ -7,7 +7,7 @@ import { mediaDetails } from '../test/mediaDetails';
 import { MoviesPage } from './MoviesPage';
 import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS, type ChannelRecord } from '../components/app/types';
-import { listSourceChannels, setChannelFavoriteState } from '../lib/api/channelsApi';
+import { listRelatedItems, listSourceChannels, setChannelFavoriteState } from '../lib/api/channelsApi';
 import { subscribeBackendEvents } from '../lib/api/eventsApi';
 import { getMediaDetails } from '../lib/api/mediaDetailsApi';
 import { listSourceGroups } from '../lib/api/sourcesApi';
@@ -16,6 +16,7 @@ import { resumeKeyFor } from '../components/player/hooks/useResumeTracking';
 
 vi.mock('../lib/api/channelsApi', () => ({
   listSourceChannels: vi.fn(() => Promise.resolve([])),
+  listRelatedItems: vi.fn(() => Promise.resolve([])),
   setChannelFavoriteState: vi.fn(() => Promise.resolve()),
 }));
 
@@ -96,6 +97,7 @@ describe('MoviesPage', () => {
     vi.clearAllMocks();
     vi.mocked(listSourceChannels).mockResolvedValue([]);
     vi.mocked(getMediaDetails).mockResolvedValue(null);
+    vi.mocked(listRelatedItems).mockResolvedValue([]);
   });
 
   it('renders the heading', async () => {
@@ -190,6 +192,27 @@ describe('MoviesPage', () => {
 
     expect(playChannelRecord).toHaveBeenCalledWith(MOVIE, undefined);
     expect(getMediaDetails).not.toHaveBeenCalled();
+  });
+
+  it('lists more from the group and opens one of them', async () => {
+    const user = userEvent.setup();
+    const neighbour: ChannelRecord = { ...MOVIE, id: 502, name: 'EN - Northbound (2024)' };
+    vi.mocked(listSourceChannels).mockResolvedValue([MOVIE]);
+    vi.mocked(listRelatedItems).mockResolvedValue([
+      { ...MOVIE, id: 503, name: '##### CLASSICS #####' },
+      neighbour,
+    ]);
+
+    renderWithRouter(<MoviesPage />, { initialEntries: ['/dashboard/movies'] });
+    await user.click(await screen.findByRole('button', { name: 'Open Low Tide Motel' }));
+
+    const rail = await screen.findByRole('region', { name: 'More in Classics' });
+    expect(listRelatedItems).toHaveBeenCalledWith(501, expect.any(Number));
+    expect(rail).not.toHaveTextContent('CLASSICS');
+    await user.click(await screen.findByRole('button', { name: 'Open Northbound' }));
+
+    expect(await screen.findByRole('heading', { name: 'Northbound' })).toBeInTheDocument();
+    expect(getMediaDetails).toHaveBeenLastCalledWith(502);
   });
 
   it('offers resume, a fresh start, and favoriting on the details page', async () => {

@@ -13,10 +13,10 @@ use foundation::{
     append_log, create_source_with_catalog, delete_source, emit_backend_event,
     ensure_foundation_dirs, get_channel_by_id, get_setting, get_source_by_id, init_log_file,
     init_storage, install_crash_hook, list_channels_for_source, list_groups_for_source,
-    list_recent_channels, list_sources, load_phase1_settings, record_recent_play,
-    redact_credentials, save_phase1_settings, search_channels_for_source, set_channel_favorite,
-    set_setting, store_source_catalog, ChannelRecord, FetchedCatalog, GroupRecord, Phase1Settings,
-    RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
+    list_recent_channels, list_related_channels, list_sources, load_phase1_settings,
+    record_recent_play, redact_credentials, save_phase1_settings, search_channels_for_source,
+    set_channel_favorite, set_setting, store_source_catalog, ChannelRecord, FetchedCatalog,
+    GroupRecord, Phase1Settings, RecentChannelRecord, RuntimeInfo, SharedState, SourceRecord,
 };
 use guide_refresh::{refresh_source_guide, unix_now, GuideProgress, EPG_FETCH_LIMIT};
 use guide_store::{
@@ -460,6 +460,23 @@ fn list_series_episodes_core(
         unix_now(),
     );
     Ok(series.episodes)
+}
+
+/// Other items from the same group, for a details page's "More in …" row.
+#[tauri::command]
+async fn list_related_items(
+    channel_id: i64,
+    limit: u32,
+    app: tauri::AppHandle,
+) -> Result<Vec<ChannelRecord>, String> {
+    run_blocking(app, move |app| {
+        list_related_channels(
+            &app.state::<SharedState>().context.db_path,
+            channel_id,
+            limit.clamp(1, 60) as usize,
+        )
+    })
+    .await
 }
 
 /// Plot, credits, artwork and rating for a movie or series, cached for a week.
@@ -1644,6 +1661,7 @@ pub fn run() {
             search_source_channels,
             list_series_episodes,
             get_media_details,
+            list_related_items,
             list_channel_epg,
             list_channels_epg,
             refresh_channel_epg,
