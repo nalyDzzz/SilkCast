@@ -147,7 +147,7 @@ export function useMediaCatalogData({
         await setChannelFavoriteState(item.id, isFavorite);
       } catch (err) {
         setError(String(err));
-        return;
+        return false;
       }
 
       const cached = catalogResultCache.readItems(keyAtToggle);
@@ -164,6 +164,7 @@ export function useMediaCatalogData({
           withFavoriteState(current, item.id, isFavorite, removeItem)
         );
       }
+      return true;
     },
     [favoritesOnly, itemsKey]
   );

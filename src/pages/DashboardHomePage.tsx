@@ -30,7 +30,7 @@ export function DashboardHomePage() {
     }))
   );
   const { counts, favoriteChannels, loading } = useHomeDashboardData(selectedSourceId);
-  const { open } = useOpenCatalogItem();
+  const { open, play } = useOpenCatalogItem();
   const nowSeconds = useNowSeconds();
 
   useEffect(() => {
@@ -68,19 +68,30 @@ export function DashboardHomePage() {
     return { kind: 'welcome' };
   })();
 
+  // Home is for picking up where you left off: movies resume straight away,
+  // series open their episodes, channels play with the On now rail as queue.
   const openItem = (item: ChannelRecord) =>
-    void open(item, item.media_kind === 'live' ? liveChannels : undefined);
+    item.media_kind === 'movie'
+      ? void play(item)
+      : void open(item, item.media_kind === 'live' ? liveChannels : undefined);
+  const showDetails = (item: ChannelRecord) => void open(item);
 
   const browseGroup = (item: ChannelRecord) => {
     useCatalogViewStore
       .getState()
-      .updateView(item.media_kind, selectedSourceId, { group: item.group_name, selectedSeries: null });
+      .updateView(item.media_kind, selectedSourceId, { group: item.group_name, selectedItem: null });
     navigate(MEDIA_PATH[item.media_kind]);
   };
 
   return (
     <main className="pb-12">
-      <HomeHero feature={feature} nowSeconds={nowSeconds} onOpen={openItem} onBrowseGroup={browseGroup} />
+      <HomeHero
+        feature={feature}
+        nowSeconds={nowSeconds}
+        onOpen={openItem}
+        onShowDetails={showDetails}
+        onBrowseGroup={browseGroup}
+      />
 
       <div className="relative z-10 -mt-4 space-y-9">
         {continueList.length > 0 ? (

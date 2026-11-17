@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { Film, ListVideo, Play, Tv } from 'lucide-react';
+import { Film, Info, ListVideo, Play, Tv } from 'lucide-react';
 import type { ChannelRecord } from '@/components/app/types';
 import { ThreadProgress } from '@/components/brand/ThreadProgress';
 import { TagBadges } from '@/components/catalog/TagBadges';
+import { DetailsBackdrop } from '@/components/details/DetailsBackdrop';
+import { FactsRow } from '@/components/details/DetailsFacts';
+import { backdropFor, detailFacts } from '@/components/details/detailsFormat';
+import { useMediaDetails } from '@/components/details/mediaDetailsStore';
 import type { ContinueItem } from '@/components/home/homeItems';
 import { formatSecondsLeft } from '@/components/home/homeItems';
 import { Button } from '@/components/ui/button';
@@ -17,29 +21,25 @@ export type HeroFeature =
   | { kind: 'live'; channel: ChannelRecord; programme: EpgProgramme }
   | { kind: 'welcome' };
 
+/**
+ * The hero's stage. A provider backdrop (`artwork`) fills it; otherwise the
+ * `backdrop` image is blurred into a colour wash behind the `art`.
+ */
 function HeroFrame({
   art,
   backdrop,
+  artwork = null,
   children,
 }: {
   art?: ReactNode;
   backdrop?: string | null;
+  artwork?: string | null;
   children: ReactNode;
 }) {
   return (
     <section className="relative isolate h-[460px] overflow-hidden">
-      {backdrop ? (
-        <img
-          src={backdrop}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 -z-20 size-full scale-125 object-cover opacity-45 blur-3xl saturate-150"
-        />
-      ) : null}
-      <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_70%_90%_at_85%_10%,color-mix(in_oklab,var(--primary)_22%,transparent),transparent_70%)]" />
-      <div className="absolute inset-0 -z-10 bg-linear-to-r from-background via-background/75 to-background/10" />
-      <div className="absolute inset-x-0 bottom-0 -z-10 h-56 bg-linear-to-t from-background via-background/60 to-transparent" />
-      {art ? <div className="absolute right-[7%] bottom-12 hidden md:block">{art}</div> : null}
+      <DetailsBackdrop className="h-full" backdrop={artwork} poster={backdrop ?? null} />
+      {art && !artwork ? <div className="absolute right-[7%] bottom-12 hidden md:block">{art}</div> : null}
       <div className="flex h-full max-w-[640px] flex-col justify-end px-8 pt-24 pb-14">{children}</div>
     </section>
   );
@@ -78,52 +78,94 @@ function Meta({ items, tags = [] }: { items: (string | number | null | undefined
 
 const heroButton = 'h-12 rounded-full px-6 text-[15px]';
 
+/** Continue watching, dressed with the provider's backdrop, facts and plot. */
+function ResumeHero({
+  entry,
+  onOpen,
+  onShowDetails,
+  onBrowseGroup,
+}: {
+  entry: ContinueItem;
+  onOpen: (item: ChannelRecord) => void;
+  onShowDetails: (item: ChannelRecord) => void;
+  onBrowseGroup: (item: ChannelRecord) => void;
+}) {
+  const { item, progress, secondsLeft } = entry;
+  const { details } = useMediaDetails(item);
+  const facts = detailFacts(item, details);
+  const group = cleanName(item.group_name).title;
+  const isSeries = item.media_kind === 'series';
+  const hasFacts = Boolean(facts.genres || facts.runtime || facts.rating);
+
+  return (
+    <HeroFrame
+      backdrop={item.logo}
+      artwork={backdropFor(details)}
+      art={
+        item.logo ? (
+          <img src={item.logo} alt="" className="h-[300px] rounded-xl object-cover shadow-[0_30px_60px_-20px_#000c] ring-1 ring-white/10" />
+        ) : null
+      }
+    >
+      <Eyebrow>Continue watching · {isSeries ? 'Series' : 'Movie'}</Eyebrow>
+      <HeroTitle>{facts.title}</HeroTitle>
+      {hasFacts ? (
+        <FactsRow className="mt-3" facts={facts} />
+      ) : (
+        <Meta items={[facts.year, group]} tags={facts.tags} />
+      )}
+      {details?.plot ? (
+        <p className="mt-3 line-clamp-2 max-w-xl text-[15px] leading-relaxed text-foreground/80">{details.plot}</p>
+      ) : null}
+      {progress !== null && secondsLeft !== null ? (
+        <div className="mt-5 flex max-w-sm items-center gap-3">
+          <ThreadProgress value={progress} className="flex-1" label={`${Math.round(progress * 100)}% watched`} />
+          <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{formatSecondsLeft(secondsLeft)}</span>
+        </div>
+      ) : null}
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button className={heroButton} onClick={() => onOpen(item)}>
+          {isSeries ? <ListVideo /> : <Play className="fill-current" />}
+          {isSeries ? 'Episodes' : progress !== null ? 'Resume' : 'Play'}
+        </Button>
+        {isSeries ? null : (
+          <Button variant="secondary" className={heroButton} onClick={() => onShowDetails(item)}>
+            <Info />
+            Details
+          </Button>
+        )}
+        {group ? (
+          <Button variant="ghost" className={heroButton} onClick={() => onBrowseGroup(item)}>
+            More in {group}
+          </Button>
+        ) : null}
+      </div>
+    </HeroFrame>
+  );
+}
+
 export function HomeHero({
   feature,
   nowSeconds,
   onOpen,
+  onShowDetails,
   onBrowseGroup,
 }: {
   feature: HeroFeature;
   nowSeconds: number;
+  /** Plays a channel or movie; opens a series' episodes. */
   onOpen: (item: ChannelRecord) => void;
+  onShowDetails: (item: ChannelRecord) => void;
   onBrowseGroup: (item: ChannelRecord) => void;
 }) {
   if (feature.kind === 'resume') {
-    const { item, progress, secondsLeft } = feature.entry;
-    const { title, year, tags } = cleanName(item.name);
-    const group = cleanName(item.group_name).title;
-    const isSeries = item.media_kind === 'series';
     return (
-      <HeroFrame
-        backdrop={item.logo}
-        art={
-          item.logo ? (
-            <img src={item.logo} alt="" className="h-[300px] rounded-xl object-cover shadow-[0_30px_60px_-20px_#000c] ring-1 ring-white/10" />
-          ) : null
-        }
-      >
-        <Eyebrow>Continue watching · {isSeries ? 'Series' : 'Movie'}</Eyebrow>
-        <HeroTitle>{title}</HeroTitle>
-        <Meta items={[year, group]} tags={tags} />
-        {progress !== null && secondsLeft !== null ? (
-          <div className="mt-5 flex max-w-sm items-center gap-3">
-            <ThreadProgress value={progress} className="flex-1" label={`${Math.round(progress * 100)}% watched`} />
-            <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{formatSecondsLeft(secondsLeft)}</span>
-          </div>
-        ) : null}
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Button className={heroButton} onClick={() => onOpen(item)}>
-            {isSeries ? <ListVideo /> : <Play className="fill-current" />}
-            {isSeries ? 'Episodes' : progress !== null ? 'Resume' : 'Play'}
-          </Button>
-          {group ? (
-            <Button variant="secondary" className={heroButton} onClick={() => onBrowseGroup(item)}>
-              More in {group}
-            </Button>
-          ) : null}
-        </div>
-      </HeroFrame>
+      <ResumeHero
+        entry={feature.entry}
+        onOpen={onOpen}
+        onShowDetails={onShowDetails}
+        onBrowseGroup={onBrowseGroup}
+      />
     );
   }
 

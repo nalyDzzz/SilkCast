@@ -9,7 +9,9 @@ import { useAppStore } from '../store/appStore';
 import { ALL_GROUPS, DEFAULT_SETTINGS } from '../components/app/types';
 import { listSourceChannels } from '../lib/api/channelsApi';
 import { subscribeBackendEvents } from '../lib/api/eventsApi';
+import { getMediaDetails } from '../lib/api/mediaDetailsApi';
 import { listSeriesEpisodes } from '../lib/api/seriesApi';
+import { mediaDetails } from '../test/mediaDetails';
 import { listSourceGroups } from '../lib/api/sourcesApi';
 
 vi.mock('../lib/api/channelsApi', () => ({
@@ -27,6 +29,11 @@ vi.mock('../lib/api/eventsApi', () => ({
 
 vi.mock('../lib/api/seriesApi', () => ({
   listSeriesEpisodes: vi.fn(() => Promise.resolve([])),
+}));
+
+vi.mock('../lib/api/mediaDetailsApi', () => ({
+  getMediaDetails: vi.fn(() => Promise.resolve(null)),
+  openTrailer: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../components/movies/VirtualizedMovieGrid', () => ({
@@ -198,6 +205,39 @@ describe('SeriesPage', () => {
     expect(
       screen.getByRole('button', { name: 'All series' })
     ).toBeInTheDocument();
+  });
+
+  it('shows the series details once its episodes have loaded', async () => {
+    const user = userEvent.setup();
+    let finishEpisodes: (episodes: typeof DEFAULT_EPISODES) => void = () => undefined;
+    vi.mocked(listSourceChannels).mockResolvedValue([DEFAULT_SERIES]);
+    vi.mocked(listSeriesEpisodes).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishEpisodes = resolve;
+      })
+    );
+    vi.mocked(getMediaDetails).mockResolvedValueOnce(
+      mediaDetails({ plot: 'A show about threads.', genres: ['Comedy'], rating: 8.2 })
+    );
+    resetStore({
+      sources: [
+        { id: 77, source_type: 'xtream', name: 'Xtream Source', config: {}, created_at: 1000 },
+      ],
+    });
+
+    renderWithRouter(<SeriesPage />, { initialEntries: ['/dashboard/series'] });
+    await user.click(await screen.findByRole('button', { name: 'Open SilkCast Show' }));
+
+    expect(await screen.findByText('Loading episodes…')).toBeInTheDocument();
+    // The episode list caches the details; asking first would fetch them twice.
+    expect(getMediaDetails).not.toHaveBeenCalled();
+
+    finishEpisodes(DEFAULT_EPISODES);
+    expect(await screen.findByText('A show about threads.')).toBeInTheDocument();
+    expect(getMediaDetails).toHaveBeenCalledWith(901);
+    expect(screen.getByText('1 season')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play S01E01' })).toBeInTheDocument();
+    vi.mocked(listSourceChannels).mockResolvedValue([]);
   });
 
   it('keeps the open series when returning to the page', async () => {

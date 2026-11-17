@@ -4,13 +4,15 @@ import { afterEach, vi } from "vitest";
 // Catalog view state and result caches are module-level; isolate tests.
 // Imported lazily so each test file's vi.mock() calls apply to their deps.
 afterEach(async () => {
-  const [{ useCatalogViewStore }, { clearMediaCatalogCache }] =
+  const [{ useCatalogViewStore }, { clearMediaCatalogCache }, { useMediaDetailsStore }] =
     await Promise.all([
       import("@/components/media/catalogViewStore"),
       import("@/components/media/hooks/useMediaCatalogData"),
+      import("@/components/details/mediaDetailsStore"),
     ]);
   clearMediaCatalogCache();
   useCatalogViewStore.setState({ views: {}, episodesBySeriesId: {} });
+  useMediaDetailsStore.setState({ entries: {} });
   window.localStorage.removeItem("silkcast:player:resumePositions");
 });
 

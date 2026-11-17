@@ -12,18 +12,22 @@ type MovieCardProps = {
   isPosterBroken: boolean;
   /** 0..1 resume position, movies only. */
   progress?: number | null;
-  onPlay: (movie: ChannelRecord) => void;
+  /** Clicking the poster: a movie's details, or a series' episodes. */
+  onOpen: (movie: ChannelRecord) => void;
+  /** The hover Play button, which skips the details page. Movies only. */
+  onPlay?: (movie: ChannelRecord) => void;
   onToggleFavorite: (movie: ChannelRecord) => void;
   onPosterError: (movieId: number) => void;
 };
 
-/** A poster with its clean title underneath; series open, movies play. */
+/** A poster with its clean title underneath; opens details, or plays from the hover button. */
 export const MovieCard = memo(function MovieCard({
   movie,
   isPlaying,
   isLastPlayed,
   isPosterBroken,
   progress = null,
+  onOpen,
   onPlay,
   onToggleFavorite,
   onPosterError,
@@ -37,9 +41,9 @@ export const MovieCard = memo(function MovieCard({
       <button
         type="button"
         className="block w-full text-left focus-visible:outline-none"
-        onClick={() => onPlay(movie)}
+        onClick={() => onOpen(movie)}
         disabled={isPlaying}
-        aria-label={`${movie.media_kind === 'series' ? 'Open' : 'Play'} ${title}`}
+        aria-label={`Open ${title}`}
       >
         <span
           className={cn(
@@ -62,9 +66,11 @@ export const MovieCard = memo(function MovieCard({
             </span>
           )}
           <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
-            <span className="grid size-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_0_24px_var(--thread)]">
-              <Play className="size-5 translate-x-px fill-current" />
-            </span>
+            {onPlay ? null : (
+              <span className="grid size-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_0_24px_var(--thread)]">
+                <Play className="size-5 translate-x-px fill-current" />
+              </span>
+            )}
           </span>
           {isPlaying ? (
             <span className="absolute inset-x-0 bottom-0 bg-black/70 py-1.5 text-center text-xs font-semibold text-white">
@@ -80,6 +86,19 @@ export const MovieCard = memo(function MovieCard({
         <span className="mt-2 block truncate text-sm font-medium">{title}</span>
         <span className="block h-4 truncate text-xs text-muted-foreground">{meta}</span>
       </button>
+      {onPlay ? (
+        <span className="pointer-events-none absolute inset-x-0 top-0 grid aspect-2/3 place-items-center">
+          <button
+            type="button"
+            aria-label={`Play ${title}`}
+            disabled={isPlaying}
+            onClick={() => onPlay(movie)}
+            className="pointer-events-auto grid size-12 place-items-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-[0_0_24px_var(--thread)] transition-[opacity,scale] group-hover:opacity-100 hover:scale-110 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:hidden"
+          >
+            <Play className="size-5 translate-x-px fill-current" />
+          </button>
+        </span>
+      ) : null}
       <button
         type="button"
         aria-label={favoriteLabel}

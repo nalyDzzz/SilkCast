@@ -160,7 +160,7 @@ export function CommandPalette() {
   const goToGroup = (kind: MediaCatalogKind, groupName: string) => {
     useCatalogViewStore
       .getState()
-      .updateView(kind, selectedSourceId, { group: groupName, selectedSeries: null });
+      .updateView(kind, selectedSourceId, { group: groupName, selectedItem: null });
     navigate(MEDIA_PATH[kind]);
   };
 

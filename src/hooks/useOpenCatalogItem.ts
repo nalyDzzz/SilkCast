@@ -3,12 +3,13 @@ import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import type { ChannelRecord } from '@/components/app/types';
 import { useCatalogViewStore } from '@/components/media/catalogViewStore';
+import { MEDIA_PATH } from '@/components/media/mediaCatalogConfig';
 import { displayTitle } from '@/lib/catalog/cleanName';
 import { useAppStore } from '@/store/appStore';
 
 /**
- * Opens a catalog item the way its kind expects: channels and movies start
- * playing (in-app player or MPV), Xtream series open their episode list.
+ * Opens a catalog item the way its kind expects: movies and Xtream series open
+ * their details page, channels start playing (in-app player or MPV).
  */
 export function useOpenCatalogItem() {
   const navigate = useNavigate();
@@ -35,11 +36,14 @@ export function useOpenCatalogItem() {
     async (item: ChannelRecord, queue?: ChannelRecord[]) => {
       const { sources, selectedSourceId } = useAppStore.getState();
       const source = sources.find((candidate) => candidate.id === item.source_id);
-      if (item.media_kind === 'series' && source?.source_type === 'xtream') {
+      const hasDetailsPage =
+        item.media_kind === 'movie' ||
+        (item.media_kind === 'series' && source?.source_type === 'xtream');
+      if (item.media_kind !== 'live' && hasDetailsPage) {
         useCatalogViewStore
           .getState()
-          .updateView('series', selectedSourceId, { selectedSeries: item });
-        navigate('/dashboard/series');
+          .updateView(item.media_kind, selectedSourceId, { selectedItem: item });
+        navigate(MEDIA_PATH[item.media_kind]);
         return;
       }
       await play(item, queue);
